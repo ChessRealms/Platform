@@ -6,7 +6,7 @@ An open-source chess platform focused on playing chess against other players or 
 
 The first milestone is the core experience of playing a complete chess game against another player or a computer opponent. Additional features will be considered after this core functionality is in place.
 
-The repository contains a .NET 10 backend scaffold with Aspire orchestration, PostgreSQL, and an EF Core migration worker. The frontend and CI will be added separately.
+The repository contains a .NET 10 backend scaffold, an Angular frontend, and Aspire orchestration with PostgreSQL and an EF Core migration worker. CI will be added separately.
 
 ## Technology
 
@@ -17,7 +17,8 @@ The repository contains a .NET 10 backend scaffold with Aspire orchestration, Po
 
 ## Repository layout
 
-- `src/` — application source code, including the future backend and frontend.
+- `src/` — backend and frontend application source code.
+- `src/cr-platform-web-app/` — Angular frontend.
 - `tests/` — automated tests.
 - `docs/` — project documentation.
 - `orchestration/` — application orchestration configuration.
@@ -29,6 +30,8 @@ Empty directories may not appear in a fresh clone until files are added.
 ## Development setup
 
 Install the .NET SDK specified in `global.json`. The repository allows newer patches within the same SDK feature band.
+
+Install a Node.js version supported by Angular 22: Node.js 22.22.3+, 24.15.0+, or 26+ (see the frontend's `package.json` engines). npm is used for frontend dependencies; `package-lock.json` is checked in for reproducible installs.
 
 Shared configuration includes:
 
@@ -48,7 +51,7 @@ All projects use the `ChessRealms.Platform` prefix:
 - `src/ChessRealms.Platform.Infrastructure` — persistence and external integrations; references Application.
 - `src/ChessRealms.Platform.Api` — HTTP entry point; references Application, Infrastructure, and ServiceDefaults.
 - `src/ChessRealms.Platform.MigrationWorker` — console host that applies migrations and exits; references Infrastructure and ServiceDefaults.
-- `orchestration/ChessRealms.Platform.AppHost` — PostgreSQL, migration worker, and API orchestration.
+- `orchestration/ChessRealms.Platform.AppHost` — PostgreSQL, migration worker, API, and Angular frontend orchestration.
 - `orchestration/ChessRealms.Platform.ServiceDefaults` — shared telemetry, health checks, service discovery, and HTTP resilience.
 - `tests/` — separate empty xUnit v3 projects referencing Api, Application, Domain, and Infrastructure respectively.
 
@@ -67,6 +70,17 @@ dotnet test ChessRealms.Platform.slnx --no-build --no-restore
 
 The test projects intentionally contain no tests, so the runner currently reports that no tests were found. Package versions are centralized and each project has a NuGet lock file.
 
+For the frontend:
+
+```shell
+cd src/cr-platform-web-app
+npm ci
+npm run build
+npm test -- --watch=false
+```
+
+The Angular app stays outside the .NET solution; Aspire runs it directly from its directory. Use `npm start` there to run the frontend independently at http://localhost:4200.
+
 ### Run locally
 
 Start Docker Desktop with Linux containers, then run:
@@ -77,6 +91,8 @@ dotnet run --project orchestration/ChessRealms.Platform.AppHost
 ```
 
 Open the dashboard URL printed in the terminal. AppHost starts PostgreSQL with a persistent Docker volume, waits for database readiness, runs `migrations`, then starts `api` only if the worker exits successfully. Connection strings are supplied by Aspire; no database password is stored in source control. The API exposes `/openapi/v1.json`, `/health` (including database connectivity), and `/alive` in Development.
+
+AppHost also installs the frontend's npm dependencies and starts the Angular development server as `web`. Open its HTTP endpoint from the dashboard. The frontend can start independently of the backend.
 
 The worker has a two-minute timeout, configurable through `Migration__Timeout` (for example, `00:05:00`). Failure or cancellation returns a nonzero exit code and prevents the API from starting. Restart AppHost to run migrations again after changing the model.
 

@@ -14,4 +14,8 @@ builder.AddProject<Projects.ChessRealms_Platform_Api>("api")
     .WaitForCompletion(migrations)
     .WithHttpHealthCheck("/health");
 
+builder.AddJavaScriptApp("web", "../../src/cr-platform-web-app", "start")
+    .WithHttpEndpoint(targetPort: 4200)
+    .WithExternalHttpEndpoints();
+
 builder.Build().Run();
