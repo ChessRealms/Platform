@@ -2,8 +2,11 @@
   <Folder Name="/.github/" />
   <Folder Name="/.github/workflows/" />
   <Folder Name="/docs/" />
-  <Folder Name="/orchestration/" />
   <Folder Name="/scripts/" />
+  <Folder Name="/orchestration/">
+    <Project Path="orchestration/ChessRealms.Platform.AppHost/ChessRealms.Platform.AppHost.csproj" />
+    <Project Path="orchestration/ChessRealms.Platform.ServiceDefaults/ChessRealms.Platform.ServiceDefaults.csproj" />
+  </Folder>
   <Folder Name="/Solution Items/">
     <File Path=".editorconfig" />
     <File Path=".gitattributes" />
@@ -17,6 +20,17 @@
   <Folder Name="/Solution Items/.config/">
     <File Path=".config/dotnet-tools.json" />
   </Folder>
-  <Folder Name="/src/" />
-  <Folder Name="/tests/" />
+  <Folder Name="/src/">
+    <Project Path="src/ChessRealms.Platform.Api/ChessRealms.Platform.Api.csproj" Id="e2d1ec4a-cf81-49c8-b9fa-d199b55692c7" />
+    <Project Path="src/ChessRealms.Platform.Application/ChessRealms.Platform.Application.csproj" />
+    <Project Path="src/ChessRealms.Platform.Domain/ChessRealms.Platform.Domain.csproj" />
+    <Project Path="src/ChessRealms.Platform.Infrastructure/ChessRealms.Platform.Infrastructure.csproj" />
+    <Project Path="src/ChessRealms.Platform.MigrationWorker/ChessRealms.Platform.MigrationWorker.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ChessRealms.Platform.Api.Tests/ChessRealms.Platform.Api.Tests.csproj" />
+    <Project Path="tests/ChessRealms.Platform.Application.Tests/ChessRealms.Platform.Application.Tests.csproj" />
+    <Project Path="tests/ChessRealms.Platform.Domain.Tests/ChessRealms.Platform.Domain.Tests.csproj" />
+    <Project Path="tests/ChessRealms.Platform.Infrastructure.Tests/ChessRealms.Platform.Infrastructure.Tests.csproj" />
+  </Folder>
 </Solution>
