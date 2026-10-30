@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>80a1dc15-9f89-47a6-adf0-ec7498176a8f</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../ChessRealms.Platform.Application/ChessRealms.Platform.Application.csproj" />
+    <ProjectReference Include="../ChessRealms.Platform.Infrastructure/ChessRealms.Platform.Infrastructure.csproj" />
+    <ProjectReference Include="../../orchestration/ChessRealms.Platform.ServiceDefaults/ChessRealms.Platform.ServiceDefaults.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+  </ItemGroup>
+</Project>

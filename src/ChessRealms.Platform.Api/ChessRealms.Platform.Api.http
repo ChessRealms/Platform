@@ -1,0 +1,6 @@
+@HostAddress = https://localhost:7011
+
+GET {{HostAddress}}/openapi/v1.json
+Accept: application/json
+
+###
