@@ -6,7 +6,7 @@ An open-source chess platform focused on playing chess against other players or 
 
 The first milestone is the core experience of playing a complete chess game against another player or a computer opponent. Additional features will be considered after this core functionality is in place.
 
-The repository contains a .NET 10 backend scaffold, an Angular frontend, and Aspire orchestration with PostgreSQL and an EF Core migration worker. CI will be added separately.
+The repository contains a .NET 10 backend scaffold, an Angular frontend, and Aspire orchestration with PostgreSQL and an EF Core migration worker.
 
 ## Technology
 
@@ -23,7 +23,7 @@ The repository contains a .NET 10 backend scaffold, an Angular frontend, and Asp
 - `docs/` — project documentation.
 - `orchestration/` — application orchestration configuration.
 - `scripts/` — repository development and maintenance scripts.
-- `.github/` — GitHub configuration and future workflows.
+- `.github/` — GitHub configuration and CI workflows.
 
 Empty directories may not appear in a fresh clone until files are added.
 
@@ -82,6 +82,10 @@ npm test -- --watch=false
 ```
 
 The Angular app stays outside the .NET solution; Aspire runs it directly from its directory. Use `npm start` there to run the frontend independently at http://localhost:4200.
+
+### Continuous integration
+
+The [CI workflow](.github/workflows/ci.yml) runs on every push and pull request with separate backend and frontend jobs on Ubuntu. The backend uses the SDK from `global.json`, restores with `--locked-mode`, builds, and runs tests without restoring or rebuilding. The frontend uses Node.js 26 and the npm version from `package.json`, installs with `npm ci`, builds the development configuration, and runs Vitest without watch mode. CI does not start AppHost or containers.
 
 ### Run locally
 
