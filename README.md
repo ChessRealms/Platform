@@ -31,6 +31,8 @@ Empty directories may not appear in a fresh clone until files are added.
 
 Install the .NET SDK specified in `global.json`. The repository allows newer patches within the same SDK feature band.
 
+AppHost uses `DnxPinned` to run the Aspire CLI version paired with its `Aspire.AppHost.Sdk` through .NET 10's `dnx`. A global Aspire CLI installation is not required. The first use can download the pinned CLI and prepare its Dashboard/orchestration bundle; `--no-restore` only skips the project's NuGet restore, not CLI bundle setup.
+
 Install a Node.js version supported by Angular 22: Node.js 22.22.3+, 24.15.0+, or 26+ (see the frontend's `package.json` engines). npm is used for frontend dependencies; `package-lock.json` is checked in for reproducible installs.
 
 Shared configuration includes:
@@ -105,6 +107,11 @@ dotnet ef migrations add MigrationName --project src/ChessRealms.Platform.Infras
 The design-time factory allows scaffolding without starting PostgreSQL or AppHost. For EF commands that connect to a database, set `ConnectionStrings__platform` to the connection string shown in the Aspire dashboard. Apply migrations through MigrationWorker; the API does not migrate the database on startup.
 
 Documentation is maintained in English.
+
+## Working with coding agents
+
+[AGENTS.md](AGENTS.md) contains concise project conventions and verification commands.
+Codex uses your app settings; no project-specific permission profile or command rules are required.
 
 ## Contributing
 
