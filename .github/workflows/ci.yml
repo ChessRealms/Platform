@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - name: Restore locked dependencies
+        run: dotnet restore ChessRealms.Platform.slnx --locked-mode
+      - name: Build
+        run: dotnet build ChessRealms.Platform.slnx --no-restore
+      - name: Test
+        run: dotnet test ChessRealms.Platform.slnx --no-build --no-restore
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: src/cr-platform-web-app
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '26'
+          cache: npm
+          cache-dependency-path: src/cr-platform-web-app/package-lock.json
+      - name: Set up npm
+        run: npm install --global "$(node -p "require('./package.json').packageManager")"
+      - name: Restore locked dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build -- --configuration development
+      - name: Test
+        run: npm test -- --watch=false
