@@ -63,6 +63,10 @@ The isolated `Infrastructure/Identity` module provides ASP.NET Core Identity sto
 in a separate `IdentityDbContext`, using the `identity` schema in the same PostgreSQL
 database. See [architecture decisions](docs/architecture.md) for boundaries and scope.
 
+Registration, confirmation sessions, status/resend, and confirmation links are described
+in [registration and email confirmation](docs/registration.md). Email delivery currently
+uses a placeholder adapter and does not send actual messages.
+
 ### Build and test
 
 Run from the repository root:
@@ -76,8 +80,10 @@ dotnet test ChessRealms.Platform.slnx --no-build --no-restore
 
 Infrastructure tests require Docker with Linux containers. Testcontainers starts a
 temporary PostgreSQL 18.3 container and verifies migrations and Identity persistence;
-it does not use the development database or AppHost. The other test projects are
-currently empty. Package versions are centralized and each project has a NuGet lock file.
+it does not use the development database or AppHost. Infrastructure tests also verify
+registration and the email workflow; API tests exercise HTTP contracts with a test service.
+Application and Domain test projects are currently empty. Package versions are centralized
+and each project has a NuGet lock file.
 
 For the frontend:
 

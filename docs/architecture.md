@@ -31,10 +31,13 @@ OAuth authorization server. Token lifetimes, refresh transport, concurrency hand
 and immediate versus expiry-based access-token revocation remain to be specified.
 Google login is optional and can be added later.
 
-This foundation registers Identity core services and EF stores only. It does not
-enable authentication schemes, expose endpoints, issue tokens, or provide email
-confirmation/reset flows. Token providers, email delivery, abuse protection, and
-Angular integration belong to subsequent work.
+Registration and email confirmation expose HTTP endpoints backed by application
+contracts and the isolated Identity implementation. Opaque confirmation sessions and
+durable email requests live in PostgreSQL. The API worker processes requests through
+a placeholder email adapter until a provider is selected. See
+[registration and confirmation](registration.md) for contracts, limits, and deployment
+requirements. Login authentication schemes, JWT/refresh tokens, password reset, and
+Angular integration remain subsequent work.
 
 ## Game functionality
 
