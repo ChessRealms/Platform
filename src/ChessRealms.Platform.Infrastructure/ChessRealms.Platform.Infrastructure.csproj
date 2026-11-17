@@ -5,6 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="../ChessRealms.Platform.Application/ChessRealms.Platform.Application.csproj" />
   </ItemGroup>
   <ItemGroup>

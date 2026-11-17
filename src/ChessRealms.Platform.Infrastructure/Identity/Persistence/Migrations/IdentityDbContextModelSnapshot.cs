@@ -23,6 +23,57 @@ namespace ChessRealms.Platform.Infrastructure.Identity.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("ChessRealms.Platform.Infrastructure.Identity.Persistence.ConfirmationEmailDelivery", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status", "CreatedAt");
+
+                    b.HasIndex("UserId", "CreatedAt");
+
+                    b.ToTable("EmailConfirmationDeliveries", "identity");
+                });
+
+            modelBuilder.Entity("ChessRealms.Platform.Infrastructure.Identity.Persistence.EmailConfirmationSession", b =>
+                {
+                    b.Property<string>("TokenHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("TokenHash");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("EmailConfirmationSessions", "identity");
+                });
+
             modelBuilder.Entity("ChessRealms.Platform.Infrastructure.Identity.PlatformUser", b =>
                 {
                     b.Property<Guid>("Id")
@@ -151,6 +202,24 @@ namespace ChessRealms.Platform.Infrastructure.Identity.Persistence.Migrations
                     b.HasKey("UserId", "LoginProvider", "Name");
 
                     b.ToTable("AspNetUserTokens", "identity");
+                });
+
+            modelBuilder.Entity("ChessRealms.Platform.Infrastructure.Identity.Persistence.ConfirmationEmailDelivery", b =>
+                {
+                    b.HasOne("ChessRealms.Platform.Infrastructure.Identity.PlatformUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ChessRealms.Platform.Infrastructure.Identity.Persistence.EmailConfirmationSession", b =>
+                {
+                    b.HasOne("ChessRealms.Platform.Infrastructure.Identity.PlatformUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<System.Guid>", b =>
