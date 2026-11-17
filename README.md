@@ -55,9 +55,13 @@ All projects use the `ChessRealms.Platform` prefix:
 - `src/ChessRealms.Platform.MigrationWorker` — console host that applies migrations and exits; references Infrastructure and ServiceDefaults.
 - `orchestration/ChessRealms.Platform.AppHost` — PostgreSQL, migration worker, API, and Angular frontend orchestration.
 - `orchestration/ChessRealms.Platform.ServiceDefaults` — shared telemetry, health checks, service discovery, and HTTP resilience.
-- `tests/` — separate empty xUnit v3 projects referencing Api, Application, Domain, and Infrastructure respectively.
+- `tests/` — xUnit v3 projects referencing Api, Application, Domain, and Infrastructure respectively.
 
 `Infrastructure` leaves room for integrations beyond persistence. `PlatformDbContext` currently has no entities. An empty `InitialCreate` migration establishes the migration pipeline without adding business tables.
+
+The isolated `Infrastructure/Identity` module provides ASP.NET Core Identity stores
+in a separate `IdentityDbContext`, using the `identity` schema in the same PostgreSQL
+database. See [architecture decisions](docs/architecture.md) for boundaries and scope.
 
 ### Build and test
 
@@ -70,7 +74,10 @@ dotnet build ChessRealms.Platform.slnx --no-restore
 dotnet test ChessRealms.Platform.slnx --no-build --no-restore
 ```
 
-The test projects intentionally contain no tests, so the runner currently reports that no tests were found. Package versions are centralized and each project has a NuGet lock file.
+Infrastructure tests require Docker with Linux containers. Testcontainers starts a
+temporary PostgreSQL 18.3 container and verifies migrations and Identity persistence;
+it does not use the development database or AppHost. The other test projects are
+currently empty. Package versions are centralized and each project has a NuGet lock file.
 
 For the frontend:
 
@@ -85,7 +92,7 @@ The Angular app stays outside the .NET solution; Aspire runs it directly from it
 
 ### Continuous integration
 
-The [CI workflow](.github/workflows/ci.yml) runs on every push and pull request with separate backend and frontend jobs on Ubuntu. The backend uses the SDK from `global.json`, restores with `--locked-mode`, builds, and runs tests without restoring or rebuilding. The frontend uses Node.js 26 and the npm version from `package.json`, installs with `npm ci`, builds the development configuration, and runs Vitest without watch mode. CI does not start AppHost or containers.
+The [CI workflow](.github/workflows/ci.yml) runs on every push and pull request with separate backend and frontend jobs on Ubuntu. The backend uses the SDK from `global.json`, restores with `--locked-mode`, builds, and runs tests without restoring or rebuilding. Infrastructure tests use the runner's Docker daemon for temporary PostgreSQL containers. The frontend uses Node.js 26 and the npm version from `package.json`, installs with `npm ci`, builds the development configuration, and runs Vitest without watch mode. CI does not start AppHost.
 
 ### Run locally
 
@@ -105,10 +112,12 @@ The worker has a two-minute timeout, configurable through `Migration__Timeout` (
 ### Add a migration
 
 ```shell
-dotnet ef migrations add MigrationName --project src/ChessRealms.Platform.Infrastructure --output-dir Persistence/Migrations
+dotnet ef migrations add MigrationName --context PlatformDbContext --project src/ChessRealms.Platform.Infrastructure --output-dir Persistence/Migrations
 ```
 
-The design-time factory allows scaffolding without starting PostgreSQL or AppHost. For EF commands that connect to a database, set `ConnectionStrings__platform` to the connection string shown in the Aspire dashboard. Apply migrations through MigrationWorker; the API does not migrate the database on startup.
+For Identity migrations, use `--context IdentityDbContext --output-dir Identity/Persistence/Migrations` instead.
+
+The design-time factories allow scaffolding without starting PostgreSQL or AppHost. For EF commands that connect to a database, set `ConnectionStrings__platform` to the connection string shown in the Aspire dashboard. Apply migrations through MigrationWorker, which migrates both contexts; the API does not migrate the database on startup.
 
 Documentation is maintained in English.
 

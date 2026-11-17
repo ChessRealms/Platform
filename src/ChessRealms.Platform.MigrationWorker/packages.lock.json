@@ -32,6 +32,19 @@
           "Microsoft.Extensions.Options": "10.0.15"
         }
       },
+      "Microsoft.AspNetCore.Cryptography.Internal": {
+        "type": "Transitive",
+        "resolved": "10.0.15",
+        "contentHash": "QsgH1P7/bDthx8inoa659//xBmWyKQri+NxQz9X7TgubhQzNL/eZllbay0jB2LXoxf3i1BJ8xgdNzyUqZuwhTw=="
+      },
+      "Microsoft.AspNetCore.Cryptography.KeyDerivation": {
+        "type": "Transitive",
+        "resolved": "10.0.15",
+        "contentHash": "egaMlQze3SMaBjwhzwU05K8KbJ3Il5XRTkTyC85HREzrbpJr42oFKXTvZYmxIEFRrQATBV5uwPCjFY2ujhL3dg==",
+        "dependencies": {
+          "Microsoft.AspNetCore.Cryptography.Internal": "10.0.15"
+        }
+      },
       "Microsoft.EntityFrameworkCore.Abstractions": {
         "type": "Transitive",
         "resolved": "10.0.15",
@@ -293,6 +306,27 @@
         "dependencies": {
           "Microsoft.Extensions.Http": "10.0.13",
           "Microsoft.Extensions.Telemetry": "10.11.0"
+        }
+      },
+      "Microsoft.Extensions.Identity.Core": {
+        "type": "Transitive",
+        "resolved": "10.0.15",
+        "contentHash": "XMr9hhUFL/9IeOCsaLxJH974n+cYDWs3NpDwliXcvIHFoVlcNdr5/kPPeRYz1IDxW35WBbo9w3mYfYhJJtJ6mA==",
+        "dependencies": {
+          "Microsoft.AspNetCore.Cryptography.KeyDerivation": "10.0.15",
+          "Microsoft.Extensions.Diagnostics": "10.0.15",
+          "Microsoft.Extensions.Logging": "10.0.15",
+          "Microsoft.Extensions.Options": "10.0.15"
+        }
+      },
+      "Microsoft.Extensions.Identity.Stores": {
+        "type": "Transitive",
+        "resolved": "10.0.15",
+        "contentHash": "IEnTqSkIZk7Rq9eUkV0Z/tgQD37AITOKB1xp38xPrKf9Bm9de3h8SrNvz6YWUOlAibMRYDzQUw9qqmIiKFsWHA==",
+        "dependencies": {
+          "Microsoft.Extensions.Caching.Abstractions": "10.0.15",
+          "Microsoft.Extensions.Identity.Core": "10.0.15",
+          "Microsoft.Extensions.Logging": "10.0.15"
         }
       },
       "Microsoft.Extensions.Logging": {
@@ -562,6 +596,7 @@
         "dependencies": {
           "Aspire.Npgsql.EntityFrameworkCore.PostgreSQL": "[13.6.5, )",
           "ChessRealms.Platform.Application": "[1.0.0, )",
+          "Microsoft.AspNetCore.Identity.EntityFrameworkCore": "[10.0.15, )",
           "Microsoft.EntityFrameworkCore": "[10.0.15, )",
           "Microsoft.EntityFrameworkCore.Relational": "[10.0.15, )",
           "Npgsql.EntityFrameworkCore.PostgreSQL": "[10.0.3, )"
@@ -601,6 +636,16 @@
           "Npgsql.EntityFrameworkCore.PostgreSQL": "10.0.3",
           "Npgsql.OpenTelemetry": "10.0.3",
           "OpenTelemetry.Extensions.Hosting": "1.17.0"
+        }
+      },
+      "Microsoft.AspNetCore.Identity.EntityFrameworkCore": {
+        "type": "CentralTransitive",
+        "requested": "[10.0.15, )",
+        "resolved": "10.0.15",
+        "contentHash": "vazYMsviWu/+efWfWiD95ZHZZ/SUf10MAfWeJ8ADK8oa5SjLO41NE7ii0eVQhHqWBBXh4s0zMQor2F8J25Oh5g==",
+        "dependencies": {
+          "Microsoft.EntityFrameworkCore.Relational": "10.0.15",
+          "Microsoft.Extensions.Identity.Stores": "10.0.15"
         }
       },
       "Microsoft.EntityFrameworkCore": {

@@ -29,7 +29,8 @@ node node_modules/@angular/cli/bin/ng.js build --configuration development
 node node_modules/@angular/cli/bin/ng.js test --watch=false
 ```
 
-There is no lint script. Backend test projects currently contain no tests.
+There is no lint script. Infrastructure tests require Docker with Linux containers
+and use a temporary PostgreSQL container; other backend test projects are empty.
 AppHost starts containers, installs frontend dependencies and applies migrations;
 do not use it as a substitute for build/test verification. See README.md for setup.
 
