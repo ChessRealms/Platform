@@ -1,3 +1,4 @@
+using ChessRealms.Platform.Infrastructure.Identity.Persistence;
 using ChessRealms.Platform.Infrastructure.Persistence;
 
 using Microsoft.EntityFrameworkCore;
@@ -35,6 +36,8 @@ public sealed class MigrationService(
             {
                 PlatformDbContext dbContext = scope.ServiceProvider.GetRequiredService<PlatformDbContext>();
                 await dbContext.Database.MigrateAsync(deadline.Token);
+                IdentityDbContext identityDbContext = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
+                await identityDbContext.Database.MigrateAsync(deadline.Token);
             }
 
             deadline.Token.ThrowIfCancellationRequested();

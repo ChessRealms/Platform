@@ -1,3 +1,4 @@
+using ChessRealms.Platform.Infrastructure.Identity;
 using ChessRealms.Platform.Infrastructure.Persistence;
 
 using Microsoft.Extensions.Hosting;
@@ -10,6 +11,7 @@ public static class DependencyInjection
         where TBuilder : IHostApplicationBuilder
     {
         builder.AddNpgsqlDbContext<PlatformDbContext>("platform");
+        builder.AddPlatformIdentity();
         return builder;
     }
 }
