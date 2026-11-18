@@ -22,13 +22,15 @@ user IDs. Game participants will not require an `IdentityUser` object.
 Accounts use GUID identifiers and ASP.NET Core Identity for password hashing,
 validation, and persistence. Email must be unique (including a database constraint
 on normalized email). Confirmed email is configured as a prerequisite for sign-in;
-future login code must enforce it before issuing tokens. Roles are not required yet,
+login and refresh enforce it before issuing tokens. Roles are not required yet,
 so the context uses the user-only Identity model.
 
 The chosen direction is application-issued JWT access tokens, rotating refresh
 tokens, and revocation of individual or all login sessions, without a separate
-OAuth authorization server. Token lifetimes, refresh transport, concurrency handling,
-and immediate versus expiry-based access-token revocation remain to be specified.
+OAuth authorization server. Access tokens last ten minutes by default; opaque refresh
+tokens use JSON transport and PostgreSQL sessions with an absolute 30-day expiration.
+Rotation is transactional; reuse revokes the whole session without a grace period.
+Existing access JWTs remain valid until expiration plus clock skew.
 Google login is optional and can be added later.
 
 Registration and email confirmation expose HTTP endpoints backed by application
@@ -39,7 +41,8 @@ a placeholder email adapter until a provider is selected. See
 requirements. Login uses email/password, Identity lockout, and RS256 JWT access tokens.
 The API validates JWT signatures, issuer, audience, type, algorithm, and lifetime.
 See [login and JWT authentication](login.md) for key configuration and scope.
-Refresh tokens/login sessions, password reset, and Angular integration remain subsequent work.
+See [refresh tokens and sessions](refresh-tokens.md) for storage, concurrency, and cleanup.
+Logout/session management endpoints, password reset, and Angular integration remain subsequent work.
 
 ## Game functionality
 

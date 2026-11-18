@@ -74,6 +74,67 @@ namespace ChessRealms.Platform.Infrastructure.Identity.Persistence.Migrations
                     b.ToTable("EmailConfirmationSessions", "identity");
                 });
 
+            modelBuilder.Entity("ChessRealms.Platform.Infrastructure.Identity.Persistence.LoginSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RevocationReason")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SecurityStamp")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("LoginSessions", "identity");
+                });
+
+            modelBuilder.Entity("ChessRealms.Platform.Infrastructure.Identity.Persistence.RefreshToken", b =>
+                {
+                    b.Property<string>("TokenHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UsedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("TokenHash");
+
+                    b.HasIndex("SessionId")
+                        .IsUnique()
+                        .HasFilter("\"UsedAt\" IS NULL");
+
+                    b.HasIndex("SessionId", "CreatedAt");
+
+                    b.ToTable("RefreshTokens", "identity");
+                });
+
             modelBuilder.Entity("ChessRealms.Platform.Infrastructure.Identity.PlatformUser", b =>
                 {
                     b.Property<Guid>("Id")
@@ -218,6 +279,24 @@ namespace ChessRealms.Platform.Infrastructure.Identity.Persistence.Migrations
                     b.HasOne("ChessRealms.Platform.Infrastructure.Identity.PlatformUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ChessRealms.Platform.Infrastructure.Identity.Persistence.LoginSession", b =>
+                {
+                    b.HasOne("ChessRealms.Platform.Infrastructure.Identity.PlatformUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ChessRealms.Platform.Infrastructure.Identity.Persistence.RefreshToken", b =>
+                {
+                    b.HasOne("ChessRealms.Platform.Infrastructure.Identity.Persistence.LoginSession", null)
+                        .WithMany()
+                        .HasForeignKey("SessionId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

@@ -10,9 +10,10 @@ public sealed class JwtAccessTokenIssuer(JwtSigningKey key, IOptions<JwtOptions>
 {
     private readonly JsonWebTokenHandler _handler = new() { SetDefaultTimesOnTokenCreation = false };
 
-    public AccessToken Issue(Guid userId)
+    public AccessToken Issue(Guid userId, Guid sessionId)
     {
         ArgumentOutOfRangeException.ThrowIfEqual(userId, Guid.Empty);
+        ArgumentOutOfRangeException.ThrowIfEqual(sessionId, Guid.Empty);
         JwtOptions settings = options.Value;
         DateTime now = DateTimeOffset.FromUnixTimeSeconds(clock.GetUtcNow().ToUnixTimeSeconds()).UtcDateTime;
         string token = _handler.CreateToken(new SecurityTokenDescriptor
@@ -27,6 +28,7 @@ public sealed class JwtAccessTokenIssuer(JwtSigningKey key, IOptions<JwtOptions>
             Claims = new Dictionary<string, object>
             {
                 [JwtRegisteredClaimNames.Sub] = userId.ToString(),
+                ["sid"] = sessionId.ToString(),
                 [JwtRegisteredClaimNames.Jti] = Guid.NewGuid().ToString()
             }
         });

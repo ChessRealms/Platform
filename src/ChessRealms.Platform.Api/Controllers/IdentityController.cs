@@ -9,9 +9,10 @@ namespace ChessRealms.Platform.Api.Controllers;
 [Route("identity")]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 public sealed class IdentityController(
-    IRegistrationService registration, 
-    IEmailConfirmationService confirmation, 
-    ILoginService login
+    IRegistrationService registration,
+    IEmailConfirmationService confirmation,
+    ILoginService login,
+    IRefreshTokenService refreshTokens
     ) : ControllerBase
 {
     [HttpPost("register")]
@@ -62,6 +63,14 @@ public sealed class IdentityController(
     [HttpGet("me")]
     [Authorize]
     public IActionResult Me() => Ok(new { userId = Guid.Parse(User.FindFirst("sub")!.Value) });
+
+    [HttpPost("refresh")]
+    [AllowAnonymous]
+    public async Task<IActionResult> Refresh(RefreshRequest request, CancellationToken cancellationToken)
+    {
+        RefreshResult result = await refreshTokens.RefreshAsync(request, cancellationToken);
+        return result.Code == "Success" ? Ok(result) : Unauthorized(result);
+    }
 
     private string SessionToken()
     {

@@ -40,6 +40,7 @@ public sealed class RegistrationEndpointTests
         builder.Services.AddSingleton<IRegistrationService>(service);
         builder.Services.AddSingleton<IEmailConfirmationService>(service);
         builder.Services.AddSingleton<ILoginService>(service);
+        builder.Services.AddSingleton<IRefreshTokenService>(service);
         builder.Services.AddControllers().AddApplicationPart(typeof(IdentityController).Assembly);
         builder.Services.AddProblemDetails();
         await using WebApplication app = builder.Build();
@@ -93,14 +94,18 @@ public sealed class RegistrationEndpointTests
         Assert.Equal(HttpStatusCode.Forbidden, unconfirmedLogin.StatusCode);
         Assert.Equal("session-token", (await unconfirmedLogin.Content.ReadFromJsonAsync<LoginResult>(cancellationToken))!.EmailConfirmation!.SessionToken);
         Guid userId = Guid.NewGuid();
-        AccessToken token = app.Services.GetRequiredService<IAccessTokenIssuer>().Issue(userId);
-        service.NextLogin = new("Success", token.Value, "Bearer", token.ExpiresIn);
+        AccessToken token = app.Services.GetRequiredService<IAccessTokenIssuer>().Issue(userId, Guid.NewGuid());
+        DateTimeOffset refreshExpiration = DateTimeOffset.UtcNow.AddDays(30);
+        service.NextLogin = new("Success", token.Value, "Bearer", token.ExpiresIn,
+            RefreshToken: "initial-refresh-token", RefreshTokenExpiresAt: refreshExpiration);
         using HttpResponseMessage successfulLogin = await client.PostAsJsonAsync("/identity/login", login, cancellationToken);
         Assert.Equal(HttpStatusCode.OK, successfulLogin.StatusCode);
         Assert.True(successfulLogin.Headers.CacheControl!.NoStore);
         LoginResult? loginResult = await successfulLogin.Content.ReadFromJsonAsync<LoginResult>(cancellationToken);
         Assert.Equal(token.Value, loginResult!.AccessToken);
         Assert.Equal(600, loginResult.ExpiresIn);
+        Assert.Equal("initial-refresh-token", loginResult.RefreshToken);
+        Assert.Equal(refreshExpiration, loginResult.RefreshTokenExpiresAt);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", loginResult.AccessToken);
         using HttpResponseMessage me = await client.GetAsync("/identity/me", cancellationToken);
         Assert.Equal(HttpStatusCode.OK, me.StatusCode);
@@ -108,11 +113,44 @@ public sealed class RegistrationEndpointTests
         Assert.Equal(userId, identity!["userId"]);
         using HttpResponseMessage oldRoute = await client.PostAsJsonAsync("/auth/login", login, cancellationToken);
         Assert.Equal(HttpStatusCode.NotFound, oldRoute.StatusCode);
+
+        // Refresh is authenticated by the request token, not by a current access JWT.
+        client.DefaultRequestHeaders.Authorization = null;
+        using HttpResponseMessage missingRefresh = await client.PostAsJsonAsync("/identity/refresh", new { }, cancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, missingRefresh.StatusCode);
+        using HttpResponseMessage oversizedRefresh = await client.PostAsJsonAsync("/identity/refresh", new RefreshRequest(new string('x', 1025)), cancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, oversizedRefresh.StatusCode);
+        RefreshRequest refreshRequest = new("initial-refresh-token");
+        using HttpResponseMessage deniedRefresh = await client.PostAsJsonAsync("/identity/refresh", refreshRequest, cancellationToken);
+        Assert.Equal(HttpStatusCode.Unauthorized, deniedRefresh.StatusCode);
+        Assert.Equal(new RefreshResult("InvalidRefreshToken"), await deniedRefresh.Content.ReadFromJsonAsync<RefreshResult>(cancellationToken));
+        service.NextRefresh = new("Success", token.Value, "Bearer", token.ExpiresIn, "rotated-refresh-token", refreshExpiration);
+        using HttpResponseMessage successfulRefresh = await client.PostAsJsonAsync("/identity/refresh", refreshRequest, cancellationToken);
+        Assert.Equal(HttpStatusCode.OK, successfulRefresh.StatusCode);
+        Assert.True(successfulRefresh.Headers.CacheControl!.NoStore);
+        Assert.Equal(service.NextRefresh, await successfulRefresh.Content.ReadFromJsonAsync<RefreshResult>(cancellationToken));
+        Assert.Equal(refreshRequest.RefreshToken, service.LastRefreshToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "expired-or-invalid-access-token");
+        using HttpResponseMessage expiredAccessRefresh = await client.PostAsJsonAsync("/identity/refresh", refreshRequest, cancellationToken);
+        Assert.Equal(HttpStatusCode.OK, expiredAccessRefresh.StatusCode);
+        service.FailRefresh = true;
+        using HttpResponseMessage failedRefresh = await client.PostAsJsonAsync("/identity/refresh", refreshRequest, cancellationToken);
+        Assert.Equal(HttpStatusCode.InternalServerError, failedRefresh.StatusCode);
+        Assert.DoesNotContain("Simulated refresh persistence failure", await failedRefresh.Content.ReadAsStringAsync(cancellationToken));
         await app.StopAsync(cancellationToken);
     }
 
-    private sealed class StubRegistration : IRegistrationService, IEmailConfirmationService, ILoginService
+    private sealed class StubRegistration : IRegistrationService, IEmailConfirmationService, ILoginService, IRefreshTokenService
     {
+        public RefreshResult NextRefresh { get; set; } = new("InvalidRefreshToken");
+        public string? LastRefreshToken { get; private set; }
+        public bool FailRefresh { get; set; }
+        public Task<RefreshResult> RefreshAsync(RefreshRequest request, CancellationToken cancellationToken)
+        {
+            LastRefreshToken = request.RefreshToken;
+            return FailRefresh ? throw new InvalidOperationException("Simulated refresh persistence failure.") : Task.FromResult(NextRefresh);
+        }
+
         public LoginResult NextLogin { get; set; } = new("InvalidCredentials");
         public bool FailLogin { get; set; }
         public Task<LoginResult> LoginAsync(LoginRequest request, CancellationToken cancellationToken) =>

@@ -73,7 +73,7 @@ public sealed class LoginTests : IAsyncLifetime
         Assert.Equal("chessrealms-platform-api", Assert.Single(jwt.Audiences));
         Assert.Equal(TimeSpan.FromMinutes(10), jwt.ValidTo - jwt.IssuedAt);
         Assert.Equal(jwt.IssuedAt, jwt.ValidFrom);
-        Assert.Equal(["aud", "exp", "iat", "iss", "jti", "nbf", "sub"], jwt.Claims.Select(claim => claim.Type).Order().ToArray());
+        Assert.Equal(["aud", "exp", "iat", "iss", "jti", "nbf", "sid", "sub"], jwt.Claims.Select(claim => claim.Type).Order().ToArray());
         Assert.NotEqual(jwt.Id, new JsonWebToken((await LoginAsync()).AccessToken!).Id);
         await using AsyncServiceScope scope = _host.Services.CreateAsyncScope();
         IdentityDbContext database = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
@@ -98,6 +98,8 @@ public sealed class LoginTests : IAsyncLifetime
         IdentityDbContext database = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
         Assert.Equal(1, await database.EmailConfirmationSessions.CountAsync(Cancellation));
         Assert.Equal(1, await database.EmailConfirmationDeliveries.CountAsync(Cancellation));
+        Assert.Empty(await database.LoginSessions.ToListAsync(Cancellation));
+        Assert.Empty(await database.RefreshTokens.ToListAsync(Cancellation));
     }
 
     [Fact]
@@ -110,6 +112,8 @@ public sealed class LoginTests : IAsyncLifetime
         LoginResult initial = await LoginAsync();
         Assert.Equal("EmailNotConfirmed", initial.Code);
         Assert.Null(initial.AccessToken);
+        Assert.Null(initial.RefreshToken);
+        Assert.Null(initial.RefreshTokenExpiresAt);
         Assert.Null(initial.TokenType);
         Assert.Null(initial.ExpiresIn);
         Assert.Equal("Failed", initial.EmailConfirmation!.DeliveryStatus);
@@ -126,6 +130,7 @@ public sealed class LoginTests : IAsyncLifetime
         await using AsyncServiceScope check = _host.Services.CreateAsyncScope();
         IdentityDbContext database = check.ServiceProvider.GetRequiredService<IdentityDbContext>();
         Assert.Equal(2, await database.EmailConfirmationDeliveries.CountAsync(Cancellation));
+        Assert.Empty(await database.LoginSessions.ToListAsync(Cancellation));
         IEmailConfirmationService confirmation = check.ServiceProvider.GetRequiredService<IEmailConfirmationService>();
         string sessionToken = initial.EmailConfirmation.SessionToken!;
         Assert.Equal("EmailNotConfirmed", (await confirmation.GetStatusAsync(sessionToken, Cancellation)).Code);

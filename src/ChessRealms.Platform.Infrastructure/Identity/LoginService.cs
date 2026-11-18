@@ -8,7 +8,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 namespace ChessRealms.Platform.Infrastructure.Identity;
 
 public sealed class LoginService(IdentityDbContext database, UserManager<PlatformUser> users,
-    EmailConfirmationService confirmation, IAccessTokenIssuer tokens, LoginPasswordWork passwordWork) : ILoginService
+    EmailConfirmationService confirmation, RefreshTokenService refreshTokens, LoginPasswordWork passwordWork) : ILoginService
 {
     public async Task<LoginResult> LoginAsync(LoginRequest request, CancellationToken cancellationToken)
     {
@@ -46,9 +46,10 @@ public sealed class LoginService(IdentityDbContext database, UserManager<Platfor
             return new("EmailNotConfirmed", EmailConfirmation: metadata);
         }
 
-        AccessToken token = tokens.Issue(user.Id);
+        RefreshResult tokens = await refreshTokens.CreateSessionAsync(user, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
-        return new("Success", token.Value, "Bearer", token.ExpiresIn);
+        return new("Success", tokens.AccessToken, tokens.TokenType, tokens.ExpiresIn,
+            RefreshToken: tokens.RefreshToken, RefreshTokenExpiresAt: tokens.RefreshTokenExpiresAt);
     }
 
     private static void EnsureSucceeded(IdentityResult result)

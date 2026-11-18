@@ -7,6 +7,7 @@ builder.AddServiceDefaults();
 builder.AddInfrastructure();
 builder.Services.AddIdentityAuthentication(builder.Configuration);
 builder.Services.AddConfirmationEmailWorker();
+builder.Services.AddHostedService<LoginSessionCleanupWorker>();
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();

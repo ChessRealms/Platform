@@ -9,6 +9,8 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
 
     public DbSet<EmailConfirmationSession> EmailConfirmationSessions => Set<EmailConfirmationSession>();
     public DbSet<ConfirmationEmailDelivery> EmailConfirmationDeliveries => Set<ConfirmationEmailDelivery>();
+    public DbSet<LoginSession> LoginSessions => Set<LoginSession>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -16,6 +18,21 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
         builder.HasDefaultSchema(Schema);
         builder.Entity<PlatformUser>().HasIndex(user => user.NormalizedEmail)
             .IsUnique();
+        builder.Entity<LoginSession>(entity =>
+        {
+            entity.HasKey(session => session.Id);
+            entity.Property(session => session.RevocationReason).HasMaxLength(64);
+            entity.HasIndex(session => session.ExpiresAt);
+            entity.HasOne<PlatformUser>().WithMany().HasForeignKey(session => session.UserId);
+        });
+        builder.Entity<RefreshToken>(entity =>
+        {
+            entity.HasKey(token => token.TokenHash);
+            entity.Property(token => token.TokenHash).HasMaxLength(64);
+            entity.HasOne<LoginSession>().WithMany().HasForeignKey(token => token.SessionId);
+            entity.HasIndex(token => new { token.SessionId, token.CreatedAt });
+            entity.HasIndex(token => token.SessionId).IsUnique().HasFilter("\"UsedAt\" IS NULL");
+        });
         builder.Entity<EmailConfirmationSession>(entity =>
         {
             entity.HasKey(session => session.TokenHash);
