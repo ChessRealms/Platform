@@ -25,6 +25,8 @@ public static class DependencyInjection
         {
             options.User.RequireUniqueEmail = true;
             options.SignIn.RequireConfirmedEmail = true;
+            options.Lockout.MaxFailedAccessAttempts = 5;
+            options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(5);
         }).AddEntityFrameworkStores<IdentityDbContext>().AddDefaultTokenProviders();
         builder.Services.AddDataProtection().SetApplicationName("ChessRealms.Platform");
         builder.Services.Configure<DataProtectionTokenProviderOptions>(options => options.TokenLifespan = TimeSpan.FromHours(24));
@@ -40,6 +42,8 @@ public static class DependencyInjection
             .ValidateOnStart();
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddScoped<IRegistrationService, RegistrationService>();
+        builder.Services.AddScoped<EmailConfirmationService>();
+        builder.Services.AddScoped<IEmailConfirmationService>(provider => provider.GetRequiredService<EmailConfirmationService>());
         builder.Services.AddScoped<ConfirmationEmailDispatcher>();
         builder.Services.AddSingleton<IConfirmationEmailSender, UnconfiguredConfirmationEmailSender>();
 

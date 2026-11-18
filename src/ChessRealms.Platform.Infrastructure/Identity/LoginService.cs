@@ -1,0 +1,61 @@
+using ChessRealms.Platform.Application.Identity;
+using ChessRealms.Platform.Infrastructure.Identity.Persistence;
+
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
+
+namespace ChessRealms.Platform.Infrastructure.Identity;
+
+public sealed class LoginService(IdentityDbContext database, UserManager<PlatformUser> users,
+    EmailConfirmationService confirmation, IAccessTokenIssuer tokens, LoginPasswordWork passwordWork) : ILoginService
+{
+    public async Task<LoginResult> LoginAsync(LoginRequest request, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.Email) || request.Email.Length > 256
+            || string.IsNullOrEmpty(request.Password) || request.Password.Length > 1024)
+        {
+            return new("InvalidCredentials");
+        }
+
+        string? normalizedEmail = users.NormalizeEmail(request.Email.Trim());
+        await using IDbContextTransaction transaction = await database.Database.BeginTransactionAsync(cancellationToken);
+        PlatformUser? user = await database.Users.FromSqlInterpolated(
+            $"SELECT * FROM identity.\"AspNetUsers\" WHERE \"NormalizedEmail\" = {normalizedEmail} FOR UPDATE")
+            .SingleOrDefaultAsync(cancellationToken);
+        if (user is null || await users.IsLockedOutAsync(user))
+        {
+            // Unknown and locked accounts still perform password hashing work. This
+            // avoids the obvious fast path without claiming constant-time HTTP responses.
+            passwordWork.Verify(request.Password);
+            return new("InvalidCredentials");
+        }
+
+        if (!await users.CheckPasswordAsync(user, request.Password))
+        {
+            EnsureSucceeded(await users.AccessFailedAsync(user));
+            await transaction.CommitAsync(cancellationToken);
+            return new("InvalidCredentials");
+        }
+
+        EnsureSucceeded(await users.ResetAccessFailedCountAsync(user));
+        if (!user.EmailConfirmed)
+        {
+            ConfirmationMetadata metadata = await confirmation.CreateSessionAsync(user.Id, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return new("EmailNotConfirmed", EmailConfirmation: metadata);
+        }
+
+        AccessToken token = tokens.Issue(user.Id);
+        await transaction.CommitAsync(cancellationToken);
+        return new("Success", token.Value, "Bearer", token.ExpiresIn);
+    }
+
+    private static void EnsureSucceeded(IdentityResult result)
+    {
+        if (!result.Succeeded)
+        {
+            throw new InvalidOperationException("Could not update login attempt state.");
+        }
+    }
+}

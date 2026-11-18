@@ -67,6 +67,10 @@ Registration, confirmation sessions, status/resend, and confirmation links are d
 in [registration and email confirmation](docs/registration.md). Email delivery currently
 uses a placeholder adapter and does not send actual messages.
 
+Email/password login issues RS256 JWT access tokens for confirmed users. See
+[login and JWT authentication](docs/login.md) for the `/identity` routes and required
+signing-key setup. Refresh tokens will be added separately.
+
 ### Build and test
 
 Run from the repository root:
@@ -101,6 +105,10 @@ The Angular app stays outside the .NET solution; Aspire runs it directly from it
 The [CI workflow](.github/workflows/ci.yml) runs on every push and pull request with separate backend and frontend jobs on Ubuntu. The backend uses the SDK from `global.json`, restores with `--locked-mode`, builds, and runs tests without restoring or rebuilding. Infrastructure tests use the runner's Docker daemon for temporary PostgreSQL containers. The frontend uses Node.js 26 and the npm version from `package.json`, installs with `npm ci`, builds the development configuration, and runs Vitest without watch mode. CI does not start AppHost.
 
 ### Run locally
+
+Provision the API's JWT signing key using the development setup in
+[login configuration](docs/login.md#configuration). Missing or invalid JWT configuration
+prevents the API from starting; migrations do not require the key.
 
 Start Docker Desktop with Linux containers, then run:
 
