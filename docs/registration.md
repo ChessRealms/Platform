@@ -9,10 +9,10 @@ Registration does not issue login access or refresh tokens.
 
 | Endpoint | Request | Result |
 | --- | --- | --- |
-| `POST /auth/register` | JSON: `email`, `username`, `password` | 201 with `userId`, `emailConfirmation`, and empty `errors`; 400 validation errors; 409 duplicate credentials |
-| `GET /auth/email-confirmation` | `Authorization: Bearer <sessionToken>` | 200 with session status; 401 for missing, unknown, or expired sessions |
-| `POST /auth/email-confirmation/resend` | Same authorization header | 200 `Queued` or `EmailConfirmed`; 429 `RateLimited`; 401 invalid session |
-| `GET /auth/confirm-email?userId=...&token=...` | Link generated for the email | 200 `EmailConfirmed` or `AlreadyConfirmed`; 400 `InvalidConfirmationToken` |
+| `POST /identity/register` | JSON: `email`, `username`, `password` | 201 with `userId`, `emailConfirmation`, and empty `errors`; 400 validation errors; 409 duplicate credentials |
+| `GET /identity/email-confirmation` | `Authorization: Bearer <sessionToken>` | 200 with session status; 401 for missing, unknown, or expired sessions |
+| `POST /identity/email-confirmation/resend` | Same authorization header | 200 `Queued` or `EmailConfirmed`; 429 `RateLimited`; 401 invalid session |
+| `GET /identity/confirm-email?userId=...&token=...` | Link generated for the email | 200 `EmailConfirmed` or `AlreadyConfirmed`; 400 `InvalidConfirmationToken` |
 
 Successful registration includes:
 
@@ -83,7 +83,7 @@ Configuration section: `Identity:EmailConfirmation` (environment variables use `
 | `ResendCooldown` | `00:01:00` |
 | `DeliveryWindow` | `01:00:00` (at most seven days; at least the cooldown) |
 | `MaxDeliveriesPerWindow` | `5` |
-| `ConfirmationUrl` | `https://localhost:7000/auth/confirm-email` |
+| `ConfirmationUrl` | `https://localhost:7000/identity/confirm-email` |
 
 Set `ConfirmationUrl` to the externally reachable HTTPS confirmation endpoint before
 connecting a real provider. It is configuration-owned and never built from an incoming
@@ -96,6 +96,7 @@ Identity database command retries are disabled because the workflow owns transac
 and includes external delivery. Database failures in HTTP operations propagate as
 server errors rather than replaying an ambiguously committed registration.
 
-Login, JWT/refresh issuance, Angular screens, and an email provider are outside this
-change. Future login must validate credentials before creating a confirmation session,
-reuse the user-level delivery limits, and issue no login tokens until email is confirmed.
+Login validates credentials before creating a confirmation session, reuses the
+user-level delivery limits, and issues no JWT until email is confirmed. See
+[login and JWT authentication](login.md) for configuration and response contracts.
+Refresh tokens, Angular screens, and an email provider remain separate work.

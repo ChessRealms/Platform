@@ -76,7 +76,7 @@ public sealed class RegistrationTests : IAsyncLifetime
         _clock.Advance(TimeSpan.FromMinutes(31));
         Assert.Equal("InvalidSession", (await StatusAsync(metadata.SessionToken)).Code);
         await using AsyncServiceScope confirmationScope = _host.Services.CreateAsyncScope();
-        IRegistrationService service = confirmationScope.ServiceProvider.GetRequiredService<IRegistrationService>();
+        IEmailConfirmationService service = confirmationScope.ServiceProvider.GetRequiredService<IEmailConfirmationService>();
         Assert.Equal("InvalidConfirmationToken", await service.ConfirmAsync(result.UserId.Value, "bad!", Cancellation));
         Assert.Equal("InvalidConfirmationToken", await service.ConfirmAsync(Guid.NewGuid(), confirmationToken, Cancellation));
         Assert.Equal("EmailConfirmed", await service.ConfirmAsync(result.UserId.Value, confirmationToken, Cancellation));
@@ -167,7 +167,7 @@ public sealed class RegistrationTests : IAsyncLifetime
         string token = QueryHelpers.ParseQuery(new Uri(Assert.Single(_sender.Emails).ConfirmationLink).Query)["token"].ToString();
         await using (AsyncServiceScope scope = _host.Services.CreateAsyncScope())
         {
-            Assert.Equal("EmailConfirmed", await scope.ServiceProvider.GetRequiredService<IRegistrationService>()
+            Assert.Equal("EmailConfirmed", await scope.ServiceProvider.GetRequiredService<IEmailConfirmationService>()
                 .ConfirmAsync(result.UserId!.Value, token, Cancellation));
         }
         Assert.Equal("EmailConfirmed", (await ResendAsync(result.EmailConfirmation.SessionToken!)).Code);
@@ -186,7 +186,7 @@ public sealed class RegistrationTests : IAsyncLifetime
         // Identity's provider uses UTC directly; a negative lifetime makes the generated token expired without sleeping.
         scope.ServiceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<DataProtectionTokenProviderOptions>>()
             .Value.TokenLifespan = TimeSpan.FromSeconds(-1);
-        Assert.Equal("InvalidConfirmationToken", await scope.ServiceProvider.GetRequiredService<IRegistrationService>()
+        Assert.Equal("InvalidConfirmationToken", await scope.ServiceProvider.GetRequiredService<IEmailConfirmationService>()
             .ConfirmAsync(result.UserId!.Value, token, Cancellation));
     }
 
@@ -208,13 +208,13 @@ public sealed class RegistrationTests : IAsyncLifetime
     private async Task<ConfirmationSessionResult> ResendAsync(string token)
     {
         await using AsyncServiceScope scope = _host.Services.CreateAsyncScope();
-        return await scope.ServiceProvider.GetRequiredService<IRegistrationService>().ResendAsync(token, Cancellation);
+        return await scope.ServiceProvider.GetRequiredService<IEmailConfirmationService>().ResendAsync(token, Cancellation);
     }
 
     private async Task<ConfirmationSessionResult> StatusAsync(string token)
     {
         await using AsyncServiceScope scope = _host.Services.CreateAsyncScope();
-        return await scope.ServiceProvider.GetRequiredService<IRegistrationService>().GetStatusAsync(token, Cancellation);
+        return await scope.ServiceProvider.GetRequiredService<IEmailConfirmationService>().GetStatusAsync(token, Cancellation);
     }
 
     private async Task DispatchAsync()

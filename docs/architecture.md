@@ -36,8 +36,10 @@ contracts and the isolated Identity implementation. Opaque confirmation sessions
 durable email requests live in PostgreSQL. The API worker processes requests through
 a placeholder email adapter until a provider is selected. See
 [registration and confirmation](registration.md) for contracts, limits, and deployment
-requirements. Login authentication schemes, JWT/refresh tokens, password reset, and
-Angular integration remain subsequent work.
+requirements. Login uses email/password, Identity lockout, and RS256 JWT access tokens.
+The API validates JWT signatures, issuer, audience, type, algorithm, and lifetime.
+See [login and JWT authentication](login.md) for key configuration and scope.
+Refresh tokens/login sessions, password reset, and Angular integration remain subsequent work.
 
 ## Game functionality
 
