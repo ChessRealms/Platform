@@ -12,8 +12,7 @@ public sealed class IdentityController(
     IRegistrationService registration,
     IEmailConfirmationService confirmation,
     ILoginService login,
-    IRefreshTokenService refreshTokens
-    ) : ControllerBase
+    IRefreshTokenService refreshTokens) : ControllerBase
 {
     [HttpPost("register")]
     [AllowAnonymous]
@@ -44,7 +43,12 @@ public sealed class IdentityController(
     {
         Response.Headers["Referrer-Policy"] = "no-referrer";
         string code = await confirmation.ConfirmAsync(userId, token, cancellationToken);
-        return code == "InvalidConfirmationToken" ? BadRequest(new { code }) : Ok(new { code });
+        return code switch
+        {
+            "EmailConfirmed" or "AlreadyConfirmed" => Ok(new { code }),
+            "InvalidConfirmationToken" => BadRequest(new { code }),
+            _ => throw new InvalidOperationException("Unexpected email confirmation result.")
+        };
     }
 
     [HttpPost("login")]
@@ -56,7 +60,8 @@ public sealed class IdentityController(
         {
             "Success" => Ok(result),
             "EmailNotConfirmed" => StatusCode(StatusCodes.Status403Forbidden, result),
-            _ => Unauthorized(result)
+            "InvalidCredentials" => Unauthorized(result),
+            _ => throw new InvalidOperationException("Unexpected login result.")
         };
     }
 
@@ -69,7 +74,12 @@ public sealed class IdentityController(
     public async Task<IActionResult> Refresh(RefreshRequest request, CancellationToken cancellationToken)
     {
         RefreshResult result = await refreshTokens.RefreshAsync(request, cancellationToken);
-        return result.Code == "Success" ? Ok(result) : Unauthorized(result);
+        return result.Code switch
+        {
+            "Success" => Ok(result),
+            "InvalidRefreshToken" => Unauthorized(result),
+            _ => throw new InvalidOperationException("Unexpected refresh result.")
+        };
     }
 
     private string SessionToken()
@@ -79,10 +89,11 @@ public sealed class IdentityController(
         return header.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? header[prefix.Length..] : "";
     }
 
-    private IActionResult SessionResponse(ConfirmationSessionResult result) => result.Code switch
+    private ObjectResult SessionResponse(ConfirmationSessionResult result) => result.Code switch
     {
         "InvalidSession" => Unauthorized(result),
         "RateLimited" => StatusCode(StatusCodes.Status429TooManyRequests, result),
-        _ => Ok(result)
+        "EmailConfirmed" or "EmailNotConfirmed" or "Queued" => Ok(result),
+        _ => throw new InvalidOperationException("Unexpected confirmation session result.")
     };
 }

@@ -5,6 +5,7 @@ using ChessRealms.Platform.Application.Identity;
 using ChessRealms.Platform.Infrastructure.Identity;
 using ChessRealms.Platform.Infrastructure.Identity.Jwt;
 using ChessRealms.Platform.Infrastructure.Identity.Persistence;
+using ChessRealms.Platform.Infrastructure.Identity.Sessions;
 
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;

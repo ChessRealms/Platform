@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 
 using ChessRealms.Platform.Application.Identity;
 using ChessRealms.Platform.Infrastructure.Identity;
+using ChessRealms.Platform.Infrastructure.Identity.EmailConfirmation;
 using ChessRealms.Platform.Infrastructure.Identity.Jwt;
 using ChessRealms.Platform.Infrastructure.Identity.Persistence;
 

@@ -1,3 +1,4 @@
+using ChessRealms.Platform.Infrastructure.Identity;
 using ChessRealms.Platform.Infrastructure.Identity.Jwt;
 
 using Microsoft.AspNetCore.Authentication.JwtBearer;

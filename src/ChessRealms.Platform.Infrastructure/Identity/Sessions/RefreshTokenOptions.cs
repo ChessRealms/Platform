@@ -1,4 +1,4 @@
-namespace ChessRealms.Platform.Infrastructure.Identity;
+namespace ChessRealms.Platform.Infrastructure.Identity.Sessions;
 
 public sealed class RefreshTokenOptions
 {

@@ -1,6 +1,7 @@
 using ChessRealms.Platform.Api;
 using ChessRealms.Platform.Infrastructure;
 using ChessRealms.Platform.Infrastructure.Identity;
+using ChessRealms.Platform.Infrastructure.Identity.Sessions;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();

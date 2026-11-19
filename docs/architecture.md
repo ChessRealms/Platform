@@ -44,6 +44,34 @@ See [login and JWT authentication](login.md) for key configuration and scope.
 See [refresh tokens and sessions](refresh-tokens.md) for storage, concurrency, and cleanup.
 Logout/session management endpoints, password reset, and Angular integration remain subsequent work.
 
+## Identity code navigation and errors
+
+Public contracts and types each have their own file. Private test doubles stay with
+the tests that use them. Infrastructure is grouped by responsibility:
+
+| Location under `Infrastructure/Identity` | Responsibility |
+| --- | --- |
+| Root services | Registration and login orchestration, Identity registration |
+| `IdentityLoginServiceCollectionExtensions.cs` | API-only login, JWT, and session service registration |
+| `EmailConfirmation/` | Confirmation sessions, email dispatch, sender contract, placeholder, worker |
+| `Sessions/` | Refresh rotation, session configuration and cleanup |
+| `Jwt/` | Signing keys, JWT settings and issuance |
+| `Tokens/OpaqueToken.cs` | Shared random token generation and hashing; each purpose has its own store |
+| `Persistence/` | Entities, context and migrations with stable entity namespaces |
+
+Expected failures (invalid credentials/tokens, duplicate registration, throttling)
+return explicit application results. The controller maps known results to HTTP
+statuses; an unknown result is a programming error and becomes generic 500 Problem
+Details. Unexpected database or Identity update failures also propagate to the API's
+exception handler instead of being misreported as invalid credentials or tokens.
+
+Background workers catch processing failures to remain available and log only the
+exception type, excluding potentially sensitive exception messages. Provider adapters
+return typed, application-owned email failure categories; arbitrary provider text is
+never exposed as an API failure code. Cancellation rolls back an in-flight delivery
+so the persisted request remains available for a later attempt. The placeholder sender
+continues to report `ProviderNotConfigured` and makes no external calls.
+
 ## Game functionality
 
 Chess rules come from ChessRealms/Engine. Guests are temporary participants without

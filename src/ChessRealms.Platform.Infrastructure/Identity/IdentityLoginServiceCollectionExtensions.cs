@@ -1,11 +1,13 @@
 using ChessRealms.Platform.Application.Identity;
+using ChessRealms.Platform.Infrastructure.Identity.Jwt;
+using ChessRealms.Platform.Infrastructure.Identity.Sessions;
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace ChessRealms.Platform.Infrastructure.Identity.Jwt;
+namespace ChessRealms.Platform.Infrastructure.Identity;
 
-public static class DependencyInjection
+public static class IdentityLoginServiceCollectionExtensions
 {
     // API-only registration: migrations and persistence tests do not need signing secrets.
     public static IServiceCollection AddIdentityLogin(this IServiceCollection services, IConfiguration configuration)
@@ -32,7 +34,7 @@ public static class DependencyInjection
         services.AddScoped<LoginSessionCleanup>();
         services.AddScoped<IRefreshTokenService>(provider => provider.GetRequiredService<RefreshTokenService>());
         services.AddSingleton<IAccessTokenIssuer, JwtAccessTokenIssuer>();
-        services.AddSingleton<LoginPasswordWork>();
+        services.AddSingleton<DummyPasswordVerifier>();
         services.AddScoped<ILoginService, LoginService>();
         return services;
     }

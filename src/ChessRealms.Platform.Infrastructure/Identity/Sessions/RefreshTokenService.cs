@@ -1,15 +1,12 @@
-using System.Security.Cryptography;
-using System.Text;
-
 using ChessRealms.Platform.Application.Identity;
 using ChessRealms.Platform.Infrastructure.Identity.Persistence;
+using ChessRealms.Platform.Infrastructure.Identity.Tokens;
 
-using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Options;
 
-namespace ChessRealms.Platform.Infrastructure.Identity;
+namespace ChessRealms.Platform.Infrastructure.Identity.Sessions;
 
 public sealed class RefreshTokenService(IdentityDbContext database, IAccessTokenIssuer accessTokens,
     IOptions<RefreshTokenOptions> options, TimeProvider clock) : IRefreshTokenService
@@ -33,11 +30,12 @@ public sealed class RefreshTokenService(IdentityDbContext database, IAccessToken
 
     public async Task<RefreshResult> RefreshAsync(RefreshRequest request, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrEmpty(request.RefreshToken) || request.RefreshToken.Length != 43)
+        ArgumentNullException.ThrowIfNull(request);
+        if (string.IsNullOrEmpty(request.RefreshToken) || request.RefreshToken.Length != OpaqueToken.EncodedLength)
         {
             return new("InvalidRefreshToken");
         }
-        string hash = Hash(request.RefreshToken);
+        string hash = OpaqueToken.Hash(request.RefreshToken);
         // Only discover the owner here. All authorization decisions are made again
         // after locking, including token consumption and expiration.
         LoginSession? owner = await (from token in database.RefreshTokens.AsNoTracking()
@@ -69,10 +67,7 @@ public sealed class RefreshTokenService(IdentityDbContext database, IAccessToken
             return new("InvalidRefreshToken");
         }
 
-        string? revocationReason = stored.UsedAt is not null ? "RefreshTokenReuse"
-            : !user.EmailConfirmed ? "EmailNotConfirmed"
-            : !string.Equals(user.SecurityStamp, current.SecurityStamp, StringComparison.Ordinal) ? "SecurityStampChanged"
-            : null;
+        string? revocationReason = GetRevocationReason(stored, current, user);
         if (revocationReason is not null)
         {
             await database.LoginSessions.Where(session => session.Id == current.Id)
@@ -92,10 +87,10 @@ public sealed class RefreshTokenService(IdentityDbContext database, IAccessToken
 
     private async Task<RefreshResult> IssuePairAsync(LoginSession session, DateTimeOffset now, CancellationToken cancellationToken)
     {
-        string refreshToken = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
+        string refreshToken = OpaqueToken.Generate();
         database.RefreshTokens.Add(new()
         {
-            TokenHash = Hash(refreshToken),
+            TokenHash = OpaqueToken.Hash(refreshToken),
             SessionId = session.Id,
             CreatedAt = now
         });
@@ -104,5 +99,20 @@ public sealed class RefreshTokenService(IdentityDbContext database, IAccessToken
         return new("Success", accessToken.Value, "Bearer", accessToken.ExpiresIn, refreshToken, session.ExpiresAt);
     }
 
-    private static string Hash(string token) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+    private static string? GetRevocationReason(RefreshToken token, LoginSession session, PlatformUser user)
+    {
+        if (token.UsedAt is not null)
+        {
+            return "RefreshTokenReuse";
+        }
+        if (!user.EmailConfirmed)
+        {
+            return "EmailNotConfirmed";
+        }
+        if (!string.Equals(user.SecurityStamp, session.SecurityStamp, StringComparison.Ordinal))
+        {
+            return "SecurityStampChanged";
+        }
+        return null;
+    }
 }

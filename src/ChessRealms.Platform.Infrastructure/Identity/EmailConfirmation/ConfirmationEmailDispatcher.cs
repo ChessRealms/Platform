@@ -6,12 +6,14 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace ChessRealms.Platform.Infrastructure.Identity;
+namespace ChessRealms.Platform.Infrastructure.Identity.EmailConfirmation;
 
 public sealed class ConfirmationEmailDispatcher(IdentityDbContext database, UserManager<PlatformUser> users,
-    IConfirmationEmailSender sender, IOptions<EmailConfirmationOptions> options)
+    IConfirmationEmailSender sender, IOptions<EmailConfirmationOptions> options,
+    ILogger<ConfirmationEmailDispatcher> logger)
 {
     public async Task<bool> DispatchNextAsync(CancellationToken cancellationToken)
     {
@@ -49,16 +51,23 @@ public sealed class ConfirmationEmailDispatcher(IdentityDbContext database, User
             {
                 throw;
             }
-            catch (Exception)
+            catch (Exception exception)
             {
                 // Provider exception details may contain credentials or recipient data.
-                result = new(false, "ProviderFailure");
+                logger.LogWarning("Confirmation email provider failed ({ExceptionType}).", exception.GetType().Name);
+                result = new(false, EmailSendFailure.ProviderFailure);
             }
             delivery.Status = result.Accepted ? "Sent" : "Failed";
-            delivery.FailureCode = result.Accepted ? null : result.FailureCode ?? "ProviderFailure";
+            delivery.FailureCode = result.Accepted ? null : GetFailureCode(result.Failure);
         }
         await database.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return true;
     }
+
+    private static string GetFailureCode(EmailSendFailure? failure) => failure switch
+    {
+        EmailSendFailure.ProviderNotConfigured => nameof(EmailSendFailure.ProviderNotConfigured),
+        _ => nameof(EmailSendFailure.ProviderFailure)
+    };
 }

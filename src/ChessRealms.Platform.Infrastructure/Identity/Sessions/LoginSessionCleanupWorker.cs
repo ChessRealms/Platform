@@ -2,7 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace ChessRealms.Platform.Infrastructure.Identity;
+namespace ChessRealms.Platform.Infrastructure.Identity.Sessions;
 
 public sealed class LoginSessionCleanupWorker(IServiceScopeFactory scopes, TimeProvider clock,
     ILogger<LoginSessionCleanupWorker> logger) : BackgroundService
@@ -26,9 +26,10 @@ public sealed class LoginSessionCleanupWorker(IServiceScopeFactory scopes, TimeP
             {
                 return;
             }
-            catch (Exception)
+            catch (Exception exception)
             {
-                logger.LogWarning("Expired login session cleanup failed; retrying on the next poll.");
+                logger.LogWarning("Expired login session cleanup failed ({ExceptionType}); retrying on the next poll.",
+                    exception.GetType().Name);
             }
             await Task.Delay(TimeSpan.FromHours(1), clock, stoppingToken);
         }
