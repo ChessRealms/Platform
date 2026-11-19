@@ -34,7 +34,7 @@ public sealed class JwtAuthenticationTests
         await app.StartAsync(TestContext.Current.CancellationToken);
         using HttpClient client = new() { BaseAddress = new Uri(Assert.Single(app.Urls)) };
         Guid userId = Guid.NewGuid();
-        AccessToken issued = app.Services.GetRequiredService<IAccessTokenIssuer>().Issue(userId);
+        AccessToken issued = app.Services.GetRequiredService<IAccessTokenIssuer>().Issue(userId, Guid.NewGuid());
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", issued.Value);
         using HttpResponseMessage accepted = await client.GetAsync("/protected", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
@@ -98,6 +98,7 @@ public sealed class JwtAuthenticationTests
     [InlineData("lifetime")]
     [InlineData("issuer")]
     [InlineData("clockSkew")]
+    [InlineData("refreshLifetime")]
     public async Task InvalidConfigurationFailsStartup(string scenario)
     {
         using RSA rsa = RSA.Create(scenario == "weak" ? 1024 : 2048);
@@ -120,6 +121,10 @@ public sealed class JwtAuthenticationTests
         if (scenario == "clockSkew")
         {
             builder.Configuration["Identity:Jwt:ClockSkew"] = "00:05:00";
+        }
+        if (scenario == "refreshLifetime")
+        {
+            builder.Configuration["Identity:RefreshTokens:SessionLifetime"] = "00:00:00";
         }
         await using WebApplication app = builder.Build();
         await Assert.ThrowsAsync<OptionsValidationException>(() => app.StartAsync(TestContext.Current.CancellationToken));

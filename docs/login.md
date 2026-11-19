@@ -13,13 +13,15 @@ For a confirmed user with valid credentials, the response is HTTP 200:
   "accessToken": "<signed-jwt>",
   "tokenType": "Bearer",
   "expiresIn": 600,
-  "emailConfirmation": null
+  "emailConfirmation": null,
+  "refreshToken": "<opaque-token>",
+  "refreshTokenExpiresAt": "2026-12-18T12:00:00Z"
 }
 ```
 
-`expiresIn` is in seconds. Refresh tokens, refresh endpoints, login sessions, and
-logout/revocation are a separate feature. There is no placeholder refresh token in
-this response. Until that feature is implemented, expiration requires another login.
+`expiresIn` is in seconds. Each successful login creates a separate 30-day session
+and returns an opaque refresh token. See [refresh tokens and sessions](refresh-tokens.md)
+for rotation, strict reuse detection, and configuration. Logout endpoints remain separate work.
 
 Unknown accounts, incorrect passwords, and locked accounts all return HTTP 401 with
 `code: InvalidCredentials` and null token/confirmation fields. Missing required JSON
@@ -39,6 +41,8 @@ A valid password with an unconfirmed email returns HTTP 403:
   "accessToken": null,
   "tokenType": null,
   "expiresIn": null,
+  "refreshToken": null,
+  "refreshTokenExpiresAt": null,
   "emailConfirmation": {
     "sessionToken": "<opaque-secret>",
     "expiresAt": "2026-11-18T12:30:00Z",
@@ -70,8 +74,8 @@ All identity controller responses disable caching.
 versions match the dependency line used by the selected JwtBearer package.
 
 Tokens use RS256, with headers `typ: at+jwt` and `kid: <SigningKeyId>`. Claims are
-`sub` (user GUID), `iss`, `aud`, `iat`, `nbf`, `exp`, and `jti` (unique token ID).
-There are no email, username, role, permission, or session claims yet. JWT payloads
+`sub` (user GUID), `sid` (login-session GUID), `iss`, `aud`, `iat`, `nbf`, `exp`, and
+`jti` (unique token ID). There are no email, username, role, or permission claims. JWT payloads
 are signed, not encrypted. Claim mapping is disabled, so `sub` stays `sub`.
 
 Validation requires a signature from the configured key, RS256, the access-token
@@ -82,7 +86,7 @@ rejected. Validation errors are not included in bearer challenge details.
 There is no per-request database token lookup. Changing a password, locking an
 account, or deleting a user does not immediately revoke an already issued JWT.
 It remains valid until expiration plus clock skew. `jti` alone is not a revocation
-mechanism. A later session/revocation design must explicitly address this behavior.
+mechanism. Session revocation blocks refresh but does not invalidate existing JWTs.
 
 ## Configuration
 
@@ -136,4 +140,5 @@ links require a deployment redirect if any were issued before this change.
 Application contains request/result contracts and service interfaces, with one public
 contract per file. Infrastructure implements registration, login, shared confirmation,
 and JWT issuance. API owns bearer middleware configuration and HTTP status mapping.
-The email sender remains a placeholder. No database migration is needed for login.
+The email sender remains a placeholder. Login sessions and refresh-token history
+require the Identity migration described in [refresh tokens](refresh-tokens.md).

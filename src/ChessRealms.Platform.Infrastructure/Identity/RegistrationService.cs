@@ -1,4 +1,5 @@
 using ChessRealms.Platform.Application.Identity;
+using ChessRealms.Platform.Infrastructure.Identity.EmailConfirmation;
 using ChessRealms.Platform.Infrastructure.Identity.Persistence;
 
 using Microsoft.AspNetCore.Identity;

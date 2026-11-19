@@ -69,7 +69,8 @@ uses a placeholder adapter and does not send actual messages.
 
 Email/password login issues RS256 JWT access tokens for confirmed users. See
 [login and JWT authentication](docs/login.md) for the `/identity` routes and required
-signing-key setup. Refresh tokens will be added separately.
+signing-key setup. [Rotating refresh tokens](docs/refresh-tokens.md) use persistent
+login sessions with an absolute 30-day lifetime and strict reuse detection.
 
 ### Build and test
 

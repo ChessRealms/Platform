@@ -1,5 +1,7 @@
 using ChessRealms.Platform.Application.Identity;
+using ChessRealms.Platform.Infrastructure.Identity.EmailConfirmation;
 using ChessRealms.Platform.Infrastructure.Identity.Persistence;
+using ChessRealms.Platform.Infrastructure.Identity.Sessions;
 
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -8,10 +10,11 @@ using Microsoft.EntityFrameworkCore.Storage;
 namespace ChessRealms.Platform.Infrastructure.Identity;
 
 public sealed class LoginService(IdentityDbContext database, UserManager<PlatformUser> users,
-    EmailConfirmationService confirmation, IAccessTokenIssuer tokens, LoginPasswordWork passwordWork) : ILoginService
+    EmailConfirmationService confirmation, RefreshTokenService refreshTokens, DummyPasswordVerifier dummyPasswordVerifier) : ILoginService
 {
     public async Task<LoginResult> LoginAsync(LoginRequest request, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(request);
         if (string.IsNullOrWhiteSpace(request.Email) || request.Email.Length > 256
             || string.IsNullOrEmpty(request.Password) || request.Password.Length > 1024)
         {
@@ -27,7 +30,7 @@ public sealed class LoginService(IdentityDbContext database, UserManager<Platfor
         {
             // Unknown and locked accounts still perform password hashing work. This
             // avoids the obvious fast path without claiming constant-time HTTP responses.
-            passwordWork.Verify(request.Password);
+            dummyPasswordVerifier.Verify(request.Password);
             return new("InvalidCredentials");
         }
 
@@ -46,9 +49,10 @@ public sealed class LoginService(IdentityDbContext database, UserManager<Platfor
             return new("EmailNotConfirmed", EmailConfirmation: metadata);
         }
 
-        AccessToken token = tokens.Issue(user.Id);
+        RefreshResult tokens = await refreshTokens.CreateSessionAsync(user, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
-        return new("Success", token.Value, "Bearer", token.ExpiresIn);
+        return new("Success", tokens.AccessToken, tokens.TokenType, tokens.ExpiresIn,
+            RefreshToken: tokens.RefreshToken, RefreshTokenExpiresAt: tokens.RefreshTokenExpiresAt);
     }
 
     private static void EnsureSucceeded(IdentityResult result)

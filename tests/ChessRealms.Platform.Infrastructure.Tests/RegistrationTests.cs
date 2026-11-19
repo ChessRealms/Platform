@@ -1,11 +1,15 @@
+using System.Data.Common;
+
 using ChessRealms.Platform.Application.Identity;
 using ChessRealms.Platform.Infrastructure.Identity;
+using ChessRealms.Platform.Infrastructure.Identity.EmailConfirmation;
 using ChessRealms.Platform.Infrastructure.Identity.Persistence;
 
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -21,6 +25,8 @@ public sealed class RegistrationTests : IAsyncLifetime
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:18.3").Build();
     private readonly TestClock _clock = new();
     private readonly RecordingSender _sender = new();
+    private readonly UserLockInterceptor _userLock = new();
+    private readonly ToggleUserValidator _userValidator = new();
     private IHost _host = null!;
     private CancellationToken Cancellation => TestContext.Current.CancellationToken;
 
@@ -34,6 +40,8 @@ public sealed class RegistrationTests : IAsyncLifetime
             ["Identity:EmailConfirmation:MaxDeliveriesPerWindow"] = "2"
         });
         builder.AddInfrastructure();
+        builder.Services.AddDbContext<IdentityDbContext>(options => options.AddInterceptors(_userLock));
+        builder.Services.AddSingleton<IUserValidator<PlatformUser>>(_userValidator);
         builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
         builder.Services.AddSingleton<TimeProvider>(_clock);
         builder.Services.AddSingleton<IConfirmationEmailSender>(_sender);
@@ -191,12 +199,65 @@ public sealed class RegistrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ConfirmationSessionExpirationSurvivesDatabaseRoundTrip()
+    {
+        RegistrationResult result = await RegisterAsync();
+        ConfirmationMetadata metadata = result.EmailConfirmation!;
+        Assert.Equal(metadata.ExpiresAt, (await StatusAsync(metadata.SessionToken!)).EmailConfirmation!.ExpiresAt);
+    }
+
+    [Fact]
+    public async Task ResendReturnsInvalidSessionWhenUserIsDeletedBeforeLock()
+    {
+        RegistrationResult result = await RegisterAsync();
+        _userLock.BeforeLock = async cancellationToken =>
+        {
+            await using AsyncServiceScope scope = _host.Services.CreateAsyncScope();
+            await scope.ServiceProvider.GetRequiredService<IdentityDbContext>().Users.ExecuteDeleteAsync(cancellationToken);
+        };
+        Assert.Equal(new ConfirmationSessionResult("InvalidSession", null), await ResendAsync(result.EmailConfirmation!.SessionToken!));
+    }
+
+    [Fact]
+    public async Task ConfirmationUpdateFailureIsNotReportedAsInvalidToken()
+    {
+        RegistrationResult result = await RegisterAsync();
+        await DispatchAsync();
+        string token = QueryHelpers.ParseQuery(new Uri(Assert.Single(_sender.Emails).ConfirmationLink).Query)["token"].ToString();
+        _userValidator.RejectUpdates = true;
+        await using (AsyncServiceScope scope = _host.Services.CreateAsyncScope())
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() => scope.ServiceProvider.GetRequiredService<IEmailConfirmationService>()
+                .ConfirmAsync(result.UserId!.Value, token, Cancellation));
+        }
+        await using AsyncServiceScope check = _host.Services.CreateAsyncScope();
+        Assert.False((await check.ServiceProvider.GetRequiredService<IdentityDbContext>().Users.SingleAsync(Cancellation)).EmailConfirmed);
+    }
+
+    [Fact]
+    public async Task CancelledDeliveryRemainsQueuedAndCanBeRetried()
+    {
+        RegistrationResult result = await RegisterAsync();
+        using CancellationTokenSource cancellation = CancellationTokenSource.CreateLinkedTokenSource(Cancellation);
+        _sender.CancelOnSend = cancellation;
+        await using (AsyncServiceScope scope = _host.Services.CreateAsyncScope())
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => scope.ServiceProvider.GetRequiredService<ConfirmationEmailDispatcher>()
+                .DispatchNextAsync(cancellation.Token));
+        }
+        Assert.Equal("Queued", (await StatusAsync(result.EmailConfirmation!.SessionToken!)).EmailConfirmation!.DeliveryStatus);
+        _sender.CancelOnSend = null;
+        await DispatchAsync();
+        Assert.Equal("Sent", (await StatusAsync(result.EmailConfirmation.SessionToken!)).EmailConfirmation!.DeliveryStatus);
+    }
+
+    [Fact]
     public async Task PlaceholderNeverReportsSent()
     {
         EmailSendResult result = await new UnconfiguredConfirmationEmailSender()
             .SendAsync(new(Guid.NewGuid(), "player@example.test", "https://example.test"), Cancellation);
         Assert.False(result.Accepted);
-        Assert.Equal("ProviderNotConfigured", result.FailureCode);
+        Assert.Equal(EmailSendFailure.ProviderNotConfigured, result.Failure);
     }
 
     private async Task<RegistrationResult> RegisterAsync(string email = "player@example.test", string username = "player", string password = "Strong-password9!")
@@ -225,7 +286,7 @@ public sealed class RegistrationTests : IAsyncLifetime
 
     private sealed class TestClock : TimeProvider
     {
-        private DateTimeOffset _now = DateTimeOffset.UtcNow;
+        private DateTimeOffset _now = DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()).AddTicks(7);
         public override DateTimeOffset GetUtcNow() => _now;
         public void Advance(TimeSpan duration) => _now += duration;
     }
@@ -234,14 +295,44 @@ public sealed class RegistrationTests : IAsyncLifetime
     {
         public List<ConfirmationEmail> Emails { get; } = [];
         public bool Fail { get; set; }
+        public CancellationTokenSource? CancelOnSend { get; set; }
         public Task<EmailSendResult> SendAsync(ConfirmationEmail email, CancellationToken cancellationToken)
         {
+            CancelOnSend?.Cancel();
+            cancellationToken.ThrowIfCancellationRequested();
             if (Fail)
             {
                 throw new InvalidOperationException("Simulated provider failure.");
             }
             Emails.Add(email);
             return Task.FromResult(new EmailSendResult(true));
+        }
+    }
+
+    private sealed class ToggleUserValidator : IUserValidator<PlatformUser>
+    {
+        public bool RejectUpdates { get; set; }
+        public Task<IdentityResult> ValidateAsync(UserManager<PlatformUser> manager, PlatformUser user) =>
+            Task.FromResult(RejectUpdates
+                ? IdentityResult.Failed(new IdentityError { Code = "SimulatedUpdateRejection", Description = "Simulated update rejection." })
+                : IdentityResult.Success);
+    }
+
+    private sealed class UserLockInterceptor : DbCommandInterceptor
+    {
+        public Func<CancellationToken, Task>? BeforeLock { get; set; }
+
+        public override async ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command,
+            CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
+        {
+            if (BeforeLock is not null && command.CommandText.Contains("AspNetUsers", StringComparison.Ordinal)
+                && command.CommandText.Contains("FOR UPDATE", StringComparison.Ordinal))
+            {
+                Func<CancellationToken, Task> callback = BeforeLock;
+                BeforeLock = null;
+                await callback(cancellationToken);
+            }
+            return result;
         }
     }
 }

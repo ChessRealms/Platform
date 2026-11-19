@@ -99,4 +99,5 @@ server errors rather than replaying an ambiguously committed registration.
 Login validates credentials before creating a confirmation session, reuses the
 user-level delivery limits, and issues no JWT until email is confirmed. See
 [login and JWT authentication](login.md) for configuration and response contracts.
-Refresh tokens, Angular screens, and an email provider remain separate work.
+Login also issues [rotating refresh tokens](refresh-tokens.md) for confirmed users.
+Angular screens and an email provider remain separate work.
