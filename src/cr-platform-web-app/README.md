@@ -52,7 +52,9 @@ confirmation shows an honest waiting message. The confirmation workflow is not
 implemented in the web app yet. In Development, AppHost enables API registration
 auto-confirmation by default so the local flow is usable without an email provider.
 Set `Identity__EmailConfirmation__AutoConfirmOnRegistration=false` on AppHost to
-test the confirmation workflow later. A standalone API keeps its default `false`;
+test the confirmation workflow, or enable `Mailpit__Enabled=true` to configure a
+local SMTP catcher and disable auto-confirmation automatically. A standalone API
+keeps its default `false`;
 set the option on the API when testing these pages independently. See
 [registration configuration](../../docs/registration.md#configuration-and-deployment).
 
