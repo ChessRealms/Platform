@@ -7,5 +7,5 @@ public sealed class EmailConfirmationOptions
     public TimeSpan ResendCooldown { get; set; } = TimeSpan.FromMinutes(1);
     public TimeSpan DeliveryWindow { get; set; } = TimeSpan.FromHours(1);
     public int MaxDeliveriesPerWindow { get; set; } = 5;
-    public string ConfirmationUrl { get; set; } = "https://localhost:7000/identity/confirm-email";
+    public string ConfirmationUrl { get; set; } = "https://localhost:7000/api/identity/confirm-email";
 }

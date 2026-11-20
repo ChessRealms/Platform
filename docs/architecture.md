@@ -40,9 +40,12 @@ a placeholder email adapter until a provider is selected. See
 [registration and confirmation](registration.md) for contracts, limits, and deployment
 requirements. Login uses email/password, Identity lockout, and RS256 JWT access tokens.
 The API validates JWT signatures, issuer, audience, type, algorithm, and lifetime.
+Application endpoints use the `/api` prefix; operational health and OpenAPI
+endpoints retain their conventional paths.
 See [login and JWT authentication](login.md) for key configuration and scope.
 See [refresh tokens and sessions](refresh-tokens.md) for storage, concurrency, and cleanup.
-Logout/session management endpoints, password reset, and Angular integration remain subsequent work.
+Session management endpoints are available. Password reset and the Angular
+authentication flows remain subsequent work.
 
 ## Identity code navigation and errors
 

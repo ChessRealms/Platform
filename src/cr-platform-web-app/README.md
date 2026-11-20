@@ -15,3 +15,31 @@ The standalone development server is available at http://localhost:4200.
 To run the full platform, start the Aspire AppHost from the repository root;
 it installs npm dependencies and starts this application as the `web` resource.
 Open the endpoint shown in the Aspire dashboard.
+
+## API connection
+
+Browser requests use same-origin `/api/*` URLs. During development, the
+Angular server proxies those requests to the API without changing the path.
+AppHost supplies the API endpoint to `web` through its resource reference, so its assigned port is not baked into
+the frontend. Run the full platform through AppHost to use this automatically.
+
+For a standalone Angular server, start the API separately and set
+`PLATFORM_API_TARGET` to its origin before running `npm start`. For example, if the
+API uses the repository's HTTPS launch profile:
+
+```powershell
+$env:PLATFORM_API_TARGET = 'https://localhost:7011'
+npm start
+```
+
+The target must be an HTTP or HTTPS origin, without a path or credentials. A
+development certificate can be used by the local proxy. No browser-facing API
+port or CORS policy is required. Restart `ng serve` after changing the target.
+When publishing the static frontend, its host must route `/api/*` to the API
+without changing the path. The development proxy does not run in a production build.
+
+`IdentityApiClient` contains typed request/response contracts for the existing
+identity endpoints. Its protected methods take an access token explicitly; the
+confirmation status/resend methods take their separate opaque session token.
+The client does not store tokens or retry refresh requests. Callers can use
+`classifyIdentityApiError` to distinguish a network failure from an HTTP response.

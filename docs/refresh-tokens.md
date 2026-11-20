@@ -8,7 +8,7 @@ existing email-confirmation workflow; failed logins create no session or refresh
 ## Refresh endpoint
 
 ```http
-POST /identity/refresh
+POST /api/identity/refresh
 Content-Type: application/json
 ```
 
@@ -83,10 +83,10 @@ a user ID. No refresh token or password is required. Responses disable caching.
 
 | Endpoint | Result |
 | --- | --- |
-| `GET /identity/sessions` | 200 with the caller's usable sessions, ordered by creation time then ID; each item has `id`, `createdAt`, `expiresAt`, `isCurrent` |
-| `POST /identity/logout` | 204; revokes only the current session, including idempotent repeats and an already cleaned-up session |
-| `DELETE /identity/sessions/{sessionId}` | 204 for an own session, including an already revoked one; 404 for unknown or foreign IDs |
-| `POST /identity/logout-all` | 204; revokes all existing sessions for the caller |
+| `GET /api/identity/sessions` | 200 with the caller's usable sessions, ordered by creation time then ID; each item has `id`, `createdAt`, `expiresAt`, `isCurrent` |
+| `POST /api/identity/logout` | 204; revokes only the current session, including idempotent repeats and an already cleaned-up session |
+| `DELETE /api/identity/sessions/{sessionId}` | 204 for an own session, including an already revoked one; 404 for unknown or foreign IDs |
+| `POST /api/identity/logout-all` | 204; revokes all existing sessions for the caller |
 
 Listing, revoking another session, and logout-all return 401 if the caller's
 session is revoked or expired, its SecurityStamp no longer matches, or the user

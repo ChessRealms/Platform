@@ -9,12 +9,14 @@ IResourceBuilder<ProjectResource> migrations = builder.AddProject<Projects.Chess
     .WithReference(database)
     .WaitFor(database);
 
-builder.AddProject<Projects.ChessRealms_Platform_Api>("api")
+IResourceBuilder<ProjectResource> api = builder.AddProject<Projects.ChessRealms_Platform_Api>("api")
     .WithReference(database)
     .WaitForCompletion(migrations)
     .WithHttpHealthCheck("/health");
 
 builder.AddJavaScriptApp("web", "../../src/cr-platform-web-app", "start")
+    .WithReference(api)
+    .WaitFor(api)
     .WithHttpEndpoint(targetPort: 4200)
     .WithExternalHttpEndpoints();
 
