@@ -40,6 +40,9 @@ public static class DependencyInjection
             .Validate(options => Uri.TryCreate(options.ConfirmationUrl, UriKind.Absolute, out Uri? uri)
                 && uri.Scheme == Uri.UriSchemeHttps && string.IsNullOrEmpty(uri.Fragment),
                 "ConfirmationUrl must be an absolute HTTPS URL without a fragment.")
+            .Validate(options => !options.AutoConfirmOnRegistration || builder.Environment.IsDevelopment()
+                || builder.Environment.IsEnvironment("Testing"),
+                "Identity:EmailConfirmation:AutoConfirmOnRegistration is allowed only in Development or Testing.")
             .ValidateOnStart();
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddScoped<IRegistrationService, RegistrationService>();

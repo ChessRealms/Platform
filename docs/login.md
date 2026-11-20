@@ -21,7 +21,7 @@ For a confirmed user with valid credentials, the response is HTTP 200:
 
 `expiresIn` is in seconds. Each successful login creates a separate 30-day session
 and returns an opaque refresh token. See [refresh tokens and sessions](refresh-tokens.md)
-for rotation, strict reuse detection, and configuration. Logout endpoints remain separate work.
+for rotation, strict reuse detection, session management, and configuration.
 
 Unknown accounts, incorrect passwords, and locked accounts all return HTTP 401 with
 `code: InvalidCredentials` and null token/confirmation fields. Missing required JSON
@@ -80,13 +80,14 @@ are signed, not encrypted. Claim mapping is disabled, so `sub` stays `sub`.
 
 Validation requires a signature from the configured key, RS256, the access-token
 type, the configured issuer and audience, a valid lifetime with expiration, and a
-nonempty GUID subject. Unsigned tokens and tokens of other types/algorithms are
+nonempty GUID `sub` and `sid` claims. Unsigned tokens and tokens of other types/algorithms are
 rejected. Validation errors are not included in bearer challenge details.
 
 There is no per-request database token lookup. Changing a password, locking an
 account, or deleting a user does not immediately revoke an already issued JWT.
 It remains valid until expiration plus clock skew. `jti` alone is not a revocation
-mechanism. Session revocation blocks refresh but does not invalidate existing JWTs.
+mechanism. Session revocation blocks refresh and session management but does not
+invalidate existing JWTs on ordinary APIs.
 
 ## Configuration
 

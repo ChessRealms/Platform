@@ -44,6 +44,7 @@ public sealed class IdentityEndpointTests : IAsyncLifetime
         builder.Services.AddSingleton<IEmailConfirmationService>(_services);
         builder.Services.AddSingleton<ILoginService>(_services);
         builder.Services.AddSingleton<IRefreshTokenService>(_services);
+        builder.Services.AddSingleton<ILoginSessionService>(_services);
         builder.Services.AddControllers().AddApplicationPart(typeof(IdentityController).Assembly);
         builder.Services.AddProblemDetails();
         _app = builder.Build();
@@ -78,6 +79,45 @@ public sealed class IdentityEndpointTests : IAsyncLifetime
         Assert.True(created.Headers.CacheControl!.NoStore);
         RegistrationResult? registration = await created.Content.ReadFromJsonAsync<RegistrationResult>(Cancellation);
         Assert.Equal("session-token", registration!.EmailConfirmation!.SessionToken);
+    }
+
+    [Fact]
+    public async Task RegistrationCanSucceedWithoutConfirmationMetadata()
+    {
+        _services.AutoConfirmRegistration = true;
+        using HttpResponseMessage created = await _client.PostAsJsonAsync("/identity/register",
+            new RegisterRequest("test@example.test", "player", "Password9!"), Cancellation);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        string json = await created.Content.ReadAsStringAsync(Cancellation);
+        Assert.DoesNotContain("emailConfirmation", json);
+        Assert.NotNull((await created.Content.ReadFromJsonAsync<RegistrationResult>(Cancellation))!.UserId);
+    }
+
+    [Fact]
+    public async Task SessionRoutesRequireJwtAndDoNotUseRefreshToken()
+    {
+        using HttpResponseMessage unauthenticated = await _client.GetAsync("/identity/sessions", Cancellation);
+        Assert.Equal(HttpStatusCode.Unauthorized, unauthenticated.StatusCode);
+        Guid userId = Guid.NewGuid();
+        Guid sessionId = Guid.NewGuid();
+        AccessToken token = _app.Services.GetRequiredService<IAccessTokenIssuer>().Issue(userId, sessionId);
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token.Value);
+        using HttpResponseMessage listing = await _client.GetAsync("/identity/sessions", Cancellation);
+        Assert.Equal(HttpStatusCode.OK, listing.StatusCode);
+        Assert.True(listing.Headers.CacheControl!.NoStore);
+        Assert.Equal(userId, _services.LastUserId);
+        Assert.Equal(sessionId, _services.LastCurrentSessionId);
+        using HttpResponseMessage revoked = await _client.DeleteAsync($"/identity/sessions/{Guid.NewGuid()}", Cancellation);
+        Assert.Equal(HttpStatusCode.NoContent, revoked.StatusCode);
+        using HttpResponseMessage all = await _client.PostAsync("/identity/logout-all", null, Cancellation);
+        Assert.Equal(HttpStatusCode.NoContent, all.StatusCode);
+        using HttpResponseMessage logout = await _client.PostAsync("/identity/logout", null, Cancellation);
+        Assert.Equal(HttpStatusCode.NoContent, logout.StatusCode);
+        _services.SessionResult = SessionOperationResult.Unauthorized;
+        using HttpResponseMessage denied = await _client.GetAsync("/identity/sessions", Cancellation);
+        Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
+        using HttpResponseMessage ordinaryApi = await _client.GetAsync("/identity/me", Cancellation);
+        Assert.Equal(HttpStatusCode.OK, ordinaryApi.StatusCode);
     }
 
     [Fact]
@@ -197,7 +237,8 @@ public sealed class IdentityEndpointTests : IAsyncLifetime
         Assert.DoesNotContain("Unexpected", await response.Content.ReadAsStringAsync(Cancellation));
     }
 
-    private sealed class StubIdentityServices : IRegistrationService, IEmailConfirmationService, ILoginService, IRefreshTokenService
+    private sealed class StubIdentityServices : IRegistrationService, IEmailConfirmationService, ILoginService,
+        IRefreshTokenService, ILoginSessionService
     {
         public ConfirmationMetadata Metadata { get; } = new("session-token", DateTimeOffset.UtcNow.AddMinutes(30), "Queued", DateTimeOffset.UtcNow.AddMinutes(1), null);
         public string ConfirmationCode { get; set; } = "EmailConfirmed";
@@ -218,12 +259,16 @@ public sealed class IdentityEndpointTests : IAsyncLifetime
             FailLogin ? throw new InvalidOperationException("Could not update login attempt state.") : Task.FromResult(NextLogin);
 
         public int Registrations { get; private set; }
+        public bool AutoConfirmRegistration { get; set; }
+        public Guid LastUserId { get; private set; }
+        public Guid LastCurrentSessionId { get; private set; }
+        public SessionOperationResult SessionResult { get; set; } = SessionOperationResult.Success;
         public string? LastToken { get; private set; }
         public Task<RegistrationResult> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken)
         {
             Registrations++;
             return Task.FromResult(new RegistrationResult(Guid.NewGuid(),
-                Metadata, []));
+                AutoConfirmRegistration ? null : Metadata, []));
         }
         public Task<ConfirmationSessionResult> GetStatusAsync(string token, CancellationToken cancellationToken) =>
             Task.FromResult(new ConfirmationSessionResult(StatusCode, null));
@@ -237,5 +282,17 @@ public sealed class IdentityEndpointTests : IAsyncLifetime
             LastToken = token;
             return Task.FromResult(ConfirmationCode);
         }
+        public Task<SessionListResult> ListAsync(Guid userId, Guid currentSessionId, CancellationToken cancellationToken)
+        {
+            LastUserId = userId;
+            LastCurrentSessionId = currentSessionId;
+            return Task.FromResult(new SessionListResult(SessionResult, []));
+        }
+        public Task<SessionOperationResult> LogoutAsync(Guid userId, Guid currentSessionId, CancellationToken cancellationToken) =>
+            Task.FromResult(SessionResult);
+        public Task<SessionOperationResult> RevokeAsync(Guid userId, Guid currentSessionId, Guid sessionId,
+            CancellationToken cancellationToken) => Task.FromResult(SessionResult);
+        public Task<SessionOperationResult> LogoutAllAsync(Guid userId, Guid currentSessionId, CancellationToken cancellationToken) =>
+            Task.FromResult(SessionResult);
     }
 }

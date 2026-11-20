@@ -9,7 +9,7 @@ Registration does not issue login access or refresh tokens.
 
 | Endpoint | Request | Result |
 | --- | --- | --- |
-| `POST /identity/register` | JSON: `email`, `username`, `password` | 201 with `userId`, `emailConfirmation`, and empty `errors`; 400 validation errors; 409 duplicate credentials |
+| `POST /identity/register` | JSON: `email`, `username`, `password` | 201 with `userId` and empty `errors` (plus `emailConfirmation` when confirmation is required); 400 validation errors; 409 duplicate credentials |
 | `GET /identity/email-confirmation` | `Authorization: Bearer <sessionToken>` | 200 with session status; 401 for missing, unknown, or expired sessions |
 | `POST /identity/email-confirmation/resend` | Same authorization header | 200 `Queued` or `EmailConfirmed`; 429 `RateLimited`; 401 invalid session |
 | `GET /identity/confirm-email?userId=...&token=...` | Link generated for the email | 200 `EmailConfirmed` or `AlreadyConfirmed`; 400 `InvalidConfirmationToken` |
@@ -41,8 +41,9 @@ links, or authorization headers. Configure proxy/access logs to omit confirmatio
 ## Persistence and processing
 
 The `identity` schema contains `EmailConfirmationSessions` and
-`EmailConfirmationDeliveries`. Registration commits the user, session, and delivery
-request in one transaction. A session uses 32 random bytes encoded as base64url;
+`EmailConfirmationDeliveries`. With auto-confirmation disabled, registration commits
+the user, session, and delivery request in one transaction. A session uses 32
+random bytes encoded as base64url;
 only its SHA-256 hash is stored. It grants status/resend access only, not application
 authentication or email confirmation. Sessions expire after 30 minutes by default.
 
@@ -84,6 +85,18 @@ Configuration section: `Identity:EmailConfirmation` (environment variables use `
 | `DeliveryWindow` | `01:00:00` (at most seven days; at least the cooldown) |
 | `MaxDeliveriesPerWindow` | `5` |
 | `ConfirmationUrl` | `https://localhost:7000/identity/confirm-email` |
+| `AutoConfirmOnRegistration` | `false` |
+
+`Identity:EmailConfirmation:AutoConfirmOnRegistration` can be set with standard
+.NET configuration, for example
+`Identity__EmailConfirmation__AutoConfirmOnRegistration=true`. It is read at
+startup and may be enabled only in `Development` or `Testing`; enabling it in
+another environment fails startup. When enabled, registration sets
+`EmailConfirmed` on the new user and commits without a confirmation session or
+email-delivery request. The 201 response omits `emailConfirmation` and does not
+contain login tokens. Login remains a separate request. Existing unconfirmed
+accounts are not changed or auto-confirmed on login. Disabling the setting does
+not reset accounts already confirmed.
 
 Set `ConfirmationUrl` to the externally reachable HTTPS confirmation endpoint before
 connecting a real provider. It is configuration-owned and never built from an incoming

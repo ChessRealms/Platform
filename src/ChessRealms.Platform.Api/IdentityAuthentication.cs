@@ -41,9 +41,17 @@ public static class IdentityAuthentication
                 {
                     OnTokenValidated = context =>
                     {
-                        if (!Guid.TryParse(context.Principal?.FindFirst("sub")?.Value, out Guid userId) || userId == Guid.Empty)
+                        System.Security.Claims.Claim[] subjects = context.Principal?.FindAll("sub").ToArray() ?? [];
+                        System.Security.Claims.Claim[] sessionIds = context.Principal?.FindAll("sid").ToArray() ?? [];
+                        if (subjects.Length != 1 || !Guid.TryParse(subjects[0].Value, out Guid userId)
+                            || userId == Guid.Empty)
                         {
                             context.Fail("Invalid subject.");
+                        }
+                        else if (sessionIds.Length != 1 || !Guid.TryParse(sessionIds[0].Value, out Guid sessionId)
+                            || sessionId == Guid.Empty)
+                        {
+                            context.Fail("Invalid session identifier.");
                         }
                         return Task.CompletedTask;
                     }
