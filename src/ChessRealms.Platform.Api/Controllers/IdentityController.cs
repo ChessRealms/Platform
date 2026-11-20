@@ -12,7 +12,8 @@ public sealed class IdentityController(
     IRegistrationService registration,
     IEmailConfirmationService confirmation,
     ILoginService login,
-    IRefreshTokenService refreshTokens) : ControllerBase
+    IRefreshTokenService refreshTokens,
+    ILoginSessionService sessions) : ControllerBase
 {
     [HttpPost("register")]
     [AllowAnonymous]
@@ -69,6 +70,29 @@ public sealed class IdentityController(
     [Authorize]
     public IActionResult Me() => Ok(new { userId = Guid.Parse(User.FindFirst("sub")!.Value) });
 
+    [HttpGet("sessions")]
+    [Authorize]
+    public async Task<IActionResult> Sessions(CancellationToken cancellationToken)
+    {
+        SessionListResult result = await sessions.ListAsync(UserId(), CurrentSessionId(), cancellationToken);
+        return result.Result == SessionOperationResult.Success ? Ok(result.Sessions) : Unauthorized();
+    }
+
+    [HttpPost("logout")]
+    [Authorize]
+    public async Task<IActionResult> Logout(CancellationToken cancellationToken) =>
+        SessionResponse(await sessions.LogoutAsync(UserId(), CurrentSessionId(), cancellationToken));
+
+    [HttpDelete("sessions/{sessionId:guid}")]
+    [Authorize]
+    public async Task<IActionResult> RevokeSession(Guid sessionId, CancellationToken cancellationToken) =>
+        SessionResponse(await sessions.RevokeAsync(UserId(), CurrentSessionId(), sessionId, cancellationToken));
+
+    [HttpPost("logout-all")]
+    [Authorize]
+    public async Task<IActionResult> LogoutAll(CancellationToken cancellationToken) =>
+        SessionResponse(await sessions.LogoutAllAsync(UserId(), CurrentSessionId(), cancellationToken));
+
     [HttpPost("refresh")]
     [AllowAnonymous]
     public async Task<IActionResult> Refresh(RefreshRequest request, CancellationToken cancellationToken)
@@ -88,6 +112,17 @@ public sealed class IdentityController(
         const string prefix = "Bearer ";
         return header.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? header[prefix.Length..] : "";
     }
+
+    private Guid UserId() => Guid.Parse(User.FindFirst("sub")!.Value);
+    private Guid CurrentSessionId() => Guid.Parse(User.FindFirst("sid")!.Value);
+
+    private IActionResult SessionResponse(SessionOperationResult result) => result switch
+    {
+        SessionOperationResult.Success => NoContent(),
+        SessionOperationResult.Unauthorized => Unauthorized(),
+        SessionOperationResult.NotFound => NotFound(),
+        _ => throw new InvalidOperationException("Unexpected session operation result.")
+    };
 
     private ObjectResult SessionResponse(ConfirmationSessionResult result) => result.Code switch
     {

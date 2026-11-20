@@ -51,8 +51,16 @@ public sealed class JwtAuthenticationTests
             Expires = DateTime.UtcNow.AddMinutes(10),
             TokenType = "at+jwt",
             SigningCredentials = credentials,
-            Claims = new Dictionary<string, object> { ["sub"] = userId.ToString(), ["jti"] = Guid.NewGuid().ToString() }
+            Claims = new Dictionary<string, object>
+            {
+                ["sub"] = userId.ToString(), ["sid"] = Guid.NewGuid().ToString(), ["jti"] = Guid.NewGuid().ToString()
+            }
         };
+        SecurityTokenDescriptor withinClockSkew = Descriptor();
+        withinClockSkew.Expires = DateTime.UtcNow.AddSeconds(-10);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", handler.CreateToken(withinClockSkew));
+        using HttpResponseMessage acceptedWithinSkew = await client.GetAsync("/protected", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, acceptedWithinSkew.StatusCode);
         List<string> invalidTokens = ["opaque-confirmation-session", "not.a.jwt"];
         foreach (Action<SecurityTokenDescriptor> mutate in new Action<SecurityTokenDescriptor>[]
         {
@@ -63,6 +71,9 @@ public sealed class JwtAuthenticationTests
             descriptor => descriptor.NotBefore = DateTime.UtcNow.AddMinutes(5),
             descriptor => descriptor.Claims["sub"] = "not-a-guid",
             descriptor => descriptor.Claims.Remove("sub"),
+            descriptor => descriptor.Claims["sid"] = "not-a-guid",
+            descriptor => descriptor.Claims["sid"] = Guid.Empty.ToString(),
+            descriptor => descriptor.Claims.Remove("sid"),
             descriptor => descriptor.SigningCredentials = new SigningCredentials(credentials.Key, SecurityAlgorithms.RsaSha512),
             descriptor => descriptor.SigningCredentials = null
         })

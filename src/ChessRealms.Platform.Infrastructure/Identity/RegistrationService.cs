@@ -5,6 +5,7 @@ using ChessRealms.Platform.Infrastructure.Identity.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.Options;
 
 using Npgsql;
 
@@ -13,7 +14,8 @@ namespace ChessRealms.Platform.Infrastructure.Identity;
 public sealed class RegistrationService(
     IdentityDbContext database,
     UserManager<PlatformUser> users,
-    EmailConfirmationService confirmation) : IRegistrationService
+    EmailConfirmationService confirmation,
+    IOptions<EmailConfirmationOptions> options) : IRegistrationService
 {
     public async Task<RegistrationResult> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken)
     {
@@ -31,7 +33,13 @@ public sealed class RegistrationService(
         }
 
         await using IDbContextTransaction transaction = await database.Database.BeginTransactionAsync(cancellationToken);
-        PlatformUser user = new() { Email = normalizedRequest.Email, UserName = normalizedRequest.Username };
+        bool autoConfirm = options.Value.AutoConfirmOnRegistration;
+        PlatformUser user = new()
+        {
+            Email = normalizedRequest.Email,
+            UserName = normalizedRequest.Username,
+            EmailConfirmed = autoConfirm
+        };
         try
         {
             IdentityResult created = await users.CreateAsync(user, normalizedRequest.Password);
@@ -41,7 +49,8 @@ public sealed class RegistrationService(
                     .Select(error => new RegistrationError(error.Code, error.Description)).ToArray());
             }
 
-            ConfirmationMetadata metadata = await confirmation.CreateSessionAsync(user.Id, cancellationToken);
+            ConfirmationMetadata? metadata = autoConfirm
+                ? null : await confirmation.CreateSessionAsync(user.Id, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return new(user.Id, metadata, []);
         }

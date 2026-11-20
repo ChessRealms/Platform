@@ -31,6 +31,7 @@ public static class IdentityLoginServiceCollectionExtensions
                 "Login session lifetime must be whole seconds between one second and 365 days.")
             .ValidateOnStart();
         services.AddScoped<RefreshTokenService>();
+        services.AddScoped<ILoginSessionService, LoginSessionService>();
         services.AddScoped<LoginSessionCleanup>();
         services.AddScoped<IRefreshTokenService>(provider => provider.GetRequiredService<RefreshTokenService>());
         services.AddSingleton<IAccessTokenIssuer, JwtAccessTokenIssuer>();

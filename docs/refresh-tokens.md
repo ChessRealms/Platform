@@ -73,14 +73,35 @@ reuse of any ancestor until the session's absolute expiration.
 Refresh checks that the user exists, has confirmed email, and has the same Identity
 SecurityStamp. A changed stamp or unconfirmed email revokes the session on refresh.
 Deleting a user cascades deletion of their sessions and refresh tokens. Temporary
-login lockout does not invalidate existing sessions. User-initiated logout, session
-listing, individual revocation, and logout-all endpoints are not implemented here.
+login lockout does not invalidate existing sessions.
 
-Access JWTs now include `sid`, the stable login-session GUID. Each issuance still
-gets a new `jti`. No per-request session lookup is added to JWT authentication:
-an already-issued JWT remains usable until its own expiration plus clock skew,
-even after session revocation or expiration. Existing JWTs without `sid` can also
-finish their lifetime; JWT verification does not require a session lookup.
+## Session management
+
+All four endpoints require `Authorization: Bearer <accessToken>`. The validated
+`sub` and `sid` claims identify the user and current session; callers cannot supply
+a user ID. No refresh token or password is required. Responses disable caching.
+
+| Endpoint | Result |
+| --- | --- |
+| `GET /identity/sessions` | 200 with the caller's usable sessions, ordered by creation time then ID; each item has `id`, `createdAt`, `expiresAt`, `isCurrent` |
+| `POST /identity/logout` | 204; revokes only the current session, including idempotent repeats and an already cleaned-up session |
+| `DELETE /identity/sessions/{sessionId}` | 204 for an own session, including an already revoked one; 404 for unknown or foreign IDs |
+| `POST /identity/logout-all` | 204; revokes all existing sessions for the caller |
+
+Listing, revoking another session, and logout-all return 401 if the caller's
+session is revoked or expired, its SecurityStamp no longer matches, or the user
+is missing or unconfirmed. Self-logout can still return 204 for an already revoked
+or expired own session. A new login after logout-all commits creates a new session.
+Revocation keeps refresh-token history until normal cleanup. Refresh and session
+management use the same user-then-session lock order, so a concurrent refresh
+cannot leave a usable refresh token after logout commits.
+
+Access JWTs include `sid`, the stable login-session GUID. Each issuance still
+gets a new `jti`. JWT authentication requires valid, nonempty `sub` and `sid`
+GUIDs. No per-request session lookup is added to JWT authentication: an
+already-issued JWT remains usable for ordinary APIs until its own expiration
+plus clock skew, even after session revocation or expiration. Refresh and
+session-management access stop after revocation.
 
 ## Configuration, migrations, and cleanup
 
