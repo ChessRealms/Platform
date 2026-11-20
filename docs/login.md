@@ -2,7 +2,7 @@
 
 ## HTTP contract
 
-`POST /identity/login` accepts JSON with `email` and `password`. Email lookup is
+`POST /api/identity/login` accepts JSON with `email` and `password`. Email lookup is
 case-insensitive and trims surrounding whitespace; passwords are not trimmed.
 
 For a confirmed user with valid credentials, the response is HTTP 200:
@@ -61,7 +61,7 @@ The email provider remains unimplemented: the placeholder reports
 `Failed / ProviderNotConfigured`. Provider delivery runs independently of the login
 response. See [registration and confirmation](registration.md).
 
-`GET /identity/me` requires `Authorization: Bearer <accessToken>` and returns the
+`GET /api/identity/me` requires `Authorization: Bearer <accessToken>` and returns the
 authenticated `userId`. It reads the validated JWT subject, not a database profile.
 Confirmation session tokens cannot authorize this endpoint. Conversely, a login JWT
 does not grant access to status/resend: those endpoints validate their opaque session.
@@ -133,10 +133,11 @@ Overlapping verification keys for seamless rotation are not implemented yet.
 
 ## Route migration and implementation boundaries
 
-The controller is now `IdentityController` under `/identity`. The former `/auth`
-routes are removed. Update clients and `Identity:EmailConfirmation:ConfirmationUrl`
-overrides, including externally generated confirmation links. Old emailed `/auth`
-links require a deployment redirect if any were issued before this change.
+The controller is now `IdentityController` under `/api/identity`. The former
+`/identity` and `/auth` routes are removed. Update clients and
+`Identity:EmailConfirmation:ConfirmationUrl` overrides, including externally
+generated confirmation links. Old emailed links require a deployment redirect
+if any were issued before this change.
 
 Application contains request/result contracts and service interfaces, with one public
 contract per file. Infrastructure implements registration, login, shared confirmation,

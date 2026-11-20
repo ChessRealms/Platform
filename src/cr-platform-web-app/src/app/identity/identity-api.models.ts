@@ -1,0 +1,68 @@
+export interface RegistrationError {
+  code: string;
+  description: string;
+}
+
+export interface ConfirmationMetadata {
+  sessionToken: string | null;
+  expiresAt: string;
+  deliveryStatus: string;
+  resendAvailableAt: string | null;
+  failureCode: string | null;
+}
+
+export interface RegistrationRequest {
+  email: string;
+  username: string;
+  password: string;
+}
+
+export interface RegistrationResult {
+  userId: string | null;
+  emailConfirmation?: ConfirmationMetadata | null;
+  errors: RegistrationError[];
+}
+
+export interface ConfirmationSessionResult {
+  code: string;
+  emailConfirmation: ConfirmationMetadata | null;
+}
+
+export interface ConfirmationResult {
+  code: string;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface LoginResult {
+  code: string;
+  accessToken: string | null;
+  tokenType: string | null;
+  expiresIn: number | null;
+  emailConfirmation: ConfirmationMetadata | null;
+  refreshToken: string | null;
+  refreshTokenExpiresAt: string | null;
+}
+
+export interface RefreshResult {
+  code: string;
+  accessToken: string | null;
+  tokenType: string | null;
+  expiresIn: number | null;
+  refreshToken: string | null;
+  refreshTokenExpiresAt: string | null;
+}
+
+export interface CurrentUser {
+  userId: string;
+}
+
+export interface LoginSession {
+  id: string;
+  createdAt: string;
+  expiresAt: string;
+  isCurrent: boolean;
+}

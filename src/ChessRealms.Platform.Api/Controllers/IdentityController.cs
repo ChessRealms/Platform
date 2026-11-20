@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace ChessRealms.Platform.Api.Controllers;
 
 [ApiController]
-[Route("identity")]
+[Route("api/identity")]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 public sealed class IdentityController(
     IRegistrationService registration,

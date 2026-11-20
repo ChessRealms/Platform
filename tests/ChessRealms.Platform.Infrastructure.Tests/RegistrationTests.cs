@@ -78,6 +78,7 @@ public sealed class RegistrationTests : IAsyncLifetime
         }
         ConfirmationEmail email = Assert.Single(_sender.Emails);
         Assert.Equal("player@example.test", email.Recipient);
+        Assert.Equal("/api/identity/confirm-email", new Uri(email.ConfirmationLink).AbsolutePath);
         string confirmationToken = QueryHelpers.ParseQuery(new Uri(email.ConfirmationLink).Query)["token"].ToString();
         Assert.NotEqual(metadata.SessionToken, confirmationToken);
         Assert.Equal("Sent", (await StatusAsync(metadata.SessionToken)).EmailConfirmation!.DeliveryStatus);

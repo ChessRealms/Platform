@@ -68,7 +68,7 @@ in [registration and email confirmation](docs/registration.md). Email delivery c
 uses a placeholder adapter and does not send actual messages.
 
 Email/password login issues RS256 JWT access tokens for confirmed users. See
-[login and JWT authentication](docs/login.md) for the `/identity` routes and required
+[login and JWT authentication](docs/login.md) for the `/api/identity` routes and required
 signing-key setup. [Rotating refresh tokens](docs/refresh-tokens.md) use persistent
 login sessions with an absolute 30-day lifetime and strict reuse detection.
 
@@ -99,7 +99,9 @@ npm run build
 npm test -- --watch=false
 ```
 
-The Angular app stays outside the .NET solution; Aspire runs it directly from its directory. Use `npm start` there to run the frontend independently at http://localhost:4200.
+The Angular app stays outside the .NET solution; Aspire runs it directly from its directory.
+To run `npm start` independently at http://localhost:4200, set the API target as
+described in the [frontend setup](src/cr-platform-web-app/README.md#api-connection).
 
 ### Continuous integration
 

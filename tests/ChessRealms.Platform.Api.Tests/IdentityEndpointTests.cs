@@ -69,11 +69,11 @@ public sealed class IdentityEndpointTests : IAsyncLifetime
     [Fact]
     public async Task RegistrationValidatesBodyAndReturnsConfirmationMetadata()
     {
-        using HttpResponseMessage invalid = await _client.PostAsJsonAsync("/identity/register", new { email = "test@example.test" }, Cancellation);
+        using HttpResponseMessage invalid = await _client.PostAsJsonAsync("/api/identity/register", new { email = "test@example.test" }, Cancellation);
         Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
         Assert.Equal(0, _services.Registrations);
 
-        using HttpResponseMessage created = await _client.PostAsJsonAsync("/identity/register",
+        using HttpResponseMessage created = await _client.PostAsJsonAsync("/api/identity/register",
             new RegisterRequest("test@example.test", "player", "Password9!"), Cancellation);
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         Assert.True(created.Headers.CacheControl!.NoStore);
@@ -85,7 +85,7 @@ public sealed class IdentityEndpointTests : IAsyncLifetime
     public async Task RegistrationCanSucceedWithoutConfirmationMetadata()
     {
         _services.AutoConfirmRegistration = true;
-        using HttpResponseMessage created = await _client.PostAsJsonAsync("/identity/register",
+        using HttpResponseMessage created = await _client.PostAsJsonAsync("/api/identity/register",
             new RegisterRequest("test@example.test", "player", "Password9!"), Cancellation);
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         string json = await created.Content.ReadAsStringAsync(Cancellation);
@@ -96,41 +96,41 @@ public sealed class IdentityEndpointTests : IAsyncLifetime
     [Fact]
     public async Task SessionRoutesRequireJwtAndDoNotUseRefreshToken()
     {
-        using HttpResponseMessage unauthenticated = await _client.GetAsync("/identity/sessions", Cancellation);
+        using HttpResponseMessage unauthenticated = await _client.GetAsync("/api/identity/sessions", Cancellation);
         Assert.Equal(HttpStatusCode.Unauthorized, unauthenticated.StatusCode);
         Guid userId = Guid.NewGuid();
         Guid sessionId = Guid.NewGuid();
         AccessToken token = _app.Services.GetRequiredService<IAccessTokenIssuer>().Issue(userId, sessionId);
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token.Value);
-        using HttpResponseMessage listing = await _client.GetAsync("/identity/sessions", Cancellation);
+        using HttpResponseMessage listing = await _client.GetAsync("/api/identity/sessions", Cancellation);
         Assert.Equal(HttpStatusCode.OK, listing.StatusCode);
         Assert.True(listing.Headers.CacheControl!.NoStore);
         Assert.Equal(userId, _services.LastUserId);
         Assert.Equal(sessionId, _services.LastCurrentSessionId);
-        using HttpResponseMessage revoked = await _client.DeleteAsync($"/identity/sessions/{Guid.NewGuid()}", Cancellation);
+        using HttpResponseMessage revoked = await _client.DeleteAsync($"/api/identity/sessions/{Guid.NewGuid()}", Cancellation);
         Assert.Equal(HttpStatusCode.NoContent, revoked.StatusCode);
-        using HttpResponseMessage all = await _client.PostAsync("/identity/logout-all", null, Cancellation);
+        using HttpResponseMessage all = await _client.PostAsync("/api/identity/logout-all", null, Cancellation);
         Assert.Equal(HttpStatusCode.NoContent, all.StatusCode);
-        using HttpResponseMessage logout = await _client.PostAsync("/identity/logout", null, Cancellation);
+        using HttpResponseMessage logout = await _client.PostAsync("/api/identity/logout", null, Cancellation);
         Assert.Equal(HttpStatusCode.NoContent, logout.StatusCode);
         _services.SessionResult = SessionOperationResult.Unauthorized;
-        using HttpResponseMessage denied = await _client.GetAsync("/identity/sessions", Cancellation);
+        using HttpResponseMessage denied = await _client.GetAsync("/api/identity/sessions", Cancellation);
         Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
-        using HttpResponseMessage ordinaryApi = await _client.GetAsync("/identity/me", Cancellation);
+        using HttpResponseMessage ordinaryApi = await _client.GetAsync("/api/identity/me", Cancellation);
         Assert.Equal(HttpStatusCode.OK, ordinaryApi.StatusCode);
     }
 
     [Fact]
     public async Task ConfirmationEndpointsUseOpaqueSessionToken()
     {
-        using HttpResponseMessage missingToken = await _client.GetAsync("/identity/email-confirmation", Cancellation);
+        using HttpResponseMessage missingToken = await _client.GetAsync("/api/identity/email-confirmation", Cancellation);
         Assert.Equal(HttpStatusCode.Unauthorized, missingToken.StatusCode);
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "session-token");
-        using HttpResponseMessage limited = await _client.PostAsync("/identity/email-confirmation/resend", null, Cancellation);
+        using HttpResponseMessage limited = await _client.PostAsync("/api/identity/email-confirmation/resend", null, Cancellation);
         Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
         Assert.Equal("session-token", _services.LastToken);
 
-        using HttpResponseMessage confirmed = await _client.GetAsync($"/identity/confirm-email?userId={Guid.NewGuid()}&token=link-token", Cancellation);
+        using HttpResponseMessage confirmed = await _client.GetAsync($"/api/identity/confirm-email?userId={Guid.NewGuid()}&token=link-token", Cancellation);
         Assert.Equal(HttpStatusCode.OK, confirmed.StatusCode);
         Assert.Equal("link-token", _services.LastToken);
         Assert.Equal("no-referrer", Assert.Single(confirmed.Headers.GetValues("Referrer-Policy")));
@@ -139,22 +139,22 @@ public sealed class IdentityEndpointTests : IAsyncLifetime
     [Fact]
     public async Task LoginAndMeRespectAuthenticationBoundaries()
     {
-        using HttpResponseMessage opaqueOnMe = await _client.GetAsync("/identity/me", Cancellation);
+        using HttpResponseMessage opaqueOnMe = await _client.GetAsync("/api/identity/me", Cancellation);
         Assert.Equal(HttpStatusCode.Unauthorized, opaqueOnMe.StatusCode);
         _client.DefaultRequestHeaders.Authorization = null;
-        using HttpResponseMessage invalidLogin = await _client.PostAsJsonAsync("/identity/login", new { email = "player@example.test" }, Cancellation);
+        using HttpResponseMessage invalidLogin = await _client.PostAsJsonAsync("/api/identity/login", new { email = "player@example.test" }, Cancellation);
         Assert.Equal(HttpStatusCode.BadRequest, invalidLogin.StatusCode);
         LoginRequest login = new("player@example.test", "Password9!");
-        using HttpResponseMessage deniedLogin = await _client.PostAsJsonAsync("/identity/login", login, Cancellation);
+        using HttpResponseMessage deniedLogin = await _client.PostAsJsonAsync("/api/identity/login", login, Cancellation);
         Assert.Equal(HttpStatusCode.Unauthorized, deniedLogin.StatusCode);
         _services.FailLogin = true;
-        using HttpResponseMessage failedLogin = await _client.PostAsJsonAsync("/identity/login", login, Cancellation);
+        using HttpResponseMessage failedLogin = await _client.PostAsJsonAsync("/api/identity/login", login, Cancellation);
         Assert.Equal(HttpStatusCode.InternalServerError, failedLogin.StatusCode);
         Assert.Equal("application/problem+json", failedLogin.Content.Headers.ContentType?.MediaType);
         Assert.DoesNotContain("Could not update login attempt state", await failedLogin.Content.ReadAsStringAsync(Cancellation));
         _services.FailLogin = false;
         _services.NextLogin = new("EmailNotConfirmed", EmailConfirmation: _services.Metadata);
-        using HttpResponseMessage unconfirmedLogin = await _client.PostAsJsonAsync("/identity/login", login, Cancellation);
+        using HttpResponseMessage unconfirmedLogin = await _client.PostAsJsonAsync("/api/identity/login", login, Cancellation);
         Assert.Equal(HttpStatusCode.Forbidden, unconfirmedLogin.StatusCode);
         Assert.Equal("session-token", (await unconfirmedLogin.Content.ReadFromJsonAsync<LoginResult>(Cancellation))!.EmailConfirmation!.SessionToken);
         Guid userId = Guid.NewGuid();
@@ -162,7 +162,7 @@ public sealed class IdentityEndpointTests : IAsyncLifetime
         DateTimeOffset refreshExpiration = DateTimeOffset.UtcNow.AddDays(30);
         _services.NextLogin = new("Success", token.Value, "Bearer", token.ExpiresIn,
             RefreshToken: "initial-refresh-token", RefreshTokenExpiresAt: refreshExpiration);
-        using HttpResponseMessage successfulLogin = await _client.PostAsJsonAsync("/identity/login", login, Cancellation);
+        using HttpResponseMessage successfulLogin = await _client.PostAsJsonAsync("/api/identity/login", login, Cancellation);
         Assert.Equal(HttpStatusCode.OK, successfulLogin.StatusCode);
         Assert.True(successfulLogin.Headers.CacheControl!.NoStore);
         LoginResult? loginResult = await successfulLogin.Content.ReadFromJsonAsync<LoginResult>(Cancellation);
@@ -171,12 +171,14 @@ public sealed class IdentityEndpointTests : IAsyncLifetime
         Assert.Equal("initial-refresh-token", loginResult.RefreshToken);
         Assert.Equal(refreshExpiration, loginResult.RefreshTokenExpiresAt);
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", loginResult.AccessToken);
-        using HttpResponseMessage me = await _client.GetAsync("/identity/me", Cancellation);
+        using HttpResponseMessage me = await _client.GetAsync("/api/identity/me", Cancellation);
         Assert.Equal(HttpStatusCode.OK, me.StatusCode);
         Dictionary<string, Guid>? identity = await me.Content.ReadFromJsonAsync<Dictionary<string, Guid>>(Cancellation);
         Assert.Equal(userId, identity!["userId"]);
         using HttpResponseMessage oldRoute = await _client.PostAsJsonAsync("/auth/login", login, Cancellation);
         Assert.Equal(HttpStatusCode.NotFound, oldRoute.StatusCode);
+        using HttpResponseMessage oldIdentityRoute = await _client.PostAsJsonAsync("/identity/login", login, Cancellation);
+        Assert.Equal(HttpStatusCode.NotFound, oldIdentityRoute.StatusCode);
     }
 
     [Fact]
@@ -186,35 +188,35 @@ public sealed class IdentityEndpointTests : IAsyncLifetime
         DateTimeOffset refreshExpiration = DateTimeOffset.UtcNow.AddDays(30);
         // Refresh is authenticated by the request token, not by a current access JWT.
         _client.DefaultRequestHeaders.Authorization = null;
-        using HttpResponseMessage missingRefresh = await _client.PostAsJsonAsync("/identity/refresh", new { }, Cancellation);
+        using HttpResponseMessage missingRefresh = await _client.PostAsJsonAsync("/api/identity/refresh", new { }, Cancellation);
         Assert.Equal(HttpStatusCode.BadRequest, missingRefresh.StatusCode);
-        using HttpResponseMessage oversizedRefresh = await _client.PostAsJsonAsync("/identity/refresh", new RefreshRequest(new string('x', 1025)), Cancellation);
+        using HttpResponseMessage oversizedRefresh = await _client.PostAsJsonAsync("/api/identity/refresh", new RefreshRequest(new string('x', 1025)), Cancellation);
         Assert.Equal(HttpStatusCode.BadRequest, oversizedRefresh.StatusCode);
         RefreshRequest refreshRequest = new("initial-refresh-token");
-        using HttpResponseMessage deniedRefresh = await _client.PostAsJsonAsync("/identity/refresh", refreshRequest, Cancellation);
+        using HttpResponseMessage deniedRefresh = await _client.PostAsJsonAsync("/api/identity/refresh", refreshRequest, Cancellation);
         Assert.Equal(HttpStatusCode.Unauthorized, deniedRefresh.StatusCode);
         Assert.Equal(new RefreshResult("InvalidRefreshToken"), await deniedRefresh.Content.ReadFromJsonAsync<RefreshResult>(Cancellation));
         _services.NextRefresh = new("Success", token.Value, "Bearer", token.ExpiresIn, "rotated-refresh-token", refreshExpiration);
-        using HttpResponseMessage successfulRefresh = await _client.PostAsJsonAsync("/identity/refresh", refreshRequest, Cancellation);
+        using HttpResponseMessage successfulRefresh = await _client.PostAsJsonAsync("/api/identity/refresh", refreshRequest, Cancellation);
         Assert.Equal(HttpStatusCode.OK, successfulRefresh.StatusCode);
         Assert.True(successfulRefresh.Headers.CacheControl!.NoStore);
         Assert.Equal(_services.NextRefresh, await successfulRefresh.Content.ReadFromJsonAsync<RefreshResult>(Cancellation));
         Assert.Equal(refreshRequest.RefreshToken, _services.LastRefreshToken);
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "expired-or-invalid-access-token");
-        using HttpResponseMessage expiredAccessRefresh = await _client.PostAsJsonAsync("/identity/refresh", refreshRequest, Cancellation);
+        using HttpResponseMessage expiredAccessRefresh = await _client.PostAsJsonAsync("/api/identity/refresh", refreshRequest, Cancellation);
         Assert.Equal(HttpStatusCode.OK, expiredAccessRefresh.StatusCode);
         _services.FailRefresh = true;
-        using HttpResponseMessage failedRefresh = await _client.PostAsJsonAsync("/identity/refresh", refreshRequest, Cancellation);
+        using HttpResponseMessage failedRefresh = await _client.PostAsJsonAsync("/api/identity/refresh", refreshRequest, Cancellation);
         Assert.Equal(HttpStatusCode.InternalServerError, failedRefresh.StatusCode);
         Assert.DoesNotContain("Simulated refresh persistence failure", await failedRefresh.Content.ReadAsStringAsync(Cancellation));
     }
 
     [Theory]
-    [InlineData("POST", "/identity/login")]
-    [InlineData("POST", "/identity/refresh")]
-    [InlineData("GET", "/identity/email-confirmation")]
-    [InlineData("POST", "/identity/email-confirmation/resend")]
-    [InlineData("GET", "/identity/confirm-email?userId=11111111-1111-1111-1111-111111111111&token=test")]
+    [InlineData("POST", "/api/identity/login")]
+    [InlineData("POST", "/api/identity/refresh")]
+    [InlineData("GET", "/api/identity/email-confirmation")]
+    [InlineData("POST", "/api/identity/email-confirmation/resend")]
+    [InlineData("GET", "/api/identity/confirm-email?userId=11111111-1111-1111-1111-111111111111&token=test")]
     public async Task UnexpectedServiceResultsAreServerErrors(string method, string path)
     {
         _services.NextLogin = new("Unexpected");
@@ -223,11 +225,11 @@ public sealed class IdentityEndpointTests : IAsyncLifetime
         _services.StatusCode = "Unexpected";
         _services.ResendCode = "Unexpected";
         using HttpRequestMessage request = new(new HttpMethod(method), path);
-        if (path == "/identity/login")
+        if (path == "/api/identity/login")
         {
             request.Content = JsonContent.Create(new LoginRequest("player@example.test", "Password9!"));
         }
-        else if (path == "/identity/refresh")
+        else if (path == "/api/identity/refresh")
         {
             request.Content = JsonContent.Create(new RefreshRequest("refresh-token"));
         }
