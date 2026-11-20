@@ -43,3 +43,20 @@ identity endpoints. Its protected methods take an access token explicitly; the
 confirmation status/resend methods take their separate opaque session token.
 The client does not store tokens or retry refresh requests. Callers can use
 `classifyIdentityApiError` to distinguish a network failure from an HTTP response.
+
+## Registration and sign in
+
+The `/register` and `/login` pages use the identity API. Successful registration
+without confirmation metadata opens sign in; registration that requires email
+confirmation shows an honest waiting message. The confirmation workflow is not
+implemented in the web app yet. In Development, AppHost enables API registration
+auto-confirmation by default so the local flow is usable without an email provider.
+Set `Identity__EmailConfirmation__AutoConfirmOnRegistration=false` on AppHost to
+test the confirmation workflow later. A standalone API keeps its default `false`;
+set the option on the API when testing these pages independently. See
+[registration configuration](../../docs/registration.md#configuration-and-deployment).
+
+Successful sign in opens a guarded `/home` placeholder. The current session is
+held only in memory: refreshing the page loses the frontend session. Token
+rotation, restoration after refresh, logout, and the full application shell are
+separate follow-up work.

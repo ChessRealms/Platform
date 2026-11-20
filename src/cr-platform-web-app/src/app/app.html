@@ -1,4 +1,14 @@
-<main>
-  <h1>ChessRealms</h1>
+<header class="site-header">
+  <a class="brand" routerLink="/home">ChessRealms</a>
+  <nav aria-label="Account navigation">
+    @if (session.hasSession()) {
+      <a routerLink="/home">Home</a>
+    } @else {
+      <a routerLink="/login">Sign in</a>
+      <a routerLink="/register">Create account</a>
+    }
+  </nav>
+</header>
+<main class="page-content">
+  <router-outlet />
 </main>
-<router-outlet />
