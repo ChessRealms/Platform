@@ -1,0 +1,53 @@
+<section class="auth-card" aria-labelledby="register-title">
+  @if (needsConfirmation()) {
+    <h1 id="register-title">Account created</h1>
+    <p>Your account needs email confirmation before you can sign in.</p>
+    <p>When your email is confirmed, return to the sign in page.</p>
+    <a class="button-link" routerLink="/login">Go to sign in</a>
+  } @else {
+    <h1 id="register-title">Create an account</h1>
+    <p class="intro">Join ChessRealms with an email address and password.</p>
+
+    @if (errors().length > 0) {
+      <div class="form-errors" role="alert">
+        <ul>
+          @for (error of errors(); track $index) {
+            <li>{{ error }}</li>
+          }
+        </ul>
+      </div>
+    }
+
+    <form [formGroup]="form" (ngSubmit)="submit()" novalidate>
+      <div class="form-field">
+        <label for="register-email">Email</label>
+        <input id="register-email" type="email" formControlName="email" autocomplete="email" maxlength="256"
+          [attr.aria-invalid]="submitted() && form.controls.email.invalid" />
+        @if (submitted() && form.controls.email.invalid) {
+          <small class="field-error">Enter a valid email address.</small>
+        }
+      </div>
+
+      <div class="form-field">
+        <label for="register-username">Username</label>
+        <input id="register-username" type="text" formControlName="username" autocomplete="username" maxlength="256"
+          [attr.aria-invalid]="submitted() && form.controls.username.invalid" />
+        @if (submitted() && form.controls.username.invalid) {
+          <small class="field-error">Enter a username.</small>
+        }
+      </div>
+
+      <div class="form-field">
+        <label for="register-password">Password</label>
+        <input id="register-password" type="password" formControlName="password" autocomplete="new-password"
+          maxlength="1024" [attr.aria-invalid]="submitted() && form.controls.password.invalid" />
+        @if (submitted() && form.controls.password.invalid) {
+          <small class="field-error">Enter a password.</small>
+        }
+      </div>
+
+      <button type="submit" [disabled]="submitting()">{{ submitting() ? 'Creating account…' : 'Create account' }}</button>
+    </form>
+    <p class="form-footer">Already have an account? <a routerLink="/login">Sign in</a></p>
+  }
+</section>

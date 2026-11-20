@@ -66,6 +66,9 @@ database. See [architecture decisions](docs/architecture.md) for boundaries and 
 Registration, confirmation sessions, status/resend, and confirmation links are described
 in [registration and email confirmation](docs/registration.md). Email delivery currently
 uses a placeholder adapter and does not send actual messages.
+For local UI development, AppHost enables registration auto-confirmation in
+Development by default; the API option itself defaults to false. See the
+[frontend registration flow](src/cr-platform-web-app/README.md#registration-and-sign-in).
 
 Email/password login issues RS256 JWT access tokens for confirmed users. See
 [login and JWT authentication](docs/login.md) for the `/api/identity` routes and required

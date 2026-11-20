@@ -1,0 +1,25 @@
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.1rem max(1rem, calc((100vw - 1080px) / 2));
+  border-bottom: 1px solid #343942;
+}
+
+.brand {
+  color: #fff;
+  font-size: 1.2rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.page-content {
+  padding: 4rem 1rem;
+}

@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Hosting;
+
 IDistributedApplicationBuilder builder = DistributedApplication.CreateBuilder(args);
 
 IResourceBuilder<PostgresDatabaseResource> database = builder.AddPostgres("postgres")
@@ -13,6 +15,12 @@ IResourceBuilder<ProjectResource> api = builder.AddProject<Projects.ChessRealms_
     .WithReference(database)
     .WaitForCompletion(migrations)
     .WithHttpHealthCheck("/health");
+
+if (builder.Environment.IsDevelopment())
+{
+    api.WithEnvironment("Identity__EmailConfirmation__AutoConfirmOnRegistration",
+        builder.Configuration["Identity:EmailConfirmation:AutoConfirmOnRegistration"] ?? "true");
+}
 
 builder.AddJavaScriptApp("web", "../../src/cr-platform-web-app", "start")
     .WithReference(api)
