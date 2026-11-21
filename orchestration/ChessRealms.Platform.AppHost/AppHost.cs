@@ -1,6 +1,13 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 
 IDistributedApplicationBuilder builder = DistributedApplication.CreateBuilder(args);
+
+bool mailpitEnabled = builder.Configuration.GetValue<bool>("Mailpit:Enabled");
+if (mailpitEnabled && !builder.Environment.IsDevelopment())
+{
+    throw new InvalidOperationException("Mailpit:Enabled is allowed only in Development.");
+}
 
 IResourceBuilder<PostgresDatabaseResource> database = builder.AddPostgres("postgres")
     .WithImageTag("18.3")
@@ -11,15 +18,48 @@ IResourceBuilder<ProjectResource> migrations = builder.AddProject<Projects.Chess
     .WithReference(database)
     .WaitFor(database);
 
-IResourceBuilder<ProjectResource> api = builder.AddProject<Projects.ChessRealms_Platform_Api>("api")
+IResourceBuilder<ProjectResource> api = (mailpitEnabled
+        ? builder.AddProject<Projects.ChessRealms_Platform_Api>("api", launchProfileName: "https")
+        : builder.AddProject<Projects.ChessRealms_Platform_Api>("api"))
     .WithReference(database)
     .WaitForCompletion(migrations)
     .WithHttpHealthCheck("/health");
 
 if (builder.Environment.IsDevelopment())
 {
-    api.WithEnvironment("Identity__EmailConfirmation__AutoConfirmOnRegistration",
-        builder.Configuration["Identity:EmailConfirmation:AutoConfirmOnRegistration"] ?? "true");
+    if (mailpitEnabled)
+    {
+        if (builder.Configuration.GetValue<bool?>("Identity:EmailConfirmation:AutoConfirmOnRegistration") is true)
+        {
+            throw new InvalidOperationException("Mailpit requires Identity:EmailConfirmation:AutoConfirmOnRegistration=false.");
+        }
+
+        IResourceBuilder<ContainerResource> mailpit = builder.AddContainer("mailpit", "axllent/mailpit", "v1.34.0")
+            .WithHttpEndpoint(targetPort: 8025, name: "http", isProxied: false)
+            .WithEndpoint(targetPort: 1025, scheme: "tcp", name: "smtp", isProxied: false)
+            .WithHttpHealthCheck("/api/v1/messages")
+            .WithEnvironment("MP_MAX_MESSAGES", "200")
+            .WithEnvironment("MP_MAX_AGE", "24h")
+            .WithEnvironment("MP_MAX_MESSAGE_SIZE", "1")
+            .WithEnvironment("MP_DISABLE_VERSION_CHECK", "true")
+            .WithEnvironment("MP_BLOCK_REMOTE_CSS_AND_FONTS", "true");
+
+        EndpointReference smtp = mailpit.GetEndpoint("smtp");
+        api.WithReference(smtp)
+            .WaitFor(mailpit)
+            .WithEnvironment("Identity__EmailConfirmation__AutoConfirmOnRegistration", "false")
+            .WithEnvironment("Identity__EmailConfirmation__Smtp__Host", smtp.Property(EndpointProperty.Host))
+            .WithEnvironment("Identity__EmailConfirmation__Smtp__Port", smtp.Property(EndpointProperty.Port))
+            .WithEnvironment("Identity__EmailConfirmation__Smtp__FromAddress", "no-reply@chessrealms.test")
+            .WithEnvironment("Identity__EmailConfirmation__Smtp__Security", "None")
+            .WithEnvironment("Identity__EmailConfirmation__ConfirmationUrl",
+                $"{api.GetEndpoint("https").Property(EndpointProperty.Url)}/api/identity/confirm-email");
+    }
+    else
+    {
+        api.WithEnvironment("Identity__EmailConfirmation__AutoConfirmOnRegistration",
+            builder.Configuration["Identity:EmailConfirmation:AutoConfirmOnRegistration"] ?? "true");
+    }
 }
 
 builder.AddJavaScriptApp("web", "../../src/cr-platform-web-app", "start")

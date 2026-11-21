@@ -54,12 +54,13 @@ timeout). This deliberately simple implementation gives at-least-once processing
 a crash after provider acceptance but before commit can result in another send.
 The future provider should use `DeliveryId` as an idempotency key where supported.
 
-The current `UnconfiguredConfirmationEmailSender` is a placeholder: it does not send
-or log email. It reports `Failed` / `ProviderNotConfigured`, never a simulated `Sent`.
-Replace `IConfirmationEmailSender` when a provider is selected. Automated tests use a
-recording sender; no live email service is called. `Sent` will mean provider acceptance,
-not inbox delivery. Provider exceptions produce `Failed` / `ProviderFailure`; users
-can resend after the cooldown. Failed deliveries are not automatically retried.
+Without SMTP configuration, `UnconfiguredConfirmationEmailSender` does not send or
+log email. It reports `Failed` / `ProviderNotConfigured`, never a simulated `Sent`.
+When SMTP is configured, the Infrastructure sender sends a plain-text confirmation
+message. `Sent` means SMTP server acceptance, not inbox delivery. Provider exceptions
+produce `Failed` / `ProviderFailure`; users can resend after the cooldown. Failed
+deliveries are not automatically retried. Business tests use a recording sender;
+the separate Mailpit pipeline test exercises real SMTP without an external provider.
 Infrastructure failures roll back processing and are retried on a later worker poll.
 
 Resend locks the user row before checking limits and inserting the request. Limits
@@ -98,6 +99,48 @@ contain login tokens. Login remains a separate request. Existing unconfirmed
 accounts are not changed or auto-confirmed on login. Disabling the setting does
 not reset accounts already confirmed.
 
+Optional SMTP configuration lives under `Identity:EmailConfirmation:Smtp`:
+
+| Setting | Requirement |
+| --- | --- |
+| `Host`, `Port` | SMTP endpoint; both required when the section is present |
+| `FromAddress` | Required sender mailbox |
+| `Security` | `StartTls` (default), `SslOnConnect`, or `None` (Development/Testing only) |
+| `Username`, `Password` | Optional pair; authentication requires TLS |
+
+The sender is provider-neutral. Do not put credentials in source control. SMTP
+configuration is validated at startup. In production, supply an HTTPS
+`ConfirmationUrl`, configure a TLS-protected SMTP provider, and protect its secrets.
+
+### Local Mailpit
+
+AppHost keeps registration auto-confirmation enabled by default in Development. To
+exercise the email workflow, set `Mailpit__Enabled=true` before starting AppHost.
+This starts a pinned Mailpit container, configures the API to use its dynamically
+allocated SMTP endpoint, sets auto-confirmation to `false`, and uses the API's
+browser-reachable HTTPS endpoint for confirmation links. An explicit conflicting
+`AutoConfirmOnRegistration=true` fails startup. Mailpit cannot be enabled outside
+Development. The Mailpit UI URL appears in the Aspire dashboard and is bound to the
+local machine; SMTP uses a dynamic host port needed by the host-based API. No relay
+or persistent Mailpit volume is configured. Use only synthetic test addresses and
+do not expose Mailpit publicly.
+
+```powershell
+$env:Mailpit__Enabled = 'true'
+dotnet run --project orchestration/ChessRealms.Platform.AppHost
+```
+
+The API endpoint returns a confirmation result as JSON after the link is opened.
+Angular confirmation and resend screens are separate work. If running the API
+without AppHost, configure both SMTP and a reachable HTTPS `ConfirmationUrl` yourself.
+
+The Mailpit pipeline test starts its own ephemeral Mailpit and PostgreSQL containers
+with Testcontainers; ordinary Identity tests use PostgreSQL and a fake sender only.
+The backend CI job runs both groups without AppHost, credentials, or a live email
+service. Testcontainers disposes resources normally and uses its Resource Reaper for
+interrupted runs. To update Mailpit, review its security advisories, pin a new image
+tag, and run the pipeline test before changing the AppHost and test image together.
+
 Set `ConfirmationUrl` to the externally reachable HTTPS confirmation endpoint before
 connecting a real provider. It is configuration-owned and never built from an incoming
 Host header. Apply the Identity migration through the existing migration worker.
@@ -113,4 +156,4 @@ Login validates credentials before creating a confirmation session, reuses the
 user-level delivery limits, and issues no JWT until email is confirmed. See
 [login and JWT authentication](login.md) for configuration and response contracts.
 Login also issues [rotating refresh tokens](refresh-tokens.md) for confirmed users.
-Angular screens and an email provider remain separate work.
+Angular confirmation screens remain separate work.

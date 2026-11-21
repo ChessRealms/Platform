@@ -1,3 +1,5 @@
+using System.Net.Mail;
+
 using ChessRealms.Platform.Application.Identity;
 using ChessRealms.Platform.Infrastructure.Identity.EmailConfirmation;
 using ChessRealms.Platform.Infrastructure.Identity.Persistence;
@@ -5,6 +7,7 @@ using ChessRealms.Platform.Infrastructure.Identity.Persistence;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -49,7 +52,33 @@ public static class DependencyInjection
         builder.Services.AddScoped<EmailConfirmationService>();
         builder.Services.AddScoped<IEmailConfirmationService>(provider => provider.GetRequiredService<EmailConfirmationService>());
         builder.Services.AddScoped<ConfirmationEmailDispatcher>();
-        builder.Services.AddSingleton<IConfirmationEmailSender, UnconfiguredConfirmationEmailSender>();
+        IConfigurationSection smtpConfiguration = builder.Configuration.GetSection("Identity:EmailConfirmation:Smtp");
+        if (smtpConfiguration.Exists())
+        {
+            builder.Services.AddOptions<SmtpEmailOptions>()
+                .Bind(smtpConfiguration)
+                .Validate(options => !string.IsNullOrWhiteSpace(options.Host)
+                    && options.Port is > 0 and <= 65535
+                    && MailAddress.TryCreate(options.FromAddress, out var sender)
+                    && sender.Address == options.FromAddress,
+                    "SMTP host, port, and sender address are required when SMTP is configured.")
+                .Validate(options => options.Security is SmtpTransportSecurity.None or SmtpTransportSecurity.StartTls
+                    or SmtpTransportSecurity.SslOnConnect,
+                    "SMTP security mode is invalid.")
+                .Validate(options => string.IsNullOrWhiteSpace(options.Username) == string.IsNullOrWhiteSpace(options.Password)
+                    && (string.IsNullOrWhiteSpace(options.Username) || options.Security != SmtpTransportSecurity.None),
+                    "SMTP credentials must be paired and require TLS.")
+                .Validate(options => builder.Environment.IsDevelopment()
+                    || builder.Environment.IsEnvironment("Testing")
+                    || options.Security != SmtpTransportSecurity.None,
+                    "SMTP requires TLS outside Development and Testing.")
+                .ValidateOnStart();
+            builder.Services.AddSingleton<IConfirmationEmailSender, SmtpConfirmationEmailSender>();
+        }
+        else
+        {
+            builder.Services.AddSingleton<IConfirmationEmailSender, UnconfiguredConfirmationEmailSender>();
+        }
 
         return builder;
     }

@@ -63,9 +63,9 @@ The isolated `Infrastructure/Identity` module provides ASP.NET Core Identity sto
 in a separate `IdentityDbContext`, using the `identity` schema in the same PostgreSQL
 database. See [architecture decisions](docs/architecture.md) for boundaries and scope.
 
-Registration, confirmation sessions, status/resend, and confirmation links are described
-in [registration and email confirmation](docs/registration.md). Email delivery currently
-uses a placeholder adapter and does not send actual messages.
+Registration, confirmation sessions, status/resend, SMTP delivery, and confirmation links
+are described in [registration and email confirmation](docs/registration.md). Without
+SMTP configuration, email delivery reports `ProviderNotConfigured`.
 For local UI development, AppHost enables registration auto-confirmation in
 Development by default; the API option itself defaults to false. See the
 [frontend registration flow](src/cr-platform-web-app/README.md#registration-and-sign-in).
@@ -86,10 +86,10 @@ dotnet build ChessRealms.Platform.slnx --no-restore
 dotnet test ChessRealms.Platform.slnx --no-build --no-restore
 ```
 
-Infrastructure tests require Docker with Linux containers. Testcontainers starts a
-temporary PostgreSQL 18.3 container and verifies migrations and Identity persistence;
-it does not use the development database or AppHost. Infrastructure tests also verify
-registration and the email workflow; API tests exercise HTTP contracts with a test service.
+Infrastructure tests require Docker with Linux containers. Testcontainers starts
+temporary PostgreSQL 18.3 containers for Identity persistence tests; the SMTP pipeline
+test also starts a temporary Mailpit container. Tests use neither the development
+database nor AppHost. API tests exercise HTTP contracts with a test service.
 Application and Domain test projects are currently empty. Package versions are centralized
 and each project has a NuGet lock file.
 
@@ -108,7 +108,7 @@ described in the [frontend setup](src/cr-platform-web-app/README.md#api-connecti
 
 ### Continuous integration
 
-The [CI workflow](.github/workflows/ci.yml) runs on every push and pull request with separate backend and frontend jobs on Ubuntu. The backend uses the SDK from `global.json`, restores with `--locked-mode`, builds, and runs tests without restoring or rebuilding. Infrastructure tests use the runner's Docker daemon for temporary PostgreSQL containers. The frontend uses Node.js 26 and the npm version from `package.json`, installs with `npm ci`, builds the development configuration, and runs Vitest without watch mode. CI does not start AppHost.
+The [CI workflow](.github/workflows/ci.yml) runs on every push and pull request with separate backend and frontend jobs on Ubuntu. The backend uses the SDK from `global.json`, restores with `--locked-mode`, builds, and runs tests without restoring or rebuilding. Infrastructure tests use the runner's Docker daemon for temporary PostgreSQL and Mailpit containers. The frontend uses Node.js 26 and the npm version from `package.json`, installs with `npm ci`, builds the development configuration, and runs Vitest without watch mode. CI does not start AppHost.
 
 ### Run locally
 
@@ -126,6 +126,11 @@ dotnet run --project orchestration/ChessRealms.Platform.AppHost
 Open the dashboard URL printed in the terminal. AppHost starts PostgreSQL with a persistent Docker volume, waits for database readiness, runs `migrations`, then starts `api` only if the worker exits successfully. Connection strings are supplied by Aspire; no database password is stored in source control. The API exposes `/openapi/v1.json`, `/health` (including database connectivity), and `/alive` in Development.
 
 AppHost also installs the frontend's npm dependencies and starts the Angular development server as `web`. Open its HTTP endpoint from the dashboard. The frontend can start independently of the backend.
+
+To test real confirmation emails locally, enable the optional Mailpit resource before
+starting AppHost with `$env:Mailpit__Enabled = 'true'`. Its local Web UI appears in the
+dashboard. AppHost then disables registration auto-confirmation and configures SMTP
+and a working HTTPS confirmation link. See [local Mailpit](docs/registration.md#local-mailpit).
 
 The worker has a two-minute timeout, configurable through `Migration__Timeout` (for example, `00:05:00`). Failure or cancellation returns a nonzero exit code and prevents the API from starting. Restart AppHost to run migrations again after changing the model.
 
