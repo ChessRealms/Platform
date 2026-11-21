@@ -1,0 +1,28 @@
+<section class="auth-card" aria-labelledby="confirm-email-title">
+  <h1 id="confirm-email-title">Confirm your email</h1>
+  @switch (state()) {
+    @case ('checking') {
+      <p role="status">Confirming your email…</p>
+    }
+    @case ('confirmed') {
+      <p class="form-success" role="status">Your email is confirmed. You can now sign in.</p>
+    }
+    @case ('already-confirmed') {
+      <p class="form-success" role="status">Your email is already confirmed. You can sign in.</p>
+    }
+    @case ('invalid') {
+      <p class="form-errors" role="alert">This confirmation link is invalid or has expired. Sign in to request a new email.</p>
+    }
+    @case ('error') {
+      <p class="form-errors" role="alert">We couldn’t confirm your email right now. Please try again.</p>
+    }
+  }
+  @if (state() !== 'checking') {
+    <div class="auth-actions">
+      @if (state() === 'error') {
+        <button type="button" (click)="confirm()">Try again</button>
+      }
+      <a class="button-link" routerLink="/login">Go to sign in</a>
+    </div>
+  }
+</section>

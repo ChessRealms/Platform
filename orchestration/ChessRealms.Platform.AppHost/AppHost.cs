@@ -25,6 +25,10 @@ IResourceBuilder<ProjectResource> api = (mailpitEnabled
     .WaitForCompletion(migrations)
     .WithHttpHealthCheck("/health");
 
+var web = builder.AddJavaScriptApp("web", "../../src/cr-platform-web-app", "start")
+    .WithReference(api)
+    .WaitFor(api);
+
 if (builder.Environment.IsDevelopment())
 {
     if (mailpitEnabled)
@@ -45,6 +49,22 @@ if (builder.Environment.IsDevelopment())
             .WithEnvironment("MP_BLOCK_REMOTE_CSS_AND_FONTS", "true");
 
         EndpointReference smtp = mailpit.GetEndpoint("smtp");
+        // Aspire manages the certificate files for this development-only endpoint.
+#pragma warning disable ASPIRECERTIFICATES001
+        web.WithHttpsEndpoint(env: "PORT")
+            .WithHttpsDeveloperCertificate()
+            .WithHttpsCertificateConfiguration(context =>
+            {
+                context.Arguments.Add("--");
+                context.Arguments.Add("--ssl");
+                context.Arguments.Add("--ssl-cert");
+                context.Arguments.Add(context.CertificatePath);
+                context.Arguments.Add("--ssl-key");
+                context.Arguments.Add(context.KeyPath);
+                return Task.CompletedTask;
+            });
+#pragma warning restore ASPIRECERTIFICATES001
+
         api.WithReference(smtp)
             .WaitFor(mailpit)
             .WithEnvironment("Identity__EmailConfirmation__AutoConfirmOnRegistration", "false")
@@ -53,7 +73,7 @@ if (builder.Environment.IsDevelopment())
             .WithEnvironment("Identity__EmailConfirmation__Smtp__FromAddress", "no-reply@chessrealms.test")
             .WithEnvironment("Identity__EmailConfirmation__Smtp__Security", "None")
             .WithEnvironment("Identity__EmailConfirmation__ConfirmationUrl",
-                $"{api.GetEndpoint("https").Property(EndpointProperty.Url)}/api/identity/confirm-email");
+                $"{web.GetEndpoint("https").Property(EndpointProperty.Url)}/confirm-email");
     }
     else
     {
@@ -62,10 +82,10 @@ if (builder.Environment.IsDevelopment())
     }
 }
 
-builder.AddJavaScriptApp("web", "../../src/cr-platform-web-app", "start")
-    .WithReference(api)
-    .WaitFor(api)
-    .WithHttpEndpoint(targetPort: 4200)
-    .WithExternalHttpEndpoints();
+if (!mailpitEnabled)
+{
+    web.WithHttpEndpoint(targetPort: 4200);
+}
+web.WithExternalHttpEndpoints();
 
 builder.Build().Run();

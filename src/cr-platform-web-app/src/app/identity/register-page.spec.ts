@@ -4,6 +4,7 @@ import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { NavigationEnd, provideRouter, Router } from '@angular/router';
 import { firstValueFrom, filter } from 'rxjs';
+import { ConfirmationSession } from './confirmation-session';
 import { RegisterPage } from './register-page';
 
 @Component({ template: '' })
@@ -19,7 +20,10 @@ describe('RegisterPage', () => {
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
-        provideRouter([{ path: 'login', component: EmptyPage }]),
+        provideRouter([
+          { path: 'login', component: EmptyPage },
+          { path: 'check-email', component: EmptyPage },
+        ]),
       ],
     });
     page = TestBed.createComponent(RegisterPage).componentInstance;
@@ -71,13 +75,10 @@ describe('RegisterPage', () => {
     expect(page.errors()).toEqual(['The Email field is required.']);
   });
 
-  it('does not claim an email was delivered when confirmation is required', () => {
-    const fixture = TestBed.createComponent(RegisterPage);
-    fixture.detectChanges();
-    fixture.componentInstance.form.setValue({
-      email: 'player@example.test', username: 'player', password: 'Password9!',
-    });
-    fixture.componentInstance.submit();
+  it('opens the waiting page with the confirmation session held in memory', async () => {
+    fillForm();
+    page.submit();
+    const navigation = firstValueFrom(router.events.pipe(filter(event => event instanceof NavigationEnd)));
     http.expectOne('/api/identity/register').flush({
       userId: 'user-id',
       errors: [],
@@ -89,12 +90,11 @@ describe('RegisterPage', () => {
         failureCode: null,
       },
     }, { status: 201, statusText: 'Created' });
-    fixture.detectChanges();
 
-    expect(fixture.componentInstance.needsConfirmation()).toBe(true);
-    expect(fixture.nativeElement.textContent).toContain('needs email confirmation');
-    expect(fixture.nativeElement.textContent).not.toContain('secret-token');
-    expect(router.url).not.toContain('registered=1');
+    await navigation;
+    expect(router.url).toBe('/check-email');
+    expect(TestBed.inject(ConfirmationSession).take()?.sessionToken).toBe('secret-token');
+    expect(page.form.controls.password.value).toBe('');
   });
 
   it('does not send invalid form data', () => {

@@ -5,6 +5,7 @@ import { TestBed } from '@angular/core/testing';
 import { NavigationEnd, provideRouter, Router } from '@angular/router';
 import { firstValueFrom, filter } from 'rxjs';
 import { AuthSession } from './auth-session';
+import { ConfirmationSession } from './confirmation-session';
 import { LoginPage } from './login-page';
 
 @Component({ template: '' })
@@ -21,7 +22,10 @@ describe('LoginPage', () => {
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
-        provideRouter([{ path: 'home', component: EmptyPage }]),
+        provideRouter([
+          { path: 'home', component: EmptyPage },
+          { path: 'check-email', component: EmptyPage },
+        ]),
       ],
     });
     page = TestBed.createComponent(LoginPage).componentInstance;
@@ -58,7 +62,22 @@ describe('LoginPage', () => {
     expect(session.isAuthenticated()).toBe(false);
   });
 
-  it('explains that an unconfirmed account cannot sign in', () => {
+  it('opens the waiting page with a confirmation session after valid credentials', async () => {
+    page.submit();
+    const navigation = firstValueFrom(router.events.pipe(filter(event => event instanceof NavigationEnd)));
+    http.expectOne('/api/identity/login').flush({
+      code: 'EmailNotConfirmed',
+      emailConfirmation: { sessionToken: 'confirmation-token' },
+    }, { status: 403, statusText: 'Forbidden' });
+
+    await navigation;
+    expect(router.url).toBe('/check-email');
+    expect(TestBed.inject(ConfirmationSession).take()?.sessionToken).toBe('confirmation-token');
+    expect(session.isAuthenticated()).toBe(false);
+    expect(page.form.controls.password.value).toBe('');
+  });
+
+  it('shows an explanation when confirmation metadata is unavailable', () => {
     page.submit();
     http.expectOne('/api/identity/login').flush({ code: 'EmailNotConfirmed' },
       { status: 403, statusText: 'Forbidden' });

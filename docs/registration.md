@@ -118,7 +118,7 @@ AppHost keeps registration auto-confirmation enabled by default in Development. 
 exercise the email workflow, set `Mailpit__Enabled=true` before starting AppHost.
 This starts a pinned Mailpit container, configures the API to use its dynamically
 allocated SMTP endpoint, sets auto-confirmation to `false`, and uses the API's
-browser-reachable HTTPS endpoint for confirmation links. An explicit conflicting
+browser-reachable HTTPS endpoint of the Angular app for confirmation links. An explicit conflicting
 `AutoConfirmOnRegistration=true` fails startup. Mailpit cannot be enabled outside
 Development. The Mailpit UI URL appears in the Aspire dashboard and is bound to the
 local machine; SMTP uses a dynamic host port needed by the host-based API. No relay
@@ -126,13 +126,19 @@ or persistent Mailpit volume is configured. Use only synthetic test addresses an
 do not expose Mailpit publicly.
 
 ```powershell
+dotnet dev-certs https --trust
 $env:Mailpit__Enabled = 'true'
 dotnet run --project orchestration/ChessRealms.Platform.AppHost
 ```
 
-The API endpoint returns a confirmation result as JSON after the link is opened.
-Angular confirmation and resend screens are separate work. If running the API
-without AppHost, configure both SMTP and a reachable HTTPS `ConfirmationUrl` yourself.
+Open the `web` endpoint in the Aspire dashboard and register a test account.
+The waiting page checks delivery and confirmation status while its tab is visible
+and enables resend at the time returned by the API. Open the link from the Mailpit
+message to confirm the address in Angular, then sign in. The API keeps its JSON
+confirmation endpoint for the Angular client.
+
+When running the API without AppHost, configure SMTP and set `ConfirmationUrl` to
+the browser-reachable HTTPS URL of the frontend's `/confirm-email` route.
 
 The Mailpit pipeline test starts its own ephemeral Mailpit and PostgreSQL containers
 with Testcontainers; ordinary Identity tests use PostgreSQL and a fake sender only.
@@ -141,7 +147,7 @@ service. Testcontainers disposes resources normally and uses its Resource Reaper
 interrupted runs. To update Mailpit, review its security advisories, pin a new image
 tag, and run the pipeline test before changing the AppHost and test image together.
 
-Set `ConfirmationUrl` to the externally reachable HTTPS confirmation endpoint before
+Set `ConfirmationUrl` to the externally reachable HTTPS confirmation page before
 connecting a real provider. It is configuration-owned and never built from an incoming
 Host header. Apply the Identity migration through the existing migration worker.
 
@@ -156,4 +162,3 @@ Login validates credentials before creating a confirmation session, reuses the
 user-level delivery limits, and issues no JWT until email is confirmed. See
 [login and JWT authentication](login.md) for configuration and response contracts.
 Login also issues [rotating refresh tokens](refresh-tokens.md) for confirmed users.
-Angular confirmation screens remain separate work.

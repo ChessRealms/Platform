@@ -4,6 +4,7 @@ import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angula
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
 import { AuthSession } from './auth-session';
+import { ConfirmationSession } from './confirmation-session';
 import { IdentityApiClient } from './identity-api.client';
 
 @Component({
@@ -14,6 +15,7 @@ export class LoginPage {
   private readonly api = inject(IdentityApiClient);
   private readonly router = inject(Router);
   private readonly session = inject(AuthSession);
+  private readonly confirmation = inject(ConfirmationSession);
   private readonly route = inject(ActivatedRoute);
 
   readonly registered = this.route.snapshot.queryParamMap.get('registered') === '1';
@@ -52,7 +54,16 @@ export class LoginPage {
           this.form.controls.password.reset();
           void this.router.navigate(['/home']);
         },
-        error: error => this.errorMessage.set(this.messageFor(error)),
+        error: error => {
+          if (error instanceof HttpErrorResponse && error.status === 403
+            && error.error?.code === 'EmailNotConfirmed' && error.error.emailConfirmation?.sessionToken) {
+            this.form.controls.password.reset();
+            this.confirmation.start(error.error.emailConfirmation);
+            void this.router.navigate(['/check-email']);
+            return;
+          }
+          this.errorMessage.set(this.messageFor(error));
+        },
       });
   }
 

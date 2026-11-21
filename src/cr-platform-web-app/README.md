@@ -46,17 +46,15 @@ The client does not store tokens or retry refresh requests. Callers can use
 
 ## Registration and sign in
 
-The `/register` and `/login` pages use the identity API. Successful registration
-without confirmation metadata opens sign in; registration that requires email
-confirmation shows an honest waiting message. The confirmation workflow is not
-implemented in the web app yet. In Development, AppHost enables API registration
-auto-confirmation by default so the local flow is usable without an email provider.
-Set `Identity__EmailConfirmation__AutoConfirmOnRegistration=false` on AppHost to
-test the confirmation workflow, or enable `Mailpit__Enabled=true` to configure a
-local SMTP catcher and disable auto-confirmation automatically. A standalone API
-keeps its default `false`;
-set the option on the API when testing these pages independently. See
-[registration configuration](../../docs/registration.md#configuration-and-deployment).
+The `/register` and `/login` pages open `/check-email` when the API requires
+confirmation. That page checks status and offers resend when the server permits it.
+The confirmation session is held in memory. Sign in again if you reload the page
+or the session expires. A link from the email opens `/confirm-email` in any browser
+and can be used independently of the waiting page.
+
+AppHost enables registration auto-confirmation by default in Development.
+Set `Mailpit__Enabled=true` to enable local delivery and start the Angular app over
+HTTPS. For setup and verification, see [local Mailpit](../../docs/registration.md#local-mailpit).
 
 Successful sign in opens a guarded `/home` placeholder. The current session is
 held only in memory: refreshing the page loses the frontend session. Token

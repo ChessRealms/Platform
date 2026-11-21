@@ -140,6 +140,12 @@ form button {
   color: #b1b9c5;
 }
 
+.auth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
 @media (max-width: 520px) {
   .site-header {
     align-items: flex-start;
