@@ -5,15 +5,30 @@ IDistributedApplicationBuilder builder = DistributedApplication.CreateBuilder(ar
 
 bool mailpitEnabled = builder.Configuration.GetValue<bool>("Mailpit:Enabled");
 bool development = builder.Environment.IsDevelopment();
+string? e2eRunId = builder.Configuration["IdentityE2E:RunId"];
 if (mailpitEnabled && !development)
 {
     throw new InvalidOperationException("Mailpit:Enabled is allowed only in Development.");
 }
 
-IResourceBuilder<PostgresDatabaseResource> database = builder.AddPostgres("postgres")
-    .WithImageTag("18.3")
-    .WithDataVolume()
-    .AddDatabase("platform");
+if (e2eRunId is not null && (!development || !mailpitEnabled || !Guid.TryParseExact(e2eRunId, "N", out _)))
+{
+    throw new InvalidOperationException("Identity E2E requires Development, Mailpit, and a valid run ID.");
+}
+
+var postgres = builder.AddPostgres("postgres").WithImageTag("18.3");
+string? e2eLabel = e2eRunId is null ? null : $"org.chessrealms.identity-e2e={e2eRunId}";
+if (e2eLabel is null)
+{
+    postgres.WithDataVolume();
+}
+else
+{
+    // Override the image's default volume so the test leaves no anonymous volume.
+    postgres.WithContainerRuntimeArgs("--label", e2eLabel, "--tmpfs", "/var/lib/postgresql");
+}
+
+IResourceBuilder<PostgresDatabaseResource> database = postgres.AddDatabase("platform");
 
 IResourceBuilder<ProjectResource> migrations = builder.AddProject<Projects.ChessRealms_Platform_MigrationWorker>("migrations")
     .WithReference(database)
@@ -48,6 +63,11 @@ if (development)
         });
 #pragma warning restore ASPIRECERTIFICATES001
 
+    if (e2eLabel is not null)
+    {
+        web.WithNpm(install: false).WithHttpHealthCheck("/login", endpointName: "https");
+    }
+
     if (mailpitEnabled)
     {
         if (builder.Configuration.GetValue<bool?>("Identity:EmailConfirmation:AutoConfirmOnRegistration") is true)
@@ -64,6 +84,10 @@ if (development)
             .WithEnvironment("MP_MAX_MESSAGE_SIZE", "1")
             .WithEnvironment("MP_DISABLE_VERSION_CHECK", "true")
             .WithEnvironment("MP_BLOCK_REMOTE_CSS_AND_FONTS", "true");
+        if (e2eLabel is not null)
+        {
+            mailpit.WithContainerRuntimeArgs("--label", e2eLabel);
+        }
 
         EndpointReference smtp = mailpit.GetEndpoint("smtp");
         api.WithReference(smtp)
