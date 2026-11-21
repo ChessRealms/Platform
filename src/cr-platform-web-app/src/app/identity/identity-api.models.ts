@@ -37,22 +37,12 @@ export interface LoginRequest {
   password: string;
 }
 
-export interface LoginResult {
+export interface WebSessionResult {
   code: string;
   accessToken: string | null;
   tokenType: string | null;
   expiresIn: number | null;
-  emailConfirmation: ConfirmationMetadata | null;
-  refreshToken: string | null;
-  refreshTokenExpiresAt: string | null;
-}
-
-export interface RefreshResult {
-  code: string;
-  accessToken: string | null;
-  tokenType: string | null;
-  expiresIn: number | null;
-  refreshToken: string | null;
+  emailConfirmation?: ConfirmationMetadata | null;
   refreshTokenExpiresAt: string | null;
 }
 

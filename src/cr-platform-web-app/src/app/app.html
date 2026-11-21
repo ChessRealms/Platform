@@ -3,7 +3,7 @@
   <nav aria-label="Account navigation">
     @if (session.hasSession()) {
       <a routerLink="/home">Home</a>
-    } @else {
+    } @else if (session.state() !== 'checking') {
       <a routerLink="/login">Sign in</a>
       <a routerLink="/register">Create account</a>
     }

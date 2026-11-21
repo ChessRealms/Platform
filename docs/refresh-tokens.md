@@ -38,8 +38,32 @@ with a token longer than 1024 characters fail HTTP model validation with 400.
 Storage/signing failures use the API's generic 500 Problem Details response.
 Responses disable caching. Never log request/response token values.
 
-Tokens use JSON transport; cookies and browser storage are not introduced here.
-Frontend storage and cross-tab refresh coordination remain separate work.
+These endpoints use JSON transport for clients that manage their own refresh
+credentials. Angular uses the browser-specific transport below.
+
+## Browser transport
+
+Angular sends relative requests to the same origin under `/api/identity/web`.
+`POST /login` accepts the same credentials as the JSON endpoint.
+`POST /refresh` reads the refresh cookie and uses an empty request body. Both
+return the short-lived bearer access token in JSON and write the refresh token
+through `Set-Cookie`. Unconfirmed login still returns its email confirmation
+metadata and no refresh cookie. An invalid refresh clears the cookie.
+
+The host-only refresh cookie is scoped to `/api/identity/web`. It has `HttpOnly`,
+`Secure`, `SameSite=Lax` and an expiry equal to the server session's absolute
+deadline. Angular holds access tokens in memory. Its cross-tab state in
+`localStorage` contains only coordination markers. All web session POSTs require a
+custom request header and reject cross-origin Fetch Metadata. Keep these endpoints
+same-origin at the browser-facing host, with cross-origin CORS access disabled.
+
+`POST /logout` and `POST /logout-all` under the same prefix require the access
+JWT. They use the existing revocation operations and clear the cookie after
+success. The access JWT lifetime and server revocation semantics below still apply.
+
+Angular uses Web Locks to serialize login, refresh and logout across tabs on the
+same origin. After an interrupted refresh with an unknown outcome, it asks the
+user to sign in again. This avoids replaying a potentially consumed refresh token.
 
 ## Rotation and strict reuse detection
 

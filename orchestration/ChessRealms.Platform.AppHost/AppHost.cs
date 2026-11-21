@@ -4,7 +4,8 @@ using Microsoft.Extensions.Hosting;
 IDistributedApplicationBuilder builder = DistributedApplication.CreateBuilder(args);
 
 bool mailpitEnabled = builder.Configuration.GetValue<bool>("Mailpit:Enabled");
-if (mailpitEnabled && !builder.Environment.IsDevelopment())
+bool development = builder.Environment.IsDevelopment();
+if (mailpitEnabled && !development)
 {
     throw new InvalidOperationException("Mailpit:Enabled is allowed only in Development.");
 }
@@ -18,7 +19,7 @@ IResourceBuilder<ProjectResource> migrations = builder.AddProject<Projects.Chess
     .WithReference(database)
     .WaitFor(database);
 
-IResourceBuilder<ProjectResource> api = (mailpitEnabled
+IResourceBuilder<ProjectResource> api = (development
         ? builder.AddProject<Projects.ChessRealms_Platform_Api>("api", launchProfileName: "https")
         : builder.AddProject<Projects.ChessRealms_Platform_Api>("api"))
     .WithReference(database)
@@ -29,8 +30,24 @@ var web = builder.AddJavaScriptApp("web", "../../src/cr-platform-web-app", "star
     .WithReference(api)
     .WaitFor(api);
 
-if (builder.Environment.IsDevelopment())
+if (development)
 {
+    // Aspire manages the certificate files for the local Angular HTTPS endpoint.
+#pragma warning disable ASPIRECERTIFICATES001
+    web.WithHttpsEndpoint(env: "PORT")
+        .WithHttpsDeveloperCertificate()
+        .WithHttpsCertificateConfiguration(context =>
+        {
+            context.Arguments.Add("--");
+            context.Arguments.Add("--ssl");
+            context.Arguments.Add("--ssl-cert");
+            context.Arguments.Add(context.CertificatePath);
+            context.Arguments.Add("--ssl-key");
+            context.Arguments.Add(context.KeyPath);
+            return Task.CompletedTask;
+        });
+#pragma warning restore ASPIRECERTIFICATES001
+
     if (mailpitEnabled)
     {
         if (builder.Configuration.GetValue<bool?>("Identity:EmailConfirmation:AutoConfirmOnRegistration") is true)
@@ -49,22 +66,6 @@ if (builder.Environment.IsDevelopment())
             .WithEnvironment("MP_BLOCK_REMOTE_CSS_AND_FONTS", "true");
 
         EndpointReference smtp = mailpit.GetEndpoint("smtp");
-        // Aspire manages the certificate files for this development-only endpoint.
-#pragma warning disable ASPIRECERTIFICATES001
-        web.WithHttpsEndpoint(env: "PORT")
-            .WithHttpsDeveloperCertificate()
-            .WithHttpsCertificateConfiguration(context =>
-            {
-                context.Arguments.Add("--");
-                context.Arguments.Add("--ssl");
-                context.Arguments.Add("--ssl-cert");
-                context.Arguments.Add(context.CertificatePath);
-                context.Arguments.Add("--ssl-key");
-                context.Arguments.Add(context.KeyPath);
-                return Task.CompletedTask;
-            });
-#pragma warning restore ASPIRECERTIFICATES001
-
         api.WithReference(smtp)
             .WaitFor(mailpit)
             .WithEnvironment("Identity__EmailConfirmation__AutoConfirmOnRegistration", "false")
@@ -82,7 +83,7 @@ if (builder.Environment.IsDevelopment())
     }
 }
 
-if (!mailpitEnabled)
+if (!development)
 {
     web.WithHttpEndpoint(targetPort: 4200);
 }

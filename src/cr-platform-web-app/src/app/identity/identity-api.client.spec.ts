@@ -35,15 +35,17 @@ describe('IdentityApiClient', () => {
 
   it('keeps refresh and login requests separate from bearer-authenticated requests', () => {
     client.login({ email: 'player@example.test', password: 'Password9!' }).subscribe();
-    const login = http.expectOne('/api/identity/login');
+    const login = http.expectOne('/api/identity/web/login');
     expect(login.request.headers.has('Authorization')).toBe(false);
+    expect(login.request.headers.get('X-ChessRealms-Web')).toBe('1');
     login.flush({ code: 'Success' });
 
-    client.refresh('refresh-secret').subscribe();
-    const refresh = http.expectOne('/api/identity/refresh');
+    client.refresh().subscribe();
+    const refresh = http.expectOne('/api/identity/web/refresh');
     expect(refresh.request.method).toBe('POST');
-    expect(refresh.request.body).toEqual({ refreshToken: 'refresh-secret' });
+    expect(refresh.request.body).toBeNull();
     expect(refresh.request.headers.has('Authorization')).toBe(false);
+    expect(refresh.request.headers.get('X-ChessRealms-Web')).toBe('1');
     refresh.flush({ code: 'Success' });
 
     client.sessions('access-secret').subscribe();
@@ -79,9 +81,10 @@ describe('IdentityApiClient', () => {
     me.flush({ userId: 'user-id' });
 
     client.logout('access-secret').subscribe();
-    const logout = http.expectOne('/api/identity/logout');
+    const logout = http.expectOne('/api/identity/web/logout');
     expect(logout.request.method).toBe('POST');
     expect(logout.request.headers.get('Authorization')).toBe('Bearer access-secret');
+    expect(logout.request.headers.get('X-ChessRealms-Web')).toBe('1');
     logout.flush(null, { status: 204, statusText: 'No Content' });
 
     client.revokeSession('access-secret', 'session-id').subscribe();
@@ -91,9 +94,10 @@ describe('IdentityApiClient', () => {
     revoke.flush(null, { status: 204, statusText: 'No Content' });
 
     client.logoutAll('access-secret').subscribe();
-    const logoutAll = http.expectOne('/api/identity/logout-all');
+    const logoutAll = http.expectOne('/api/identity/web/logout-all');
     expect(logoutAll.request.method).toBe('POST');
     expect(logoutAll.request.headers.get('Authorization')).toBe('Bearer access-secret');
+    expect(logoutAll.request.headers.get('X-ChessRealms-Web')).toBe('1');
     logoutAll.flush(null, { status: 204, statusText: 'No Content' });
   });
 
@@ -109,7 +113,7 @@ describe('IdentityApiClient', () => {
     client.login({ email: 'player@example.test', password: 'Password9!' }).subscribe({
       error: error => httpFailure = classifyIdentityApiError(error),
     });
-    http.expectOne('/api/identity/login').flush({ code: 'InvalidCredentials' },
+    http.expectOne('/api/identity/web/login').flush({ code: 'InvalidCredentials' },
       { status: 401, statusText: 'Unauthorized' });
     expect(httpFailure).toEqual({ kind: 'http', status: 401 });
   });

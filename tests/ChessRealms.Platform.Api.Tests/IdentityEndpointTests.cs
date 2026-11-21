@@ -13,6 +13,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
+using SetCookieHeaderValue = Microsoft.Net.Http.Headers.SetCookieHeaderValue;
+
 using Xunit;
 
 namespace ChessRealms.Platform.Api.Tests;
@@ -211,6 +213,125 @@ public sealed class IdentityEndpointTests : IAsyncLifetime
         Assert.DoesNotContain("Simulated refresh persistence failure", await failedRefresh.Content.ReadAsStringAsync(Cancellation));
     }
 
+    [Fact]
+    public async Task WebLoginAndRefreshUseOnlyTheCookieForRefreshCredentials()
+    {
+        DateTimeOffset expires = DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.AddDays(30).ToUnixTimeSeconds());
+        LoginRequest login = new("player@example.test", "Password9!");
+        _services.NextLogin = new("EmailNotConfirmed", EmailConfirmation: _services.Metadata);
+        using HttpResponseMessage unconfirmed = await WebPostAsync("login", body: login);
+        Assert.Equal(HttpStatusCode.Forbidden, unconfirmed.StatusCode);
+        Assert.False(unconfirmed.Headers.Contains("Set-Cookie"));
+        Assert.Equal("session-token", (await unconfirmed.Content.ReadFromJsonAsync<LoginResult>(Cancellation))!.EmailConfirmation!.SessionToken);
+
+        _services.NextLogin = new("Success", "access-token", "Bearer", 600,
+            RefreshToken: "initial-refresh-token", RefreshTokenExpiresAt: expires);
+        using HttpResponseMessage loginResponse = await WebPostAsync("login", body: login);
+        await AssertWebCredentialsAsync(loginResponse, "initial-refresh-token", expires);
+
+        using HttpResponseMessage jsonOnly = await WebPostAsync("refresh", body: new RefreshRequest("initial-refresh-token"));
+        Assert.Equal(HttpStatusCode.Unauthorized, jsonOnly.StatusCode);
+        Assert.Null(_services.LastRefreshToken);
+
+        _services.NextRefresh = new("Success", "access-token", "Bearer", 600, "rotated-refresh-token", expires);
+        using HttpResponseMessage refresh = await WebPostAsync("refresh", cookie: "initial-refresh-token");
+        Assert.Equal("initial-refresh-token", _services.LastRefreshToken);
+        await AssertWebCredentialsAsync(refresh, "rotated-refresh-token", expires);
+
+        _services.NextRefresh = new("InvalidRefreshToken");
+        using HttpResponseMessage denied = await WebPostAsync("refresh", cookie: "rotated-refresh-token");
+        Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
+        AssertClearedCookie(denied);
+    }
+
+    [Theory]
+    [InlineData("logout")]
+    [InlineData("logout-all")]
+    public async Task WebLogoutRequiresBearerAndClearsCookieAfterRevocation(string route)
+    {
+        using HttpResponseMessage unauthenticated = await WebPostAsync(route, cookie: "refresh-token");
+        Assert.Equal(HttpStatusCode.Unauthorized, unauthenticated.StatusCode);
+        Assert.False(unauthenticated.Headers.Contains("Set-Cookie"));
+
+        Guid userId = Guid.NewGuid();
+        Guid sessionId = Guid.NewGuid();
+        AccessToken token = _app.Services.GetRequiredService<IAccessTokenIssuer>().Issue(userId, sessionId);
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token.Value);
+        using HttpResponseMessage logout = await WebPostAsync(route, cookie: "refresh-token");
+        Assert.Equal(HttpStatusCode.NoContent, logout.StatusCode);
+        Assert.Equal((userId, sessionId, route), (_services.LastUserId, _services.LastCurrentSessionId, _services.LastLogout));
+        AssertClearedCookie(logout);
+    }
+
+    [Theory]
+    [InlineData(false, null)]
+    [InlineData(true, "cross-site")]
+    [InlineData(true, "same-site")]
+    public async Task WebRefreshRejectsCrossOriginAndSimpleRequests(bool sendHeader, string? site)
+    {
+        using HttpResponseMessage response = await WebPostAsync("refresh", cookie: "refresh-token",
+            sendHeader: sendHeader, site: site);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Null(_services.LastRefreshToken);
+        Assert.False(response.Headers.Contains("Set-Cookie"));
+    }
+
+    private async Task<HttpResponseMessage> WebPostAsync(string route, object? body = null, string? cookie = null,
+        bool sendHeader = true, string? site = "same-origin")
+    {
+        using HttpRequestMessage request = new(HttpMethod.Post, "/api/identity/web/" + route);
+        if (sendHeader)
+        {
+            request.Headers.Add("X-ChessRealms-Web", "1");
+        }
+        if (site is not null)
+        {
+            request.Headers.Add("Sec-Fetch-Site", site);
+        }
+        if (cookie is not null)
+        {
+            request.Headers.Add("Cookie", "__Secure-ChessRealms.Refresh=" + cookie);
+        }
+        if (body is not null)
+        {
+            request.Content = JsonContent.Create(body);
+        }
+        return await _client.SendAsync(request, Cancellation);
+    }
+
+    private async Task AssertWebCredentialsAsync(HttpResponseMessage response, string expectedCookieValue,
+        DateTimeOffset expires)
+    {
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.CacheControl!.NoStore);
+        SetCookieHeaderValue cookie = ReadWebCookie(response);
+        Assert.Equal(expectedCookieValue, cookie.Value.Value);
+        Assert.Equal(expires, cookie.Expires);
+        string json = await response.Content.ReadAsStringAsync(Cancellation);
+        Assert.DoesNotContain("\"refreshToken\"", json);
+        Assert.DoesNotContain(expectedCookieValue, json);
+        Assert.Equal("access-token", (await response.Content.ReadFromJsonAsync<RefreshResult>(Cancellation))!.AccessToken);
+    }
+
+    private static SetCookieHeaderValue ReadWebCookie(HttpResponseMessage response)
+    {
+        SetCookieHeaderValue cookie = SetCookieHeaderValue.Parse(Assert.Single(response.Headers.GetValues("Set-Cookie")));
+        Assert.Equal("__Secure-ChessRealms.Refresh", cookie.Name.Value);
+        Assert.Equal("/api/identity/web", cookie.Path.Value);
+        Assert.False(cookie.Domain.HasValue);
+        Assert.True(cookie.HttpOnly);
+        Assert.True(cookie.Secure);
+        Assert.Equal(Microsoft.Net.Http.Headers.SameSiteMode.Lax, cookie.SameSite);
+        return cookie;
+    }
+
+    private static void AssertClearedCookie(HttpResponseMessage response)
+    {
+        SetCookieHeaderValue cookie = ReadWebCookie(response);
+        Assert.Equal(0, cookie.Value.Length);
+        Assert.True(cookie.Expires < DateTimeOffset.UtcNow);
+    }
+
     [Theory]
     [InlineData("POST", "/api/identity/login")]
     [InlineData("POST", "/api/identity/refresh")]
@@ -265,6 +386,7 @@ public sealed class IdentityEndpointTests : IAsyncLifetime
         public Guid LastUserId { get; private set; }
         public Guid LastCurrentSessionId { get; private set; }
         public SessionOperationResult SessionResult { get; set; } = SessionOperationResult.Success;
+        public string? LastLogout { get; private set; }
         public string? LastToken { get; private set; }
         public Task<RegistrationResult> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken)
         {
@@ -291,10 +413,18 @@ public sealed class IdentityEndpointTests : IAsyncLifetime
             return Task.FromResult(new SessionListResult(SessionResult, []));
         }
         public Task<SessionOperationResult> LogoutAsync(Guid userId, Guid currentSessionId, CancellationToken cancellationToken) =>
-            Task.FromResult(SessionResult);
+            RecordLogout(userId, currentSessionId, "logout");
         public Task<SessionOperationResult> RevokeAsync(Guid userId, Guid currentSessionId, Guid sessionId,
             CancellationToken cancellationToken) => Task.FromResult(SessionResult);
         public Task<SessionOperationResult> LogoutAllAsync(Guid userId, Guid currentSessionId, CancellationToken cancellationToken) =>
-            Task.FromResult(SessionResult);
+            RecordLogout(userId, currentSessionId, "logout-all");
+
+        private Task<SessionOperationResult> RecordLogout(Guid userId, Guid sessionId, string operation)
+        {
+            LastUserId = userId;
+            LastCurrentSessionId = sessionId;
+            LastLogout = operation;
+            return Task.FromResult(SessionResult);
+        }
     }
 }
