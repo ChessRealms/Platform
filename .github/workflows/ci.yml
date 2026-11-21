@@ -46,3 +46,53 @@ jobs:
         run: npm run build -- --configuration development
       - name: Test
         run: npm test -- --watch=false
+
+  identity-e2e:
+    name: Identity browser smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      E2E_PROJECT: tests/ChessRealms.Platform.Identity.E2E.Tests/ChessRealms.Platform.Identity.E2E.Tests.csproj
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '26'
+          cache: npm
+          cache-dependency-path: src/cr-platform-web-app/package-lock.json
+      - name: Set up npm and restore frontend dependencies
+        working-directory: src/cr-platform-web-app
+        run: |
+          npm install --global "$(node -p "require('./package.json').packageManager")"
+          npm ci
+      - name: Restore and build browser tests
+        run: |
+          dotnet restore "$E2E_PROJECT" --locked-mode
+          dotnet build "$E2E_PROJECT" --no-restore
+      - name: Install headless Chromium
+        run: pwsh tests/ChessRealms.Platform.Identity.E2E.Tests/bin/Debug/net10.0/playwright.ps1 install --with-deps --only-shell chromium
+      - name: Trust the development certificate for Aspire health checks
+        run: |
+          cert_dir="$RUNNER_TEMP/identity-e2e-https"
+          mkdir -p "$cert_dir"
+          dotnet dev-certs https --export-path "$cert_dir/aspnetcore.pem" --format PEM
+          openssl rehash "$cert_dir"
+          export SSL_CERT_DIR="$cert_dir:${SSL_CERT_DIR:-/usr/lib/ssl/certs}"
+          openssl verify "$cert_dir/aspnetcore.pem"
+          echo "SSL_CERT_DIR=$SSL_CERT_DIR" >> "$GITHUB_ENV"
+      - name: Assign run ID
+        shell: pwsh
+        run: |
+          "CHESSREALMS_IDENTITY_E2E_RUN_ID=$([Guid]::NewGuid().ToString('N'))" >> $env:GITHUB_ENV
+      - name: Run Identity browser smoke test
+        shell: pwsh
+        run: ./scripts/test-identity-e2e.ps1
+      - name: Verify container cleanup
+        if: ${{ always() && env.CHESSREALMS_IDENTITY_E2E_RUN_ID != '' }}
+        shell: pwsh
+        run: ./scripts/test-identity-e2e.ps1 -CleanupOnly
