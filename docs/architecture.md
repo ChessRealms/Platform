@@ -33,10 +33,10 @@ Rotation is transactional; reuse revokes the whole session without a grace perio
 Existing access JWTs remain valid until expiration plus clock skew.
 Google login is optional and can be added later.
 
-Registration and email confirmation expose HTTP endpoints backed by application
-contracts and the isolated Identity implementation. Opaque confirmation sessions and
-durable email requests live in PostgreSQL. The API worker processes requests through
-a placeholder email adapter until a provider is selected. See
+Registration, email confirmation, and password recovery expose HTTP endpoints backed
+by application contracts and the isolated Identity implementation. Opaque confirmation
+sessions and durable email requests live in PostgreSQL. The API worker sends them through
+the configured SMTP adapter. Mailpit provides SMTP for local development. See
 [registration and confirmation](registration.md) for contracts, limits, and deployment
 requirements. Login uses email/password, Identity lockout, and RS256 JWT access tokens.
 The API validates JWT signatures, issuer, audience, type, algorithm, and lifetime.
@@ -44,8 +44,10 @@ Application endpoints use the `/api` prefix; operational health and OpenAPI
 endpoints retain their conventional paths.
 See [login and JWT authentication](login.md) for key configuration and scope.
 See [refresh tokens and sessions](refresh-tokens.md) for storage, concurrency, and cleanup.
-Session management endpoints are available. Password reset and the Angular
-authentication flows remain subsequent work.
+Session management endpoints are available. Angular supports registration, email
+confirmation, sign-in, session restoration, sign-out, and password recovery.
+Password reset changes the security stamp and revokes login sessions in the same
+transaction. See [password recovery](password-reset.md) for delivery and configuration.
 
 ## Identity code navigation and errors
 
@@ -56,7 +58,8 @@ the tests that use them. Infrastructure is grouped by responsibility:
 | --- | --- |
 | Root services | Registration and login orchestration, Identity registration |
 | `IdentityLoginServiceCollectionExtensions.cs` | API-only login, JWT, and session service registration |
-| `EmailConfirmation/` | Confirmation sessions, email dispatch, sender contract, placeholder, worker |
+| `EmailConfirmation/` | Confirmation sessions and dispatch, SMTP transport, identity email worker |
+| `PasswordReset/` | Reset token provider, password recovery, and reset email dispatch |
 | `Sessions/` | Refresh rotation, session configuration and cleanup |
 | `Jwt/` | Signing keys, JWT settings and issuance |
 | `Tokens/OpaqueToken.cs` | Shared random token generation and hashing; each purpose has its own store |
@@ -68,12 +71,10 @@ statuses; an unknown result is a programming error and becomes generic 500 Probl
 Details. Unexpected database or Identity update failures also propagate to the API's
 exception handler instead of being misreported as invalid credentials or tokens.
 
-Background workers catch processing failures to remain available and log only the
-exception type, excluding potentially sensitive exception messages. Provider adapters
-return typed, application-owned email failure categories; arbitrary provider text is
-never exposed as an API failure code. Cancellation rolls back an in-flight delivery
-so the persisted request remains available for a later attempt. The placeholder sender
-continues to report `ProviderNotConfigured` and makes no external calls.
+Background workers log exception types and typed email failure categories.
+Cancellation rolls back an in-flight delivery so the persisted request remains
+available for a later attempt. The unconfigured adapter reports
+`ProviderNotConfigured`.
 
 ## Game functionality
 
@@ -89,9 +90,9 @@ repository rules will be configured manually later.
 
 ## Delivery order
 
-1. Identity persistence and integration verification (this foundation).
+1. Identity persistence and integration verification.
 2. Registration/email confirmation, JWT and refresh sessions, revocation, and recovery.
 3. Angular authentication integration.
-4. Engine integration and persistent game state.
+4. Next milestone: engine integration and persistent game state.
 5. Online games, reconnects, guests, lobbies, and invitations.
 6. Computer opponent; optional Google login and additional Identity features separately.

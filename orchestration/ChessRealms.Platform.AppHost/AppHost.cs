@@ -99,7 +99,9 @@ if (development)
             .WithEnvironment("Identity__EmailConfirmation__Smtp__FromAddress", "no-reply@chessrealms.test")
             .WithEnvironment("Identity__EmailConfirmation__Smtp__Security", "None")
             .WithEnvironment("Identity__EmailConfirmation__ConfirmationUrl",
-                $"{web.GetEndpoint("https").Property(EndpointProperty.Url)}/confirm-email");
+                $"{web.GetEndpoint("https").Property(EndpointProperty.Url)}/confirm-email")
+            .WithEnvironment("Identity__PasswordReset__ResetUrl",
+                $"{web.GetEndpoint("https").Property(EndpointProperty.Url)}/reset-password");
     }
     else
     {

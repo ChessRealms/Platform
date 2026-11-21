@@ -1,3 +1,4 @@
+using ChessRealms.Platform.Infrastructure.Identity.PasswordReset;
 using ChessRealms.Platform.Infrastructure.Identity.Persistence;
 
 using Microsoft.EntityFrameworkCore;
@@ -22,7 +23,10 @@ public sealed class ConfirmationEmailWorker(
                 ConfirmationEmailDispatcher dispatcher = scope.ServiceProvider.GetRequiredService<ConfirmationEmailDispatcher>();
                 using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
                 timeout.CancelAfter(TimeSpan.FromSeconds(30));
-                if (await dispatcher.DispatchNextAsync(timeout.Token))
+                bool dispatchedConfirmation = await dispatcher.DispatchNextAsync(timeout.Token);
+                var passwordResetDispatcher = scope.ServiceProvider.GetRequiredService<PasswordResetEmailDispatcher>();
+                bool dispatchedReset = await passwordResetDispatcher.DispatchNextAsync(timeout.Token);
+                if (dispatchedConfirmation || dispatchedReset)
                 {
                     continue;
                 }
@@ -33,6 +37,8 @@ public sealed class ConfirmationEmailWorker(
                 DateTimeOffset retention = now - TimeSpan.FromDays(7);
                 await database.EmailConfirmationDeliveries.Where(delivery => delivery.CreatedAt < retention && delivery.Status != "Queued")
                     .ExecuteDeleteAsync(timeout.Token);
+                await database.PasswordResetEmailDeliveries.Where(delivery => delivery.CreatedAt < retention && delivery.Status != "Queued")
+                    .ExecuteDeleteAsync(timeout.Token);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -41,7 +47,7 @@ public sealed class ConfirmationEmailWorker(
             catch (Exception exception)
             {
                 // Log the exception category only: database/provider messages may contain secrets.
-                logger.LogWarning("Confirmation email processing failed ({ExceptionType}); retrying on the next poll.",
+                logger.LogWarning("Identity email processing failed ({ExceptionType}); retrying on the next poll.",
                     exception.GetType().Name);
             }
             await Task.Delay(TimeSpan.FromSeconds(2), clock, stoppingToken);
