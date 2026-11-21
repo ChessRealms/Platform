@@ -74,10 +74,17 @@ jobs:
         run: |
           dotnet restore "$E2E_PROJECT" --locked-mode
           dotnet build "$E2E_PROJECT" --no-restore
-      - name: Prepare Chromium and development certificate
+      - name: Install headless Chromium
+        run: pwsh tests/ChessRealms.Platform.Identity.E2E.Tests/bin/Debug/net10.0/playwright.ps1 install --with-deps --only-shell chromium
+      - name: Trust the development certificate for Aspire health checks
         run: |
-          pwsh tests/ChessRealms.Platform.Identity.E2E.Tests/bin/Debug/net10.0/playwright.ps1 install --with-deps --only-shell chromium
-          dotnet dev-certs https
+          cert_dir="$RUNNER_TEMP/identity-e2e-https"
+          mkdir -p "$cert_dir"
+          dotnet dev-certs https --export-path "$cert_dir/aspnetcore.pem" --format PEM
+          openssl rehash "$cert_dir"
+          export SSL_CERT_DIR="$cert_dir:${SSL_CERT_DIR:-/usr/lib/ssl/certs}"
+          openssl verify "$cert_dir/aspnetcore.pem"
+          echo "SSL_CERT_DIR=$SSL_CERT_DIR" >> "$GITHUB_ENV"
       - name: Assign run ID
         shell: pwsh
         run: |

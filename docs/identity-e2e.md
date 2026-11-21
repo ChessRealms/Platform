@@ -10,7 +10,8 @@ signed in. Existing backend and Angular tests cover their own error cases.
 
 Start Docker with Linux containers. Install the .NET SDK from `global.json` and
 the ASP.NET Core 10 runtime. The test also needs the Node.js and npm versions from
-the frontend setup and PowerShell 7. Run these commands from the repository root:
+the frontend setup and PowerShell 7. Run these commands from the repository root
+on Windows:
 
 ```powershell
 npm ci --prefix src/cr-platform-web-app
@@ -18,21 +19,27 @@ $project = 'tests/ChessRealms.Platform.Identity.E2E.Tests/ChessRealms.Platform.I
 dotnet restore $project --locked-mode
 dotnet build $project --no-restore
 pwsh tests/ChessRealms.Platform.Identity.E2E.Tests/bin/Debug/net10.0/playwright.ps1 install --only-shell chromium
-dotnet dev-certs https
+dotnet dev-certs https --trust
 pwsh -File scripts/test-identity-e2e.ps1
 ```
 
 On Linux, use `install --with-deps --only-shell chromium` to install Chromium's
-system dependencies. Aspire may download its pinned CLI bundle on the first build.
-The browser ignores certificate errors in its isolated loopback context so it can
-use the local development certificate. The test still requires an HTTPS origin.
+system dependencies. For local development certificate trust on Linux, follow
+the [.NET instructions](https://learn.microsoft.com/aspnet/core/security/enforcing-ssl#linux-specific-considerations).
+The CI job exports only the public certificate and adds it to its OpenSSL
+certificate search path for Aspire's HTTPS health checks.
+
+Aspire may download its pinned CLI bundle. Chromium uses an isolated loopback
+context that accepts the local certificate, and the test requires HTTPS.
 
 ## Isolation and cleanup
 
 Each run starts its own AppHost with dynamically allocated endpoints, an ephemeral
-PostgreSQL container, Mailpit, and an in-memory JWT signing key. The AppHost uses
-the frontend dependencies installed by `npm ci` and runs the regular migrations
-before the API. No developer database or external mail provider is required.
+PostgreSQL container, Mailpit, and an in-memory JWT signing key. PostgreSQL uses
+Docker's published loopback port for the test's database health checks and
+connections. The AppHost uses the frontend dependencies installed by `npm ci` and
+runs the regular migrations before the API. No developer database or external
+mail provider is required.
 
 Aspire owns the normal shutdown of its application resources. The runner also
 checks Docker by the unique run label and removes any leftover containers for

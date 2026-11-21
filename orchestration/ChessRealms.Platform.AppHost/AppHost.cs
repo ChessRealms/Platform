@@ -24,8 +24,9 @@ if (e2eLabel is null)
 }
 else
 {
-    // Override the image's default volume so the test leaves no anonymous volume.
-    postgres.WithContainerRuntimeArgs("--label", e2eLabel, "--tmpfs", "/var/lib/postgresql");
+    // Mount tmpfs at the image's default volume path and connect through Docker's published port.
+    postgres.WithContainerRuntimeArgs("--label", e2eLabel, "--tmpfs", "/var/lib/postgresql")
+        .WithEndpoint("tcp", endpoint => endpoint.IsProxied = false);
 }
 
 IResourceBuilder<PostgresDatabaseResource> database = postgres.AddDatabase("platform");

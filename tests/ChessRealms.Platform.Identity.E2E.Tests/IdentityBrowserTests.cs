@@ -42,9 +42,7 @@ public sealed class IdentityBrowserTests
             .WithEnvironment("Identity__EmailConfirmation__Smtp__Password", string.Empty);
 
         await using DistributedApplication app = await appHost.BuildAsync(startup.Token);
-        await app.StartAsync(startup.Token);
-        // The web resource waits for the API, which waits for migrations and Mailpit.
-        await app.ResourceNotifications.WaitForResourceHealthyAsync("web", startup.Token);
+        await WaitForWebAsync(app, startup, cancellation);
 
         Uri webOrigin = app.GetEndpoint("web", "https");
         Assert.True(webOrigin.IsLoopback && webOrigin.Scheme == Uri.UriSchemeHttps,
@@ -68,7 +66,12 @@ public sealed class IdentityBrowserTests
         await page.GetByLabel("Email", new() { Exact = true }).FillAsync(email);
         await page.GetByLabel("Username", new() { Exact = true }).FillAsync(username);
         await page.GetByLabel("Password", new() { Exact = true }).FillAsync(password);
-        await page.GetByRole(AriaRole.Button, new() { Name = "Create account", Exact = true }).ClickAsync();
+        IResponse registration = await page.RunAndWaitForResponseAsync(
+            () => page.GetByRole(AriaRole.Button, new() { Name = "Create account", Exact = true }).ClickAsync(),
+            response => new Uri(response.Url).AbsolutePath == "/api/identity/register"
+                && response.Request.Method == "POST",
+            new() { Timeout = 30000 });
+        Assert.True(registration.Ok, $"Registration returned HTTP {registration.Status}.");
         await Expect(page.GetByRole(AriaRole.Heading, new() { Name = "Check your email" })).ToBeVisibleAsync();
 
         Uri link = await WaitForConfirmationLinkAsync(mailbox, email, cancellation);
@@ -102,6 +105,29 @@ public sealed class IdentityBrowserTests
         Assert.Equal(200, refresh.Status);
         await Expect(confirmation).ToHaveURLAsync(new Uri(webOrigin, "/home").AbsoluteUri);
         await Expect(confirmation.GetByText("You are signed in.", new() { Exact = true })).ToBeVisibleAsync();
+    }
+
+    private static async Task WaitForWebAsync(DistributedApplication app, CancellationTokenSource startup,
+        CancellationToken testCancellation)
+    {
+        string stage = "starting the Aspire AppHost";
+        try
+        {
+            await app.StartAsync(startup.Token);
+            stage = "waiting for Angular to become healthy";
+            // The web resource waits for the API, which waits for migrations and Mailpit.
+            await app.ResourceNotifications.WaitForResourceHealthyAsync("web", startup.Token);
+        }
+        catch (OperationCanceledException exception) when (startup.IsCancellationRequested
+            && !testCancellation.IsCancellationRequested)
+        {
+            string[] names = ["postgres", "migrations", "mailpit", "api", "web"];
+            string states = string.Join(", ", names.Select(name =>
+                app.ResourceNotifications.TryGetCurrentState(name, out ResourceEvent? update)
+                    ? $"{name}={update.Snapshot.State?.Text ?? "unknown"} ({update.Snapshot.HealthStatus})"
+                    : $"{name}=unreported"));
+            throw new TimeoutException($"Timed out while {stage}. Current resource states were {states}.", exception);
+        }
     }
 
     private static async Task<Uri> WaitForConfirmationLinkAsync(HttpClient mailbox, string email,
