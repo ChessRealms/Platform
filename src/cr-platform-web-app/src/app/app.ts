@@ -10,4 +10,8 @@ import { AuthSession } from './identity/auth-session';
 })
 export class App {
   readonly session = inject(AuthSession);
+
+  constructor() {
+    void this.session.ensureSession();
+  }
 }

@@ -2,17 +2,14 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Component, inject, signal } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { finalize } from 'rxjs';
 import { AuthSession } from './auth-session';
 import { ConfirmationSession } from './confirmation-session';
-import { IdentityApiClient } from './identity-api.client';
 
 @Component({
   imports: [ReactiveFormsModule, RouterLink],
   templateUrl: './login-page.html',
 })
 export class LoginPage {
-  private readonly api = inject(IdentityApiClient);
   private readonly router = inject(Router);
   private readonly session = inject(AuthSession);
   private readonly confirmation = inject(ConfirmationSession);
@@ -27,7 +24,7 @@ export class LoginPage {
   readonly submitting = signal(false);
   readonly errorMessage = signal<string | null>(null);
 
-  submit(): void {
+  async submit(): Promise<void> {
     if (this.submitting()) {
       return;
     }
@@ -42,29 +39,25 @@ export class LoginPage {
 
     const { email, password } = this.form.getRawValue();
     this.submitting.set(true);
-    this.api.login({ email, password })
-      .pipe(finalize(() => this.submitting.set(false)))
-      .subscribe({
-        next: result => {
-          if (!this.session.start(result)) {
-            this.errorMessage.set('Sign in could not be completed. Please try again.');
-            return;
-          }
-
-          this.form.controls.password.reset();
-          void this.router.navigate(['/home']);
-        },
-        error: error => {
-          if (error instanceof HttpErrorResponse && error.status === 403
-            && error.error?.code === 'EmailNotConfirmed' && error.error.emailConfirmation?.sessionToken) {
-            this.form.controls.password.reset();
-            this.confirmation.start(error.error.emailConfirmation);
-            void this.router.navigate(['/check-email']);
-            return;
-          }
-          this.errorMessage.set(this.messageFor(error));
-        },
-      });
+    try {
+      if (!await this.session.login({ email, password })) {
+        this.errorMessage.set('Sign in could not be completed. Please try again.');
+        return;
+      }
+      this.form.controls.password.reset();
+      void this.router.navigate(['/home']);
+    } catch (error) {
+      if (error instanceof HttpErrorResponse && error.status === 403
+        && error.error?.code === 'EmailNotConfirmed' && error.error.emailConfirmation?.sessionToken) {
+        this.form.controls.password.reset();
+        this.confirmation.start(error.error.emailConfirmation);
+        void this.router.navigate(['/check-email']);
+        return;
+      }
+      this.errorMessage.set(this.messageFor(error));
+    } finally {
+      this.submitting.set(false);
+    }
   }
 
   private messageFor(error: unknown): string {

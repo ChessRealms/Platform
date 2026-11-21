@@ -125,7 +125,7 @@ dotnet run --project orchestration/ChessRealms.Platform.AppHost
 
 Open the dashboard URL printed in the terminal. AppHost starts PostgreSQL with a persistent Docker volume, waits for database readiness, runs `migrations`, then starts `api` only if the worker exits successfully. Connection strings are supplied by Aspire; no database password is stored in source control. The API exposes `/openapi/v1.json`, `/health` (including database connectivity), and `/alive` in Development.
 
-AppHost also installs the frontend's npm dependencies and starts the Angular development server as `web`. Open its HTTP endpoint from the dashboard. The frontend can start independently of the backend.
+AppHost also installs the frontend's npm dependencies and starts the Angular development server as `web`. Open its HTTPS endpoint from the dashboard. The frontend can start independently of the backend.
 
 To test real confirmation emails locally, enable the optional Mailpit resource before
 starting AppHost with `$env:Mailpit__Enabled = 'true'`. Its local Web UI appears in the

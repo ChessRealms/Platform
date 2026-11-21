@@ -6,9 +6,8 @@ import {
   ConfirmationSessionResult,
   CurrentUser,
   LoginRequest,
-  LoginResult,
   LoginSession,
-  RefreshResult,
+  WebSessionResult,
   RegistrationRequest,
   RegistrationResult,
 } from './identity-api.models';
@@ -17,6 +16,8 @@ import {
 export class IdentityApiClient {
   private readonly http = inject(HttpClient);
   private readonly baseUrl = '/api/identity';
+  private readonly webUrl = this.baseUrl + '/web';
+  private readonly webHeaders = new HttpHeaders({ 'X-ChessRealms-Web': '1' });
 
   register(request: RegistrationRequest): Observable<RegistrationResult> {
     return this.http.post<RegistrationResult>(`${this.baseUrl}/register`, request);
@@ -40,12 +41,12 @@ export class IdentityApiClient {
     });
   }
 
-  login(request: LoginRequest): Observable<LoginResult> {
-    return this.http.post<LoginResult>(`${this.baseUrl}/login`, request);
+  login(request: LoginRequest): Observable<WebSessionResult> {
+    return this.http.post<WebSessionResult>(`${this.webUrl}/login`, request, { headers: this.webHeaders });
   }
 
-  refresh(refreshToken: string): Observable<RefreshResult> {
-    return this.http.post<RefreshResult>(`${this.baseUrl}/refresh`, { refreshToken });
+  refresh(): Observable<WebSessionResult> {
+    return this.http.post<WebSessionResult>(`${this.webUrl}/refresh`, null, { headers: this.webHeaders });
   }
 
   me(accessToken: string): Observable<CurrentUser> {
@@ -61,8 +62,8 @@ export class IdentityApiClient {
   }
 
   logout(accessToken: string): Observable<void> {
-    return this.http.post<void>(`${this.baseUrl}/logout`, null, {
-      headers: this.bearer(accessToken),
+    return this.http.post<void>(`${this.webUrl}/logout`, null, {
+      headers: this.webHeaders.set('Authorization', `Bearer ${accessToken}`),
     });
   }
 
@@ -73,8 +74,8 @@ export class IdentityApiClient {
   }
 
   logoutAll(accessToken: string): Observable<void> {
-    return this.http.post<void>(`${this.baseUrl}/logout-all`, null, {
-      headers: this.bearer(accessToken),
+    return this.http.post<void>(`${this.webUrl}/logout-all`, null, {
+      headers: this.webHeaders.set('Authorization', `Bearer ${accessToken}`),
     });
   }
 

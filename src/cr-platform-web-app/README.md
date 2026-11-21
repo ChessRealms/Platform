@@ -52,11 +52,13 @@ The confirmation session is held in memory. Sign in again if you reload the page
 or the session expires. A link from the email opens `/confirm-email` in any browser
 and can be used independently of the waiting page.
 
-AppHost enables registration auto-confirmation by default in Development.
-Set `Mailpit__Enabled=true` to enable local delivery and start the Angular app over
-HTTPS. For setup and verification, see [local Mailpit](../../docs/registration.md#local-mailpit).
+AppHost serves Angular over HTTPS in Development. Trust the local development
+certificate with `dotnet dev-certs https --trust` and open the HTTPS `web` endpoint
+in the Aspire dashboard. Registration auto-confirmation is enabled by default.
+Set `Mailpit__Enabled=true` to use [local email delivery](../../docs/registration.md#local-mailpit).
 
-Successful sign in opens a guarded `/home` placeholder. The current session is
-held only in memory: refreshing the page loses the frontend session. Token
-rotation, restoration after refresh, logout, and the full application shell are
-separate follow-up work.
+Successful sign-in opens the protected `/home` page. Reloading it or reopening
+the browser restores the session while its refresh cookie remains valid. The
+home page offers sign-out and sign-out of all sessions. Tabs can share the
+cookie and coordinate refresh when they use the same origin in a browser with
+Web Locks support. See [browser session transport](../../docs/refresh-tokens.md#browser-transport).
