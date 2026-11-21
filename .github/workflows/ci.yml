@@ -74,8 +74,8 @@ jobs:
         run: |
           dotnet restore "$E2E_PROJECT" --locked-mode
           dotnet build "$E2E_PROJECT" --no-restore
-      - name: Install headless Chromium
-        run: pwsh tests/ChessRealms.Platform.Identity.E2E.Tests/bin/Debug/net10.0/playwright.ps1 install --with-deps --only-shell chromium
+      - name: Install Chromium
+        run: pwsh tests/ChessRealms.Platform.Identity.E2E.Tests/bin/Debug/net10.0/playwright.ps1 install --with-deps --no-shell chromium
       - name: Trust the development certificate for Aspire health checks
         run: |
           cert_dir="$RUNNER_TEMP/identity-e2e-https"
@@ -89,7 +89,7 @@ jobs:
         shell: pwsh
         run: |
           "CHESSREALMS_IDENTITY_E2E_RUN_ID=$([Guid]::NewGuid().ToString('N'))" >> $env:GITHUB_ENV
-      - name: Run Identity browser smoke test
+      - name: Run Identity browser tests
         shell: pwsh
         run: ./scripts/test-identity-e2e.ps1
       - name: Verify container cleanup
