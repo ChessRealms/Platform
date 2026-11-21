@@ -2,6 +2,7 @@ import { Component, inject, signal } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
+import { ConfirmationSession } from './confirmation-session';
 import { IdentityApiClient } from './identity-api.client';
 import { registrationMessages } from './registration-errors';
 
@@ -12,6 +13,7 @@ import { registrationMessages } from './registration-errors';
 export class RegisterPage {
   private readonly api = inject(IdentityApiClient);
   private readonly router = inject(Router);
+  private readonly confirmation = inject(ConfirmationSession);
 
   readonly form = new FormGroup({
     email: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.email, Validators.maxLength(256)] }),
@@ -21,7 +23,6 @@ export class RegisterPage {
   readonly submitted = signal(false);
   readonly submitting = signal(false);
   readonly errors = signal<string[]>([]);
-  readonly needsConfirmation = signal(false);
 
   submit(): void {
     if (this.submitting()) {
@@ -57,7 +58,8 @@ export class RegisterPage {
 
           this.form.reset();
           if (result.emailConfirmation) {
-            this.needsConfirmation.set(true);
+            this.confirmation.start(result.emailConfirmation);
+            void this.router.navigate(['/check-email']);
             return;
           }
 

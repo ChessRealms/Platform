@@ -1,0 +1,31 @@
+<section class="auth-card" aria-labelledby="check-email-title">
+  @switch (state()) {
+    @case ('confirmed') {
+      <h1 id="check-email-title">Email confirmed</h1>
+      <p>You can now sign in to ChessRealms.</p>
+      <a class="button-link" routerLink="/login">Go to sign in</a>
+    }
+    @case ('expired') {
+      <h1 id="check-email-title">Check your email</h1>
+      <p>This confirmation session is unavailable or has expired. Sign in again to check your status or request another email.</p>
+      <a class="button-link" routerLink="/login">Go to sign in</a>
+    }
+    @default {
+      <h1 id="check-email-title">Check your email</h1>
+      <p role="status">{{ deliveryMessage() }}</p>
+      @if (error(); as message) {
+        <p class="form-errors" role="alert">{{ message }}</p>
+      }
+      <div class="auth-actions">
+        <button type="button" [disabled]="operation() !== null" (click)="checkStatus()">Check status</button>
+        <button type="button" [disabled]="!canResend()" (click)="resend()">
+          {{ operation() === 'resend' ? 'Requesting…' : 'Resend email' }}
+        </button>
+      </div>
+      @if (resendSeconds() > 0) {
+        <p class="form-footer">You can request another email in {{ resendSeconds() }} seconds.</p>
+      }
+      <p class="form-footer"><a routerLink="/login">Back to sign in</a></p>
+    }
+  }
+</section>
