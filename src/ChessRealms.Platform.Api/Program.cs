@@ -2,6 +2,7 @@ using System.Threading.RateLimiting;
 
 using ChessRealms.Platform.Api;
 using ChessRealms.Platform.Api.Controllers;
+using ChessRealms.Platform.Application.Games;
 using ChessRealms.Platform.Infrastructure;
 using ChessRealms.Platform.Infrastructure.Identity;
 using ChessRealms.Platform.Infrastructure.Identity.Sessions;
@@ -9,6 +10,7 @@ using ChessRealms.Platform.Infrastructure.Identity.Sessions;
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.AddInfrastructure();
+builder.Services.AddScoped<GameService>();
 builder.Services.AddIdentityAuthentication(builder.Configuration);
 builder.Services.AddConfirmationEmailWorker();
 builder.Services.AddHostedService<LoginSessionCleanupWorker>();

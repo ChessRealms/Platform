@@ -13,9 +13,9 @@ It owns `PlatformUser`, its EF stores, DI registration, and migrations. Its sepa
 migrations followed by Identity migrations; Api never migrates on startup.
 These are separate migration operations, not one cross-context transaction.
 
-ASP.NET Core Identity types must not enter Domain or Application. Future application
-use cases should access identity through narrow application contracts and stable
-user IDs. Game participants will not require an `IdentityUser` object.
+ASP.NET Core Identity types stay in Infrastructure. Application use cases access
+Identity through narrow contracts and stable user IDs. The game model stores those
+IDs for White and Black.
 
 ## Accounts and authentication
 
@@ -78,7 +78,13 @@ available for a later attempt. The unconfigured adapter reports
 
 ## Game functionality
 
-Chess rules come from ChessRealms/Engine. Guests are temporary participants without
+The [games API](games.md) supports private, untimed games between two confirmed
+accounts. Domain owns participation and the game lifecycle. Application checks
+commands and Infrastructure applies chess rules through the ChessRealms.Engine
+adapter. PostgreSQL stores a versioned game record and commits each position,
+result, and revision together.
+
+Guests are temporary participants without
 an ASP.NET Core Identity record, but require a protected guest session. They can play
 with guests or registered users. Login sessions, lobbies, and chess games are distinct
 concepts. Private lobbies will support invitations to registered users, an opt-out
@@ -93,6 +99,6 @@ repository rules will be configured manually later.
 1. Identity persistence and integration verification.
 2. Registration/email confirmation, JWT and refresh sessions, revocation, and recovery.
 3. Angular authentication integration.
-4. Next milestone: engine integration and persistent game state.
-5. Online games, reconnects, guests, lobbies, and invitations.
+4. Engine integration and persistent game state.
+5. Next milestone: playable board, online synchronization, reconnects, guests, lobbies, and invitations.
 6. Computer opponent; optional Google login and additional Identity features separately.

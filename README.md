@@ -57,7 +57,9 @@ All projects use the `ChessRealms.Platform` prefix:
 - `orchestration/ChessRealms.Platform.ServiceDefaults` — shared telemetry, health checks, service discovery, and HTTP resilience.
 - `tests/` — xUnit v3 projects referencing Api, Application, Domain, and Infrastructure respectively.
 
-`Infrastructure` leaves room for integrations beyond persistence. `PlatformDbContext` currently has no entities. An empty `InitialCreate` migration establishes the migration pipeline without adding business tables.
+`PlatformDbContext` stores private standard-chess games and their move history in
+PostgreSQL. See [the games API](docs/games.md) for creation, acceptance, moves, and
+revision conflicts.
 
 The isolated `Infrastructure/Identity` module provides ASP.NET Core Identity stores
 in a separate `IdentityDbContext`, using the `identity` schema in the same PostgreSQL
@@ -86,10 +88,10 @@ dotnet build ChessRealms.Platform.slnx --no-restore
 dotnet test ChessRealms.Platform.slnx --no-build --no-restore
 ```
 
-Infrastructure tests require Docker with Linux containers. Testcontainers starts
-temporary PostgreSQL 18.3 containers for Identity persistence tests; the SMTP pipeline
-test also starts a temporary Mailpit container. Tests use neither the development
-database nor AppHost. API tests exercise HTTP contracts with a test service.
+Infrastructure and games API integration tests require Docker with Linux containers.
+Testcontainers starts temporary PostgreSQL 18.3 containers for the Identity and games
+tests. The SMTP pipeline test also starts a temporary Mailpit container. These tests
+run independently of the development database and AppHost.
 Application and Domain test projects are currently empty. Package versions are centralized
 and each project has a NuGet lock file.
 
@@ -110,7 +112,7 @@ described in the [frontend setup](src/cr-platform-web-app/README.md#api-connecti
 
 ### Continuous integration
 
-The [CI workflow](.github/workflows/ci.yml) runs on every push and pull request with separate backend, frontend, and Identity E2E jobs on Ubuntu. The backend uses the SDK from `global.json`, restores with `--locked-mode`, builds, and runs tests without restoring or rebuilding. Infrastructure tests use the runner's Docker daemon for temporary PostgreSQL and Mailpit containers. The frontend uses Node.js 26 and the npm version from `package.json`, installs with `npm ci`, builds the development configuration, and runs Vitest without watch mode. The Identity E2E job starts AppHost and runs the Chromium suite.
+The [CI workflow](.github/workflows/ci.yml) runs on every push and pull request with separate backend, frontend, and Identity E2E jobs on Ubuntu. The backend uses the SDK from `global.json`, restores with `--locked-mode`, builds, and runs tests without restoring or rebuilding. Backend integration tests use the runner's Docker daemon for temporary PostgreSQL and Mailpit containers. The frontend uses Node.js 26 and the npm version from `package.json`, installs with `npm ci`, builds the development configuration, and runs Vitest without watch mode. The Identity E2E job starts AppHost and runs the Chromium suite.
 
 ### Run locally
 

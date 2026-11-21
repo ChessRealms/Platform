@@ -85,9 +85,10 @@ public sealed class IdentityPersistenceTests
             await Assert.ThrowsAsync<DbUpdateException>(() => identity.SaveChangesAsync(cancellationToken));
             identity.ChangeTracker.Clear();
 
-            await identity.GetService<IMigrator>().MigrateAsync("0", cancellationToken);
             PlatformDbContext platform = scope.ServiceProvider.GetRequiredService<PlatformDbContext>();
-            Assert.Single(await platform.Database.GetAppliedMigrationsAsync(cancellationToken));
+            string[] platformMigrations = (await platform.Database.GetAppliedMigrationsAsync(cancellationToken)).ToArray();
+            await identity.GetService<IMigrator>().MigrateAsync("0", cancellationToken);
+            Assert.Equal(platformMigrations, await platform.Database.GetAppliedMigrationsAsync(cancellationToken));
             await identity.Database.MigrateAsync(cancellationToken);
             Assert.Empty(await identity.Users.ToListAsync(cancellationToken));
         }

@@ -15,6 +15,12 @@
           "OpenTelemetry.Extensions.Hosting": "1.17.0"
         }
       },
+      "ChessRealms.Engine": {
+        "type": "Direct",
+        "requested": "[1.1.0, )",
+        "resolved": "1.1.0",
+        "contentHash": "IokR7MogIcjvhvRdpGGlTSa7wA5lvwHFxoAJvtCsG3S76eFODRv3Pxi/kljwVnpyr0uGdthwg4CxgxSfMpiFqg=="
+      },
       "MailKit": {
         "type": "Direct",
         "requested": "[5.0.0, )",
