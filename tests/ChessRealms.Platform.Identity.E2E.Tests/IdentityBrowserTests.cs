@@ -1,11 +1,6 @@
 using System.Net.Http.Json;
-using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-
-using Aspire.Hosting;
-using Aspire.Hosting.ApplicationModel;
-using Aspire.Hosting.Testing;
 
 using Microsoft.Playwright;
 
@@ -15,57 +10,162 @@ using static Microsoft.Playwright.Assertions;
 
 namespace ChessRealms.Platform.Identity.E2E.Tests;
 
-public sealed class IdentityBrowserTests
+public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFixture<IdentityAppFixture>
 {
+    private const string Password = "Strong-password9!";
+    private const string RefreshPath = "/api/identity/web/refresh";
+    private const string SessionLockName = "chessrealms.web-session";
+
     [Fact]
     public async Task RegisterConfirmAndSignInRestoresTheSessionAfterReload()
     {
-        string? runId = Environment.GetEnvironmentVariable("CHESSREALMS_IDENTITY_E2E_RUN_ID");
-        Assert.True(Guid.TryParseExact(runId, "N", out _), "Run scripts/test-identity-e2e.ps1 to start this test.");
+        await using IBrowser browser = await LaunchBrowserAsync();
+        await using IBrowserContext context = await NewContextAsync(browser);
+        (IPage page, string email) = await RegisterAndOpenSignInAsync(context);
+        await SignInAsync(page, email);
+        await ReloadAndExpectSignedInAsync(page);
+    }
 
-        CancellationToken cancellation = TestContext.Current.CancellationToken;
-        using IPlaywright playwright = await Playwright.CreateAsync();
-        await using IBrowser browser = await playwright.Chromium.LaunchAsync();
-        using RSA signingKey = RSA.Create(2048);
-
-        using CancellationTokenSource startup = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
-        startup.CancelAfter(TimeSpan.FromMinutes(2));
-        await using IDistributedApplicationTestingBuilder appHost = await DistributedApplicationTestingBuilder
-            .CreateAsync<Projects.ChessRealms_Platform_AppHost>(
-                ["--environment=Development", "--Mailpit:Enabled=true", $"--IdentityE2E:RunId={runId}",
-                    "--Identity:EmailConfirmation:AutoConfirmOnRegistration=false"], startup.Token);
-        ProjectResource api = appHost.Resources.OfType<ProjectResource>().Single(resource => resource.Name == "api");
-        appHost.CreateResourceBuilder(api)
-            .WithEnvironment("Identity__Jwt__SigningKeyId", "identity-e2e")
-            .WithEnvironment("Identity__Jwt__PrivateKeyPem", signingKey.ExportPkcs8PrivateKeyPem())
-            .WithEnvironment("Identity__EmailConfirmation__Smtp__Username", string.Empty)
-            .WithEnvironment("Identity__EmailConfirmation__Smtp__Password", string.Empty);
-
-        await using DistributedApplication app = await appHost.BuildAsync(startup.Token);
-        await WaitForWebAsync(app, startup, cancellation);
-
-        Uri webOrigin = app.GetEndpoint("web", "https");
-        Assert.True(webOrigin.IsLoopback && webOrigin.Scheme == Uri.UriSchemeHttps,
-            "The browser test requires the AppHost's local HTTPS endpoint.");
-        using HttpClient mailbox = app.CreateHttpClient("mailpit", "http");
-
-        await using IBrowserContext context = await browser.NewContextAsync(new()
+    [Fact]
+    public async Task ClosingAndRelaunchingChromiumRestoresTheSessionFromTheSameProfile()
+    {
+        DirectoryInfo profile = Directory.CreateTempSubdirectory("chessrealms-identity-e2e-");
+        try
         {
-            BaseURL = webOrigin.AbsoluteUri,
-            // The test uses Aspire's local development certificate in an isolated context.
+            await using (IBrowserContext original = await LaunchPersistentProfileAsync(profile))
+            {
+                (IPage page, string email) = await RegisterAndOpenSignInAsync(original);
+                await SignInAsync(page, email);
+            }
+
+            await using IBrowserContext reopened = await LaunchPersistentProfileAsync(profile);
+            IPage restored = await reopened.NewPageAsync();
+            IResponse refresh = await ObserveWebPostAsync(restored, "refresh", () => restored.GotoAsync("/home"));
+            Assert.Equal(200, refresh.Status);
+            await ExpectSignedInAsync(restored);
+        }
+        finally
+        {
+            profile.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ConcurrentTabReloadsSerializeRefreshAndKeepBothTabsSignedIn()
+    {
+        await using IBrowser browser = await LaunchBrowserAsync();
+        await using IBrowserContext context = await NewContextAsync(browser);
+        (IPage first, string email) = await RegisterAndOpenSignInAsync(context);
+        await SignInAsync(first, email);
+        IPage second = await OpenSignedInTabAsync(context);
+        IPage lockOwner = await OpenSignedInTabAsync(context);
+
+        // Hold the same browser lock so both reloads contend for it without delaying network traffic.
+        await lockOwner.EvaluateAsync("""
+            name => new Promise((acquired, fail) => {
+                navigator.locks.request(name, () => {
+                    acquired();
+                    return new Promise(() => {});
+                }).catch(fail);
+            })
+            """, SessionLockName).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        Task<IResponse[]> refreshes = Task.WhenAll(
+            ObserveWebPostAsync(first, "refresh", () => ReloadAsync(first)),
+            ObserveWebPostAsync(second, "refresh", () => ReloadAsync(second)));
+        await Task.WhenAll(ReleaseLockWhenBothTabsAreQueuedAsync(), refreshes);
+
+        Assert.All(await refreshes, response => Assert.Equal(200, response.Status));
+        await ExpectSignedInAsync(first);
+        await ExpectSignedInAsync(second);
+
+        async Task ReleaseLockWhenBothTabsAreQueuedAsync()
+        {
+            try
+            {
+                await using IJSHandle queued = await lockOwner.WaitForFunctionAsync("""
+                    async name => {
+                        const { pending } = await navigator.locks.query();
+                        return pending.filter(lock => lock.name === name).length === 2;
+                    }
+                    """, SessionLockName, new() { PollingInterval = 50, Timeout = 10000 });
+            }
+            finally
+            {
+                await lockOwner.CloseAsync();
+            }
+        }
+    }
+
+    [Fact]
+    public async Task SigningOutEndsTheCurrentSessionAndKeepsTheOtherBrowserSignedIn()
+    {
+        await using IBrowser browser = await LaunchBrowserAsync();
+        await using IBrowserContext currentContext = await NewContextAsync(browser);
+        await using IBrowserContext otherContext = await NewContextAsync(browser);
+        (IPage current, string email) = await RegisterAndOpenSignInAsync(currentContext);
+        await SignInAsync(current, email);
+        IPage sibling = await OpenSignedInTabAsync(currentContext);
+        IPage other = await OpenIndependentSessionAsync(otherContext, email);
+
+        await SignOutAsync(current, "Sign out", "logout");
+        await ExpectSignedOutAsync(sibling);
+        await ExpectRefreshRejectedAsync(current);
+        await ReloadAndExpectSignedInAsync(other);
+    }
+
+    [Fact]
+    public async Task SigningOutEverywhereRejectsTheOtherBrowsersNextRefresh()
+    {
+        await using IBrowser browser = await LaunchBrowserAsync();
+        await using IBrowserContext currentContext = await NewContextAsync(browser);
+        await using IBrowserContext otherContext = await NewContextAsync(browser);
+        (IPage current, string email) = await RegisterAndOpenSignInAsync(currentContext);
+        await SignInAsync(current, email);
+        IPage other = await OpenIndependentSessionAsync(otherContext, email);
+
+        await SignOutAsync(current, "Sign out of all sessions", "logout-all");
+        await ExpectRefreshRejectedAsync(current);
+        IResponse refresh = await ObserveWebPostAsync(other, "refresh", () => ReloadAsync(other));
+        Assert.Equal(401, refresh.Status);
+        await ExpectSignedOutAsync(other);
+    }
+
+    private Task<IBrowser> LaunchBrowserAsync() => fixture.Chromium.LaunchAsync(new() { Channel = "chromium" });
+
+    private async Task<IBrowserContext> NewContextAsync(IBrowser browser)
+    {
+        IBrowserContext context = await browser.NewContextAsync(new()
+        {
+            BaseURL = fixture.WebOrigin.AbsoluteUri,
             IgnoreHTTPSErrors = true
         });
-        IPage page = await context.NewPageAsync();
-        page.SetDefaultTimeout(15000);
+        context.SetDefaultTimeout(15000);
+        return context;
+    }
 
+    private async Task<IBrowserContext> LaunchPersistentProfileAsync(DirectoryInfo profile)
+    {
+        IBrowserContext context = await fixture.Chromium.LaunchPersistentContextAsync(profile.FullName, new()
+        {
+            Channel = "chromium",
+            BaseURL = fixture.WebOrigin.AbsoluteUri,
+            IgnoreHTTPSErrors = true
+        });
+        context.SetDefaultTimeout(15000);
+        return context;
+    }
+
+    private async Task<(IPage Page, string Email)> RegisterAndOpenSignInAsync(IBrowserContext context)
+    {
+        IPage page = await context.NewPageAsync();
         string username = $"player-{Guid.NewGuid():N}";
         string email = $"{username}@example.test";
-        const string password = "Strong-password9!";
 
         await page.GotoAsync("/register");
         await page.GetByLabel("Email", new() { Exact = true }).FillAsync(email);
         await page.GetByLabel("Username", new() { Exact = true }).FillAsync(username);
-        await page.GetByLabel("Password", new() { Exact = true }).FillAsync(password);
+        await page.GetByLabel("Password", new() { Exact = true }).FillAsync(Password);
         IResponse registration = await page.RunAndWaitForResponseAsync(
             () => page.GetByRole(AriaRole.Button, new() { Name = "Create account", Exact = true }).ClickAsync(),
             response => new Uri(response.Url).AbsolutePath == "/api/identity/register"
@@ -74,8 +174,8 @@ public sealed class IdentityBrowserTests
         Assert.True(registration.Ok, $"Registration returned HTTP {registration.Status}.");
         await Expect(page.GetByRole(AriaRole.Heading, new() { Name = "Check your email" })).ToBeVisibleAsync();
 
-        Uri link = await WaitForConfirmationLinkAsync(mailbox, email, cancellation);
-        Assert.True(link.GetLeftPart(UriPartial.Authority) == webOrigin.GetLeftPart(UriPartial.Authority)
+        Uri link = await WaitForConfirmationLinkAsync(fixture.Mailbox, email, TestContext.Current.CancellationToken);
+        Assert.True(link.GetLeftPart(UriPartial.Authority) == fixture.WebOrigin.GetLeftPart(UriPartial.Authority)
             && link.AbsolutePath == "/confirm-email" && !string.IsNullOrEmpty(link.Query),
             "The confirmation email must target the local Angular confirmation page.");
         IPage confirmation = await context.NewPageAsync();
@@ -93,41 +193,85 @@ public sealed class IdentityBrowserTests
         Assert.True(new Uri(confirmation.Url).Query.Length == 0, "The confirmation token should be removed from the address.");
 
         await confirmation.GetByRole(AriaRole.Link, new() { Name = "Go to sign in", Exact = true }).ClickAsync();
-        await confirmation.GetByLabel("Email", new() { Exact = true }).FillAsync(email);
-        await confirmation.GetByLabel("Password", new() { Exact = true }).FillAsync(password);
-        await confirmation.GetByRole(AriaRole.Button, new() { Name = "Sign in", Exact = true }).ClickAsync();
-        await Expect(confirmation).ToHaveURLAsync(new Uri(webOrigin, "/home").AbsoluteUri);
-        await Expect(confirmation.GetByText("You are signed in.", new() { Exact = true })).ToBeVisibleAsync();
-
-        IResponse refresh = await confirmation.RunAndWaitForResponseAsync(() => confirmation.ReloadAsync(),
-            response => new Uri(response.Url).AbsolutePath == "/api/identity/web/refresh"
-                && response.Request.Method == "POST");
-        Assert.Equal(200, refresh.Status);
-        await Expect(confirmation).ToHaveURLAsync(new Uri(webOrigin, "/home").AbsoluteUri);
-        await Expect(confirmation.GetByText("You are signed in.", new() { Exact = true })).ToBeVisibleAsync();
+        await page.CloseAsync();
+        return (confirmation, email);
     }
 
-    private static async Task WaitForWebAsync(DistributedApplication app, CancellationTokenSource startup,
-        CancellationToken testCancellation)
+    private async Task SignInAsync(IPage page, string email)
     {
-        string stage = "starting the Aspire AppHost";
-        try
+        await page.GetByLabel("Email", new() { Exact = true }).FillAsync(email);
+        await page.GetByLabel("Password", new() { Exact = true }).FillAsync(Password);
+        IResponse response = await ObserveWebPostAsync(page, "login",
+            () => page.GetByRole(AriaRole.Button, new() { Name = "Sign in", Exact = true }).ClickAsync());
+        Assert.Equal(200, response.Status);
+        await ExpectSignedInAsync(page);
+    }
+
+    private async Task<IPage> OpenSignedInTabAsync(IBrowserContext context)
+    {
+        IPage page = await context.NewPageAsync();
+        IResponse refresh = await ObserveWebPostAsync(page, "refresh", () => page.GotoAsync("/home"));
+        Assert.Equal(200, refresh.Status);
+        await ExpectSignedInAsync(page);
+        return page;
+    }
+
+    private async Task<IPage> OpenIndependentSessionAsync(IBrowserContext context, string email)
+    {
+        IPage page = await context.NewPageAsync();
+        await page.GotoAsync("/login");
+        await SignInAsync(page, email);
+        return page;
+    }
+
+    private async Task ReloadAndExpectSignedInAsync(IPage page)
+    {
+        IResponse refresh = await ObserveWebPostAsync(page, "refresh", () => ReloadAsync(page));
+        Assert.Equal(200, refresh.Status);
+        await ExpectSignedInAsync(page);
+    }
+
+    private async Task SignOutAsync(IPage page, string button, string action)
+    {
+        IResponse response = await ObserveWebPostAsync(page, action,
+            () => page.GetByRole(AriaRole.Button, new() { Name = button, Exact = true }).ClickAsync());
+        Assert.Equal(204, response.Status);
+        await ExpectSignedOutAsync(page);
+    }
+
+    private async Task ExpectSignedInAsync(IPage page)
+    {
+        await Expect(page).ToHaveURLAsync(new Uri(fixture.WebOrigin, "/home").AbsoluteUri);
+        await Expect(page.GetByText("You are signed in.", new() { Exact = true })).ToBeVisibleAsync();
+    }
+
+    private async Task ExpectSignedOutAsync(IPage page)
+    {
+        await Expect(page).ToHaveURLAsync(new Uri(fixture.WebOrigin, "/login").AbsoluteUri);
+        await Expect(page.GetByRole(AriaRole.Heading, new() { Name = "Sign in", Exact = true })).ToBeVisibleAsync();
+    }
+
+    private static async Task ExpectRefreshRejectedAsync(IPage page)
+    {
+        // Probe the browser's cookie-backed session directly, even though Angular remembers the sign-out.
+        IResponse response = await ObserveWebPostAsync(page, "refresh", () => page.EvaluateAsync("""
+            async path => {
+                await fetch(path, { method: 'POST', headers: { 'X-ChessRealms-Web': '1' } });
+            }
+            """, RefreshPath));
+        Assert.Equal(401, response.Status);
+    }
+
+    private static Task<IResponse?> ReloadAsync(IPage page) =>
+        page.ReloadAsync(new() { WaitUntil = WaitUntilState.Commit });
+
+    private static Task<IResponse> ObserveWebPostAsync(IPage page, string action, Func<Task> performAction)
+    {
+        string path = $"/api/identity/web/{action}";
+        return page.RunAndWaitForResponseAsync(performAction, response =>
         {
-            await app.StartAsync(startup.Token);
-            stage = "waiting for Angular to become healthy";
-            // The web resource waits for the API, which waits for migrations and Mailpit.
-            await app.ResourceNotifications.WaitForResourceHealthyAsync("web", startup.Token);
-        }
-        catch (OperationCanceledException exception) when (startup.IsCancellationRequested
-            && !testCancellation.IsCancellationRequested)
-        {
-            string[] names = ["postgres", "migrations", "mailpit", "api", "web"];
-            string states = string.Join(", ", names.Select(name =>
-                app.ResourceNotifications.TryGetCurrentState(name, out ResourceEvent? update)
-                    ? $"{name}={update.Snapshot.State?.Text ?? "unknown"} ({update.Snapshot.HealthStatus})"
-                    : $"{name}=unreported"));
-            throw new TimeoutException($"Timed out while {stage}. Current resource states were {states}.", exception);
-        }
+            return response.Request.Method == "POST" && new Uri(response.Url).AbsolutePath == path;
+        });
     }
 
     private static async Task<Uri> WaitForConfirmationLinkAsync(HttpClient mailbox, string email,

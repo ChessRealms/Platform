@@ -103,14 +103,14 @@ npm test -- --watch=false
 ```
 
 The Angular app stays outside the .NET solution; Aspire runs it directly from its directory.
-The separate [Identity browser smoke test](docs/identity-e2e.md) uses Aspire and
-Chromium to verify registration, email confirmation, sign-in and session restore.
+The separate [Identity browser E2E suite](docs/identity-e2e.md) uses Aspire and
+Chromium to verify registration, email confirmation, and the browser session lifecycle.
 To run `npm start` independently at http://localhost:4200, set the API target as
 described in the [frontend setup](src/cr-platform-web-app/README.md#api-connection).
 
 ### Continuous integration
 
-The [CI workflow](.github/workflows/ci.yml) runs on every push and pull request with separate backend and frontend jobs on Ubuntu. The backend uses the SDK from `global.json`, restores with `--locked-mode`, builds, and runs tests without restoring or rebuilding. Infrastructure tests use the runner's Docker daemon for temporary PostgreSQL and Mailpit containers. The frontend uses Node.js 26 and the npm version from `package.json`, installs with `npm ci`, builds the development configuration, and runs Vitest without watch mode. CI does not start AppHost.
+The [CI workflow](.github/workflows/ci.yml) runs on every push and pull request with separate backend, frontend, and Identity E2E jobs on Ubuntu. The backend uses the SDK from `global.json`, restores with `--locked-mode`, builds, and runs tests without restoring or rebuilding. Infrastructure tests use the runner's Docker daemon for temporary PostgreSQL and Mailpit containers. The frontend uses Node.js 26 and the npm version from `package.json`, installs with `npm ci`, builds the development configuration, and runs Vitest without watch mode. The Identity E2E job starts AppHost and runs the Chromium suite.
 
 ### Run locally
 
