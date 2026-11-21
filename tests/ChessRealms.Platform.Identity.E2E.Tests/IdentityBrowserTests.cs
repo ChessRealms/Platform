@@ -112,37 +112,30 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
         await lockOwner.EvaluateAsync("""
             name => new Promise((acquired, fail) => {
                 navigator.locks.request(name, () => {
-                    acquired();
-                    return new Promise(() => {});
+                    return new Promise(release => {
+                        globalThis.releaseSessionTestLock = release;
+                        acquired();
+                    });
                 }).catch(fail);
             })
             """, SessionLockName).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
 
-        Task<IResponse[]> refreshes = Task.WhenAll(
-            ObserveWebPostAsync(first, "refresh", () => ReloadAsync(first)),
-            ObserveWebPostAsync(second, "refresh", () => ReloadAsync(second)));
-        await Task.WhenAll(ReleaseLockWhenBothTabsAreQueuedAsync(), refreshes);
+        await Task.WhenAll(ReloadAsync(first), ReloadAsync(second));
+        await using IJSHandle queued = await lockOwner.WaitForFunctionAsync("""
+            async name => {
+                const { pending } = await navigator.locks.query();
+                return pending.filter(lock => lock.name === name).length === 2;
+            }
+            """, SessionLockName, new() { PollingInterval = 50, Timeout = 10000 });
 
-        Assert.All(await refreshes, response => Assert.Equal(200, response.Status));
+        // The lock prevents either request from starting until both response waiters are attached.
+        Task<IResponse> firstRefresh = first.WaitForResponseAsync(response => IsWebPost(response, RefreshPath));
+        Task<IResponse> secondRefresh = second.WaitForResponseAsync(response => IsWebPost(response, RefreshPath));
+        await lockOwner.EvaluateAsync("() => globalThis.releaseSessionTestLock()");
+        IResponse[] responses = await Task.WhenAll(firstRefresh, secondRefresh);
+        Assert.All(responses, response => Assert.Equal(200, response.Status));
         await ExpectSignedInAsync(first);
         await ExpectSignedInAsync(second);
-
-        async Task ReleaseLockWhenBothTabsAreQueuedAsync()
-        {
-            try
-            {
-                await using IJSHandle queued = await lockOwner.WaitForFunctionAsync("""
-                    async name => {
-                        const { pending } = await navigator.locks.query();
-                        return pending.filter(lock => lock.name === name).length === 2;
-                    }
-                    """, SessionLockName, new() { PollingInterval = 50, Timeout = 10000 });
-            }
-            finally
-            {
-                await lockOwner.CloseAsync();
-            }
-        }
     }
 
     [Fact]
@@ -317,11 +310,11 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
     private static Task<IResponse> ObserveWebPostAsync(IPage page, string action, Func<Task> performAction)
     {
         string path = $"/api/identity/web/{action}";
-        return page.RunAndWaitForResponseAsync(performAction, response =>
-        {
-            return response.Request.Method == "POST" && new Uri(response.Url).AbsolutePath == path;
-        });
+        return page.RunAndWaitForResponseAsync(performAction, response => IsWebPost(response, path));
     }
+
+    private static bool IsWebPost(IResponse response, string path) =>
+        response.Request.Method == "POST" && new Uri(response.Url).AbsolutePath == path;
 
     private static async Task<Uri> WaitForEmailLinkAsync(HttpClient mailbox, string email, string subject,
         CancellationToken cancellationToken)
