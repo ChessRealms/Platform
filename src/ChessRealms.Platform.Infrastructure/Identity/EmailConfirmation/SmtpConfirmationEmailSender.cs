@@ -1,3 +1,5 @@
+using ChessRealms.Platform.Infrastructure.Identity.PasswordReset;
+
 using MailKit;
 using MailKit.Net.Smtp;
 using MailKit.Security;
@@ -8,19 +10,29 @@ using MimeKit;
 
 namespace ChessRealms.Platform.Infrastructure.Identity.EmailConfirmation;
 
-public sealed class SmtpConfirmationEmailSender(IOptions<SmtpEmailOptions> options) : IConfirmationEmailSender
+public sealed class SmtpConfirmationEmailSender(IOptions<SmtpEmailOptions> options)
+    : IConfirmationEmailSender, IPasswordResetEmailSender
 {
-    public async Task<EmailSendResult> SendAsync(ConfirmationEmail email, CancellationToken cancellationToken)
+    public Task<EmailSendResult> SendAsync(ConfirmationEmail email, CancellationToken cancellationToken) =>
+        SendAsync(email.Recipient, "Confirm your ChessRealms email",
+            $"Confirm your email address by opening this link:\n{email.ConfirmationLink}\n\nIf you did not create a ChessRealms account, ignore this message.",
+            cancellationToken);
+
+    Task<EmailSendResult> IPasswordResetEmailSender.SendPasswordResetAsync(string recipient, string link,
+        CancellationToken cancellationToken) =>
+        SendAsync(recipient, "Reset your ChessRealms password",
+            $"Choose a new password by opening this link within 30 minutes:\n{link}\n\nIf you did not request a password reset, ignore this message.",
+            cancellationToken);
+
+    private async Task<EmailSendResult> SendAsync(string recipient, string subject, string body,
+        CancellationToken cancellationToken)
     {
         SmtpEmailOptions settings = options.Value;
         MimeMessage message = new();
         message.From.Add(new MailboxAddress("ChessRealms", settings.FromAddress));
-        message.To.Add(MailboxAddress.Parse(email.Recipient));
-        message.Subject = "Confirm your ChessRealms email";
-        message.Body = new TextPart("plain")
-        {
-            Text = $"Confirm your email address by opening this link:\n{email.ConfirmationLink}\n\nIf you did not create a ChessRealms account, ignore this message."
-        };
+        message.To.Add(MailboxAddress.Parse(recipient));
+        message.Subject = subject;
+        message.Body = new TextPart("plain") { Text = body };
 
         using SmtpClient client = new();
         SecureSocketOptions security = settings.Security switch

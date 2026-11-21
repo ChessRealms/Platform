@@ -19,6 +19,9 @@ The session lifecycle tests also verify:
 - Sign-out everywhere causes the other context's next refresh to return HTTP
   401 and redirects it to sign-in. Already issued access tokens can still be
   valid until they expire.
+- Password recovery from the sign-in page through Mailpit removes the token from
+  the address bar, accepts the new password, and rejects the previous session's
+  next refresh.
 
 ## Run locally
 

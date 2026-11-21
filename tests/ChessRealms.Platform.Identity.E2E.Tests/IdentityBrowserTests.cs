@@ -27,6 +27,54 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
     }
 
     [Fact]
+    public async Task PasswordResetThroughMailpitAllowsNewPasswordAndRevokesExistingSession()
+    {
+        const string newPassword = "Replacement-password8!";
+        await using IBrowser browser = await LaunchBrowserAsync();
+        await using IBrowserContext signedIn = await NewContextAsync(browser);
+        await using IBrowserContext recovery = await NewContextAsync(browser);
+        (IPage existing, string email) = await RegisterAndOpenSignInAsync(signedIn);
+        await SignInAsync(existing, email);
+
+        IPage page = await recovery.NewPageAsync();
+        await page.GotoAsync("/login");
+        await page.GetByRole(AriaRole.Link, new() { Name = "Forgot your password?" }).ClickAsync();
+        await Expect(page).ToHaveURLAsync(new Uri(fixture.WebOrigin, "/forgot-password").AbsoluteUri);
+        ILocator emailField = page.GetByLabel("Email", new() { Exact = true });
+        await emailField.FillAsync(email);
+        await Expect(emailField).ToHaveValueAsync(email);
+        IResponse requested = await page.RunAndWaitForResponseAsync(
+            () => page.GetByRole(AriaRole.Button, new() { Name = "Send reset link" }).ClickAsync(),
+            response => response.Request.Method == "POST"
+                && new Uri(response.Url).AbsolutePath == "/api/identity/password-reset/request");
+        Assert.Equal(202, requested.Status);
+        await Expect(page.GetByRole(AriaRole.Status)).ToContainTextAsync("If a confirmed account uses that email");
+
+        Uri link = await WaitForEmailLinkAsync(fixture.Mailbox, email, "Reset your ChessRealms password",
+            TestContext.Current.CancellationToken);
+        Assert.True(link.GetLeftPart(UriPartial.Authority) == fixture.WebOrigin.GetLeftPart(UriPartial.Authority)
+            && link.AbsolutePath == "/reset-password" && link.Query.Length == 0 && link.Fragment.Length > 0,
+            "The reset email must target the local Angular page and carry the token in the fragment.");
+        try
+        {
+            await page.GotoAsync(link.AbsoluteUri);
+            await page.GetByLabel("New password", new() { Exact = true }).WaitForAsync(new() { Timeout = 10000 });
+        }
+        catch (PlaywrightException)
+        {
+            Assert.Fail("The Angular password reset form did not open from the Mailpit link.");
+        }
+        Assert.True(new Uri(page.Url).Fragment.Length == 0, "The reset token should be removed from the address.");
+        await page.GetByLabel("New password", new() { Exact = true }).FillAsync(newPassword);
+        await page.GetByLabel("Confirm new password", new() { Exact = true }).FillAsync(newPassword);
+        await page.GetByRole(AriaRole.Button, new() { Name = "Reset password" }).ClickAsync();
+        await Expect(page.GetByRole(AriaRole.Status)).ToContainTextAsync("Your password has been reset.");
+        await ExpectRefreshRejectedAsync(existing);
+        await page.GetByRole(AriaRole.Link, new() { Name = "Go to sign in" }).ClickAsync();
+        await SignInAsync(page, email, newPassword);
+    }
+
+    [Fact]
     public async Task ClosingAndRelaunchingChromiumRestoresTheSessionFromTheSameProfile()
     {
         DirectoryInfo profile = Directory.CreateTempSubdirectory("chessrealms-identity-e2e-");
@@ -64,37 +112,30 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
         await lockOwner.EvaluateAsync("""
             name => new Promise((acquired, fail) => {
                 navigator.locks.request(name, () => {
-                    acquired();
-                    return new Promise(() => {});
+                    return new Promise(release => {
+                        globalThis.releaseSessionTestLock = release;
+                        acquired();
+                    });
                 }).catch(fail);
             })
             """, SessionLockName).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
 
-        Task<IResponse[]> refreshes = Task.WhenAll(
-            ObserveWebPostAsync(first, "refresh", () => ReloadAsync(first)),
-            ObserveWebPostAsync(second, "refresh", () => ReloadAsync(second)));
-        await Task.WhenAll(ReleaseLockWhenBothTabsAreQueuedAsync(), refreshes);
+        await Task.WhenAll(ReloadAsync(first), ReloadAsync(second));
+        await using IJSHandle queued = await lockOwner.WaitForFunctionAsync("""
+            async name => {
+                const { pending } = await navigator.locks.query();
+                return pending.filter(lock => lock.name === name).length === 2;
+            }
+            """, SessionLockName, new() { PollingInterval = 50, Timeout = 10000 });
 
-        Assert.All(await refreshes, response => Assert.Equal(200, response.Status));
+        // The lock prevents either request from starting until both response waiters are attached.
+        Task<IResponse> firstRefresh = first.WaitForResponseAsync(response => IsWebPost(response, RefreshPath));
+        Task<IResponse> secondRefresh = second.WaitForResponseAsync(response => IsWebPost(response, RefreshPath));
+        await lockOwner.EvaluateAsync("() => globalThis.releaseSessionTestLock()");
+        IResponse[] responses = await Task.WhenAll(firstRefresh, secondRefresh);
+        Assert.All(responses, response => Assert.Equal(200, response.Status));
         await ExpectSignedInAsync(first);
         await ExpectSignedInAsync(second);
-
-        async Task ReleaseLockWhenBothTabsAreQueuedAsync()
-        {
-            try
-            {
-                await using IJSHandle queued = await lockOwner.WaitForFunctionAsync("""
-                    async name => {
-                        const { pending } = await navigator.locks.query();
-                        return pending.filter(lock => lock.name === name).length === 2;
-                    }
-                    """, SessionLockName, new() { PollingInterval = 50, Timeout = 10000 });
-            }
-            finally
-            {
-                await lockOwner.CloseAsync();
-            }
-        }
     }
 
     [Fact]
@@ -174,7 +215,8 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
         Assert.True(registration.Ok, $"Registration returned HTTP {registration.Status}.");
         await Expect(page.GetByRole(AriaRole.Heading, new() { Name = "Check your email" })).ToBeVisibleAsync();
 
-        Uri link = await WaitForConfirmationLinkAsync(fixture.Mailbox, email, TestContext.Current.CancellationToken);
+        Uri link = await WaitForEmailLinkAsync(fixture.Mailbox, email, "Confirm your ChessRealms email",
+            TestContext.Current.CancellationToken);
         Assert.True(link.GetLeftPart(UriPartial.Authority) == fixture.WebOrigin.GetLeftPart(UriPartial.Authority)
             && link.AbsolutePath == "/confirm-email" && !string.IsNullOrEmpty(link.Query),
             "The confirmation email must target the local Angular confirmation page.");
@@ -197,10 +239,10 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
         return (confirmation, email);
     }
 
-    private async Task SignInAsync(IPage page, string email)
+    private async Task SignInAsync(IPage page, string email, string password = Password)
     {
         await page.GetByLabel("Email", new() { Exact = true }).FillAsync(email);
-        await page.GetByLabel("Password", new() { Exact = true }).FillAsync(Password);
+        await page.GetByLabel("Password", new() { Exact = true }).FillAsync(password);
         IResponse response = await ObserveWebPostAsync(page, "login",
             () => page.GetByRole(AriaRole.Button, new() { Name = "Sign in", Exact = true }).ClickAsync());
         Assert.Equal(200, response.Status);
@@ -268,13 +310,13 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
     private static Task<IResponse> ObserveWebPostAsync(IPage page, string action, Func<Task> performAction)
     {
         string path = $"/api/identity/web/{action}";
-        return page.RunAndWaitForResponseAsync(performAction, response =>
-        {
-            return response.Request.Method == "POST" && new Uri(response.Url).AbsolutePath == path;
-        });
+        return page.RunAndWaitForResponseAsync(performAction, response => IsWebPost(response, path));
     }
 
-    private static async Task<Uri> WaitForConfirmationLinkAsync(HttpClient mailbox, string email,
+    private static bool IsWebPost(IResponse response, string path) =>
+        response.Request.Method == "POST" && new Uri(response.Url).AbsolutePath == path;
+
+    private static async Task<Uri> WaitForEmailLinkAsync(HttpClient mailbox, string email, string subject,
         CancellationToken cancellationToken)
     {
         using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -287,7 +329,8 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
                 JsonElement result = await mailbox.GetFromJsonAsync<JsonElement>("/api/v1/messages", timeout.Token);
                 foreach (JsonElement message in result.GetProperty("messages").EnumerateArray())
                 {
-                    if (!message.GetProperty("To").EnumerateArray().Any(address =>
+                    if (message.GetProperty("Subject").GetString() != subject
+                        || !message.GetProperty("To").EnumerateArray().Any(address =>
                         address.GetProperty("Address").GetString() == email))
                     {
                         continue;
@@ -302,14 +345,14 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
                     {
                         return uri;
                     }
-                    throw new InvalidOperationException("The confirmation email has no HTTPS link.");
+                    throw new InvalidOperationException("The identity email has no HTTPS link.");
                 }
             } while (await poll.WaitForNextTickAsync(timeout.Token));
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new TimeoutException("Mailpit did not receive the test account's confirmation email within 30 seconds.");
+            throw new TimeoutException("Mailpit did not receive the expected identity email within 30 seconds.");
         }
-        throw new TimeoutException("The Mailpit polling timer stopped before the confirmation email arrived.");
+        throw new TimeoutException("The Mailpit polling timer stopped before the identity email arrived.");
     }
 }

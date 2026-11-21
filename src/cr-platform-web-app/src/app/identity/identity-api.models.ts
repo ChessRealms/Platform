@@ -56,3 +56,8 @@ export interface LoginSession {
   expiresAt: string;
   isCurrent: boolean;
 }
+export interface ResetPasswordRequest {
+  userId: string;
+  token: string;
+  newPassword: string;
+}

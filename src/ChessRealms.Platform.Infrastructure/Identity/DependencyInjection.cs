@@ -2,6 +2,7 @@ using System.Net.Mail;
 
 using ChessRealms.Platform.Application.Identity;
 using ChessRealms.Platform.Infrastructure.Identity.EmailConfirmation;
+using ChessRealms.Platform.Infrastructure.Identity.PasswordReset;
 using ChessRealms.Platform.Infrastructure.Identity.Persistence;
 
 using Microsoft.AspNetCore.DataProtection;
@@ -31,7 +32,9 @@ public static class DependencyInjection
             options.SignIn.RequireConfirmedEmail = true;
             options.Lockout.MaxFailedAccessAttempts = 5;
             options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(5);
-        }).AddEntityFrameworkStores<IdentityDbContext>().AddDefaultTokenProviders();
+            options.Tokens.PasswordResetTokenProvider = "ChessRealms.PasswordReset";
+        }).AddEntityFrameworkStores<IdentityDbContext>().AddDefaultTokenProviders()
+            .AddTokenProvider<PasswordResetTokenProvider>("ChessRealms.PasswordReset");
         builder.Services.AddDataProtection().SetApplicationName("ChessRealms.Platform");
         builder.Services.Configure<DataProtectionTokenProviderOptions>(options => options.TokenLifespan = TimeSpan.FromHours(24));
         builder.Services.AddOptions<EmailConfirmationOptions>()
@@ -47,8 +50,17 @@ public static class DependencyInjection
                 || builder.Environment.IsEnvironment("Testing"),
                 "Identity:EmailConfirmation:AutoConfirmOnRegistration is allowed only in Development or Testing.")
             .ValidateOnStart();
+        builder.Services.AddOptions<PasswordResetOptions>()
+            .Bind(builder.Configuration.GetSection("Identity:PasswordReset"))
+            .Validate(options => options.ResetUrl is null || Uri.TryCreate(options.ResetUrl, UriKind.Absolute, out Uri? uri)
+                && uri.Scheme == Uri.UriSchemeHttps && string.IsNullOrEmpty(uri.UserInfo)
+                && string.IsNullOrEmpty(uri.Query) && string.IsNullOrEmpty(uri.Fragment),
+                "ResetUrl must be an absolute HTTPS URL without credentials, a query, or a fragment.")
+            .ValidateOnStart();
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddScoped<IRegistrationService, RegistrationService>();
+        builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
+        builder.Services.AddScoped<PasswordResetEmailDispatcher>();
         builder.Services.AddScoped<EmailConfirmationService>();
         builder.Services.AddScoped<IEmailConfirmationService>(provider => provider.GetRequiredService<EmailConfirmationService>());
         builder.Services.AddScoped<ConfirmationEmailDispatcher>();
@@ -73,11 +85,14 @@ public static class DependencyInjection
                     || options.Security != SmtpTransportSecurity.None,
                     "SMTP requires TLS outside Development and Testing.")
                 .ValidateOnStart();
-            builder.Services.AddSingleton<IConfirmationEmailSender, SmtpConfirmationEmailSender>();
+            builder.Services.AddSingleton<SmtpConfirmationEmailSender>();
+            builder.Services.AddSingleton<IConfirmationEmailSender>(provider => provider.GetRequiredService<SmtpConfirmationEmailSender>());
+            builder.Services.AddSingleton<IPasswordResetEmailSender>(provider => provider.GetRequiredService<SmtpConfirmationEmailSender>());
         }
         else
         {
             builder.Services.AddSingleton<IConfirmationEmailSender, UnconfiguredConfirmationEmailSender>();
+            builder.Services.AddSingleton<IPasswordResetEmailSender, UnconfiguredConfirmationEmailSender>();
         }
 
         return builder;

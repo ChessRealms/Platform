@@ -55,6 +55,7 @@ public sealed class MailpitEmailPipelineTests : IAsyncLifetime
             ["Identity:Jwt:PrivateKeyPem"] = rsa.ExportPkcs8PrivateKeyPem(),
             ["Identity:EmailConfirmation:ConfirmationUrl"] = "https://localhost:7011/api/identity/confirm-email",
             ["Identity:EmailConfirmation:ResendCooldown"] = "00:00:01",
+            ["Identity:PasswordReset:ResetUrl"] = "https://localhost:7011/reset-password",
             ["Identity:EmailConfirmation:Smtp:Host"] = _mailpit.Hostname,
             ["Identity:EmailConfirmation:Smtp:Port"] = _mailpit.GetMappedPublicPort(1025).ToString(),
             ["Identity:EmailConfirmation:Smtp:FromAddress"] = "no-reply@chessrealms.test",
@@ -146,11 +147,82 @@ public sealed class MailpitEmailPipelineTests : IAsyncLifetime
             .RegisterAsync(new(email, $"user{Guid.NewGuid():N}", Password), Cancellation);
     }
 
-    private async Task<LoginResult> LoginAsync(string email)
+    [Fact]
+    public async Task PasswordResetUsesMailpitAndRevokesAllSessionsExactlyOnce()
+    {
+        const string newPassword = "Replacement-password8!";
+        string email = $"reset-{Guid.NewGuid():N}@example.test";
+        RegistrationResult registration = await RegisterAsync(email);
+        Guid userId = Assert.IsType<Guid>(registration.UserId);
+        await RequestResetAsync(email);
+        await RequestResetAsync("unknown@example.test");
+        Assert.Equal(0, await CountResetDeliveriesAsync());
+
+        Uri confirmation = await GetConfirmationLinkAsync(Assert.Single(await WaitForMessagesAsync(email, 1)));
+        string confirmationToken = QueryHelpers.ParseQuery(confirmation.Query)["token"].ToString();
+        await using (AsyncServiceScope scope = _host.Services.CreateAsyncScope())
+        {
+            IEmailConfirmationService service = scope.ServiceProvider.GetRequiredService<IEmailConfirmationService>();
+            Assert.Equal("EmailConfirmed", await service.ConfirmAsync(userId, confirmationToken, Cancellation));
+        }
+        Assert.Equal("InvalidResetToken", (await CompleteResetAsync(new(userId, confirmationToken, newPassword))).Code);
+
+        LoginResult firstSession = await LoginAsync(email);
+        LoginResult secondSession = await LoginAsync(email);
+        Assert.Equal("Success", firstSession.Code);
+        Assert.Equal("Success", secondSession.Code);
+        await Task.WhenAll(RequestResetAsync(email), RequestResetAsync(email.ToUpperInvariant()));
+        Assert.Equal(1, await CountResetDeliveriesAsync());
+        JsonElement message = Assert.Single(await WaitForMessagesAsync(email, 2), summary =>
+            summary.GetProperty("Subject").GetString() == "Reset your ChessRealms password");
+        Uri resetLink = await GetLinkAsync(message);
+        Assert.Equal("/reset-password", resetLink.AbsolutePath);
+        Assert.Empty(resetLink.Query);
+        Dictionary<string, Microsoft.Extensions.Primitives.StringValues> linkParameters =
+            QueryHelpers.ParseQuery(resetLink.Fragment[1..]);
+        Assert.Equal(userId, Guid.Parse(linkParameters["userId"].ToString()));
+        ResetPasswordRequest request = new(userId, linkParameters["token"].ToString(), newPassword);
+
+        Assert.Equal("InvalidPassword", (await CompleteResetAsync(request with { NewPassword = "weak" })).Code);
+        PasswordResetResult[] attempts = await Task.WhenAll(CompleteResetAsync(request), CompleteResetAsync(request));
+        Assert.Single(attempts, result => result.Code == "PasswordReset");
+        Assert.Single(attempts, result => result.Code == "InvalidResetToken");
+        Assert.Equal("InvalidCredentials", (await LoginAsync(email)).Code);
+        Assert.Equal("Success", (await LoginAsync(email, newPassword)).Code);
+
+        await using AsyncServiceScope verification = _host.Services.CreateAsyncScope();
+        var database = verification.ServiceProvider.GetRequiredService<IdentityDbContext>();
+        Assert.Equal(2, await database.LoginSessions.CountAsync(
+            session => session.UserId == userId && session.RevocationReason == "PasswordReset", Cancellation));
+        var refresh = verification.ServiceProvider.GetRequiredService<IRefreshTokenService>();
+        Assert.Equal("InvalidRefreshToken", (await refresh.RefreshAsync(new(firstSession.RefreshToken!), Cancellation)).Code);
+        Assert.Equal("InvalidRefreshToken", (await refresh.RefreshAsync(new(secondSession.RefreshToken!), Cancellation)).Code);
+    }
+
+    private async Task RequestResetAsync(string email)
+    {
+        await using AsyncServiceScope scope = _host.Services.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<IPasswordResetService>().RequestAsync(email, Cancellation);
+    }
+
+    private async Task<int> CountResetDeliveriesAsync()
+    {
+        await using AsyncServiceScope scope = _host.Services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<IdentityDbContext>()
+            .PasswordResetEmailDeliveries.CountAsync(Cancellation);
+    }
+
+    private async Task<PasswordResetResult> CompleteResetAsync(ResetPasswordRequest request)
+    {
+        await using AsyncServiceScope scope = _host.Services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<IPasswordResetService>().ResetAsync(request, Cancellation);
+    }
+
+    private async Task<LoginResult> LoginAsync(string email, string password = Password)
     {
         await using AsyncServiceScope scope = _host.Services.CreateAsyncScope();
         return await scope.ServiceProvider.GetRequiredService<ILoginService>()
-            .LoginAsync(new(email, Password), Cancellation);
+            .LoginAsync(new(email, password), Cancellation);
     }
 
     private async Task<ConfirmationSessionResult> ResendAsync(string token)
@@ -205,9 +277,14 @@ public sealed class MailpitEmailPipelineTests : IAsyncLifetime
         throw new TimeoutException("Mailpit did not receive the expected message.");
     }
 
-    private async Task<Uri> GetConfirmationLinkAsync(JsonElement summary)
+    private Task<Uri> GetConfirmationLinkAsync(JsonElement summary)
     {
         Assert.Equal("Confirm your ChessRealms email", summary.GetProperty("Subject").GetString());
+        return GetLinkAsync(summary);
+    }
+
+    private async Task<Uri> GetLinkAsync(JsonElement summary)
+    {
         string id = summary.GetProperty("ID").GetString()!;
         using HttpResponseMessage response = await _mailpitApi.GetAsync($"/api/v1/message/{Uri.EscapeDataString(id)}", Cancellation);
         response.EnsureSuccessStatusCode();

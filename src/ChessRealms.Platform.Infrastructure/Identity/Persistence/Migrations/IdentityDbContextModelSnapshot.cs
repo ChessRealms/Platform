@@ -109,6 +109,36 @@ namespace ChessRealms.Platform.Infrastructure.Identity.Persistence.Migrations
                     b.ToTable("LoginSessions", "identity");
                 });
 
+            modelBuilder.Entity("ChessRealms.Platform.Infrastructure.Identity.Persistence.PasswordResetEmailDelivery", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SecurityStamp")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status", "CreatedAt");
+
+                    b.HasIndex("UserId", "CreatedAt");
+
+                    b.ToTable("PasswordResetEmailDeliveries", "identity");
+                });
+
             modelBuilder.Entity("ChessRealms.Platform.Infrastructure.Identity.Persistence.RefreshToken", b =>
                 {
                     b.Property<string>("TokenHash")
@@ -284,6 +314,15 @@ namespace ChessRealms.Platform.Infrastructure.Identity.Persistence.Migrations
                 });
 
             modelBuilder.Entity("ChessRealms.Platform.Infrastructure.Identity.Persistence.LoginSession", b =>
+                {
+                    b.HasOne("ChessRealms.Platform.Infrastructure.Identity.PlatformUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ChessRealms.Platform.Infrastructure.Identity.Persistence.PasswordResetEmailDelivery", b =>
                 {
                     b.HasOne("ChessRealms.Platform.Infrastructure.Identity.PlatformUser", null)
                         .WithMany()

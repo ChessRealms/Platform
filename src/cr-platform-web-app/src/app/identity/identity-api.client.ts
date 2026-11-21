@@ -10,6 +10,7 @@ import {
   WebSessionResult,
   RegistrationRequest,
   RegistrationResult,
+  ResetPasswordRequest,
 } from './identity-api.models';
 
 @Injectable({ providedIn: 'root' })
@@ -39,6 +40,14 @@ export class IdentityApiClient {
     return this.http.get<ConfirmationResult>(`${this.baseUrl}/confirm-email`, {
       params: new HttpParams().set('userId', userId).set('token', token),
     });
+  }
+
+  requestPasswordReset(email: string): Observable<void> {
+    return this.http.post<void>(`${this.baseUrl}/password-reset/request`, { email });
+  }
+
+  resetPassword(request: ResetPasswordRequest): Observable<void> {
+    return this.http.post<void>(`${this.baseUrl}/password-reset/complete`, request);
   }
 
   login(request: LoginRequest): Observable<WebSessionResult> {
