@@ -138,8 +138,10 @@ stale result be discarded if the game changes during search.
 3. Angular authentication integration.
 4. Engine integration and persistent game state.
 5. Playable Angular board with polling.
-6. Finish the private two-player milestone with end-to-end invitation, sign-in,
+6. Resignation, draw agreements, and claims for threefold repetition or the
+   50-move rule.
+7. Finish the private two-player milestone with end-to-end invitation, sign-in,
    gameplay, result, and recovery coverage.
-7. Extend multiplayer with realtime synchronization, opponent discovery,
+8. Extend multiplayer with realtime synchronization, opponent discovery,
    invitations and lobbies, guests, and clocks as needed.
-8. Consider computer opponents independently, with interchangeable move providers.
+9. Consider computer opponents independently, with interchangeable move providers.

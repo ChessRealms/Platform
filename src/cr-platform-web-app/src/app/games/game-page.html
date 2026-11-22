@@ -36,6 +36,11 @@
               <input id="game-link" readonly [value]="gameLink(game)" />
             }
           }
+          @if (game.status === 'Active' && playerId()) {
+            <cr-game-finishing-actions [game]="game" [color]="color()"
+              [canAct]="canAct()" [legalMoves]="board()?.legalMoves ?? []" [drawClaims]="board()?.drawClaims ?? []"
+              (action)="finish($event)" />
+          }
           @if (promotion().length > 0) {
             <div role="group" aria-label="Choose promotion piece">
               <p role="status">Choose a promotion piece.</p>

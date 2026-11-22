@@ -11,7 +11,8 @@ public sealed record GameResponse(
     string Fen,
     string? SideToMove,
     string? Winner,
-    string? EndReason)
+    string? EndReason,
+    string? DrawOfferedBy)
 {
     internal static GameResponse From(Game game) => new(
         game.Id,
@@ -22,5 +23,6 @@ public sealed record GameResponse(
         game.Fen,
         game.Status == GameStatus.Active ? game.SideToMove.ToString() : null,
         game.Winner?.ToString(),
-        game.EndReason?.ToString());
+        game.EndReason?.ToString(),
+        game.DrawOfferedBy?.ToString());
 }

@@ -5,17 +5,20 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { catchError, distinctUntilChanged, EMPTY, exhaustMap, finalize, map, merge, Observable, Subject, switchMap, timer } from 'rxjs';
 import { ChessBoard } from './chess-board';
-import { Game, GameBoard, gameIdPattern } from './game.models';
+import { GameFinishingActions } from './game-finishing-actions';
+import { Game, GameBoard, GameFinishingAction, gameIdPattern } from './game.models';
 import { GamesApi } from './games-api';
 
 const promotionNames: Record<string, string> = { q: 'Queen', r: 'Rook', b: 'Bishop', n: 'Knight' };
 const finishReasons: Record<string, string> = {
   Checkmate: 'Checkmate', Stalemate: 'Stalemate', DeadPosition: 'Dead position',
   FivefoldRepetition: 'Fivefold repetition', SeventyFiveMoveRule: '75-move rule',
+  Resignation: 'Resignation', DrawAgreement: 'By agreement',
+  ThreefoldRepetition: 'Threefold repetition', FiftyMoveRule: '50-move rule',
 };
 
 @Component({
-  imports: [ChessBoard, RouterLink],
+  imports: [ChessBoard, GameFinishingActions, RouterLink],
   templateUrl: './game-page.html',
   styleUrl: './game-page.css',
 })
@@ -131,6 +134,10 @@ export class GamePage {
     this.command(game => this.api.accept(game));
   }
 
+  finish(action: GameFinishingAction): void {
+    this.command(game => this.api.finish(game, action));
+  }
+
   private loadPlayer(): void {
     this.playerError.set(false);
     this.api.me().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -190,7 +197,8 @@ export class GamePage {
     ).subscribe({
       error: (error: HttpErrorResponse) => {
         if (this.currentId === game.id && commandVersion === this.commandVersion) {
-          this.commandError.set(error.status === 409 ? 'The game changed. Check the current position.'
+          this.commandError.set(error.error?.code === 'DrawClaimUnavailable' ? 'That draw claim is unavailable.'
+            : error.status === 409 ? 'The game changed. Check the current position.'
             : error.status === 422 ? 'That move is illegal in the current position.'
             : 'Could not confirm the action. Check the updated board before trying again.');
         }

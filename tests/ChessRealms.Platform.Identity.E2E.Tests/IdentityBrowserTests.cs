@@ -27,7 +27,7 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
     }
 
     [Fact]
-    public async Task PlayersAcceptPrivateGameAndSeeEachOthersMovesAcrossBrowsers()
+    public async Task PlayersAcceptPrivateGameExchangeMovesAndAgreeToDrawAcrossBrowsers()
     {
         await using IBrowser browser = await LaunchBrowserAsync();
         await using IBrowserContext whiteContext = await NewContextAsync(browser);
@@ -70,6 +70,15 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
         await Expect(white.GetByRole(AriaRole.Button, new() { Name = "e5, Black pawn" })).ToBeVisibleAsync();
         await Expect(white.GetByText("e2e4", new() { Exact = true })).ToBeVisibleAsync();
         await Expect(white.GetByText("e7e5", new() { Exact = true })).ToBeVisibleAsync();
+
+        await white.GetByRole(AriaRole.Button, new() { Name = "Offer draw", Exact = true }).ClickAsync();
+        await Expect(black.GetByText("Your opponent offered a draw.", new() { Exact = true })).ToBeVisibleAsync();
+        await black.GetByRole(AriaRole.Button, new() { Name = "Accept draw", Exact = true }).TapAsync();
+        await Expect(black.GetByText("Draw · By agreement", new() { Exact = true })).ToBeVisibleAsync();
+        await Expect(white.GetByText("Draw · By agreement", new() { Exact = true })).ToBeVisibleAsync();
+        await black.ReloadAsync();
+        await Expect(black.GetByText("Draw · By agreement", new() { Exact = true })).ToBeVisibleAsync();
+        await Expect(black.GetByRole(AriaRole.Button, new() { Name = "Resign", Exact = true })).ToHaveCountAsync(0);
     }
 
     [Fact]

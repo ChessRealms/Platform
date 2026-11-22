@@ -31,6 +31,10 @@ namespace ChessRealms.Platform.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("BlackPlayerId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("DrawOfferedBy")
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
+
                     b.Property<string>("EndReason")
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");

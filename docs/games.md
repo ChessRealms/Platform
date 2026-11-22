@@ -13,6 +13,10 @@ sign in from the link and accept the invitation. The board shows legal
 destinations for the selected piece and asks for a piece when promoting.
 Arrow keys move between squares. Enter or Space selects the focused square.
 The board polls for updates every 2.5 seconds and restores the saved game on reload.
+Either player can resign or offer a draw during an active game. The recipient
+can accept, decline, or play a move to decline. On their turn, a player can claim
+a draw on the current position or select an intended move to support the claim.
+The board shows the final result and reason to both players.
 
 ## HTTP contract
 
@@ -24,12 +28,17 @@ game and a game belonging to other players both return `404 NotFound`.
 | --- | --- | --- |
 | `POST /api/games` | `{"opponentId":"<user-id>"}` | `201` with a pending game at revision 0 and a `Location` header. |
 | `GET /api/games/{id}` | None | `200` with the current game. |
-| `GET /api/games/{id}/board?afterRevision={revision}` | None | `200` with the game, coordinate move history and legal moves for the caller's turn. `204` if the supplied revision is current. Omit the query parameter for a full board. |
+| `GET /api/games/{id}/board?afterRevision={revision}` | None | `200` with the game, coordinate move history, legal moves, and `drawClaims` available on the current position for the caller's turn. `204` if the supplied revision is current. Omit the query parameter for a full board. |
 | `POST /api/games/{id}/accept` | `{"expectedRevision":0}` | `200` with the active game at revision 1. |
 | `POST /api/games/{id}/moves` | `{"move":"e2e4","expectedRevision":1}` | `200` with the next position and incremented revision. |
+| `POST /api/games/{id}/resign` | `{"expectedRevision":1}` | `200` with the game finished and the opponent as winner. |
+| `POST /api/games/{id}/draw/offer` | `{"expectedRevision":1}` | `200` with the offerer's color. |
+| `POST /api/games/{id}/draw/accept` or `/draw/decline` | `{"expectedRevision":2}` | `200` with the offer cleared. Acceptance finishes the game as a draw. |
+| `POST /api/games/{id}/draw/claim` | `{"expectedRevision":9,"reason":"ThreefoldRepetition"}`, optionally with `intendedMove` | `200` with the game finished as a draw. |
 
 The response includes `id`, `whitePlayerId`, `blackPlayerId`, `status` (`Pending`,
-`Active` or `Finished`), `revision`, `fen`, `sideToMove`, `winner` and `endReason`.
+`Active` or `Finished`), `revision`, `fen`, `sideToMove`, `winner`, `endReason`
+and `drawOfferedBy`. The latter is `White`, `Black`, or `null`.
 The side to move is present for active games. A finished draw has a reason and
 no winner. Coordinate moves use lowercase squares and an explicit promotion
 piece when required, for example `a7a8q`.
@@ -38,19 +47,27 @@ piece when required, for example `a7a8q`.
 | --- | --- |
 | `400` | Invalid request body, two identical or empty player IDs, or an unavailable opponent. |
 | `401` | Missing or invalid access token. |
-| `403 Forbidden` | White tried to accept the invitation. |
+| `403 Forbidden` | White tried to accept the invitation or a player tried to respond to their own draw offer. |
 | `404 NotFound` | Game unknown or caller outside the game. |
-| `409` | Revisions conflict (`RevisionConflict`), game is in the wrong state, or it is the other player's turn. |
+| `409` | Revisions conflict (`RevisionConflict`), the game is in the wrong state, it is the other player's turn, or the action requires a different draw offer state. |
 | `422 IllegalMove` | Move notation or move legality was rejected by the chess rules. |
+| `422 DrawClaimUnavailable` | The current position or intended move does not qualify for the requested draw. |
 
 On `RevisionConflict`, read the latest game before sending a new command. A
 repeated move with the same revision cannot apply twice. New game requests
 create a new game each time.
 
+Draw claims use `ThreefoldRepetition` or `FiftyMoveRule`. ChessRealms.Engine
+validates each claim. A valid intended move establishes eligibility and is
+recorded in the claim without adding a move to the game history. Each accepted
+finishing action, draw offer, or response advances the revision. The offer
+survives the offerer's own move and clears when its recipient moves or the game
+finishes.
+
 ## Persistence and rules
 
-MigrationWorker applies the `PersistentGames` migration to `PlatformDbContext`
-before the API starts. Each row stores the participants, revision, current FEN
+MigrationWorker applies the Platform migrations, including the nullable draw
+offer field, before the API starts. Each row stores the participants, revision, current FEN
 and result alongside the engine's JSON game record. EF Core compares the
 original revision when updating the row, so two writes on one revision cannot
 both succeed. Rejected commands leave the revision and board unchanged.
@@ -62,6 +79,5 @@ Read requests use the persisted FEN and outcome directly. Automatic
 endings follow the engine's documented behavior, including its limited
 dead-position detection.
 
-Private games use known opponent IDs and explicit acceptance. Opponent discovery,
-realtime notifications, and player actions such as resignation and draw claims
-are subsequent features.
+Private games use known opponent IDs and explicit acceptance. Opponent discovery
+and realtime notifications are subsequent features.
