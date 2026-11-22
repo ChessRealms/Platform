@@ -19,6 +19,12 @@ can accept, decline, or play a move to decline. On their turn, a player can clai
 a draw on the current position or select an intended move to support the claim.
 The board shows the final result and reason to both players.
 
+Use **My games** to reopen a game without keeping its link. **Invitations**
+includes both received and sent invitations. **Active** shows whose turn it is,
+and **Finished** shows the result from your perspective. Use **Refresh** to check
+for changes and **Load more** to browse older entries. If a creation response
+is lost, check **Invitations** for the new game before submitting again.
+
 ## HTTP contract
 
 Every route requires a bearer access token. The API uses the JWT subject as the
@@ -27,6 +33,7 @@ game and a game belonging to other players both return `404 NotFound`.
 
 | Route | Request body | Successful response |
 | --- | --- | --- |
+| `GET /api/games?status=Pending&before={cursor}` | None | `200` with a page of your games in that status. Omit `before` for the first page. |
 | `POST /api/games` | `{"opponentId":"<user-id>"}` | `201` with a pending game at revision 0 and a `Location` header. |
 | `GET /api/games/{id}` | None | `200` with the current game. |
 | `GET /api/games/{id}/board?afterRevision={revision}` | None | `200` with the game, coordinate move history, legal moves, and `drawClaims` available on the current position for the caller's turn. `204` if the supplied revision is current. Omit the query parameter for a full board. |
@@ -43,6 +50,14 @@ and `drawOfferedBy`. The latter is `White`, `Black`, or `null`.
 The side to move is present for active games. A finished draw has a reason and
 no winner. Coordinate moves use lowercase squares and an explicit promotion
 piece when required, for example `a7a8q`.
+
+The list endpoint defaults to `Pending` and also accepts `Active` or `Finished`.
+It returns up to 20 `items` and a `nextCursor` to pass as `before`, or `null` on
+the last page. Items include the game ID, opponent ID and username, the
+caller's color, status, creation time, turn indicator and result. Games with a
+creation time appear newest first. Games created before the listing migration
+have `createdAt: null` and follow the dated games. Use the board endpoint for
+positions and move history.
 
 | Status | Meaning |
 | --- | --- |

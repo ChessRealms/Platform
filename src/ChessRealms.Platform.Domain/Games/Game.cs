@@ -6,7 +6,7 @@ public sealed class Game
     {
     }
 
-    public Game(Guid whitePlayerId, Guid blackPlayerId, GamePosition startingPosition)
+    public Game(Guid whitePlayerId, Guid blackPlayerId, GamePosition startingPosition, DateTimeOffset createdAt)
     {
         if (!CanPair(whitePlayerId, blackPlayerId))
         {
@@ -19,12 +19,14 @@ public sealed class Game
         Id = Guid.NewGuid();
         WhitePlayerId = whitePlayerId;
         BlackPlayerId = blackPlayerId;
+        CreatedAt = createdAt;
         UpdatePosition(startingPosition);
     }
 
     public Guid Id { get; private set; }
     public Guid WhitePlayerId { get; private set; }
     public Guid BlackPlayerId { get; private set; }
+    public DateTimeOffset? CreatedAt { get; private set; }
     public GameStatus Status { get; private set; } = GameStatus.Pending;
     public long Revision { get; private set; }
     public string RulesRecord { get; private set; } = null!;

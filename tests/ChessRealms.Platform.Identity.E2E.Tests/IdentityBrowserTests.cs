@@ -107,9 +107,18 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
         await Expect(black).ToHaveURLAsync(new Uri(fixture.WebOrigin, $"/login?gameId={gameId}").AbsoluteUri);
         await SubmitSignInAsync(black, blackEmail);
         await Expect(black).ToHaveURLAsync(gameLink);
+        ILocator gamesLink = black.GetByRole(AriaRole.Main).GetByRole(AriaRole.Link, new() { Name = "Games", Exact = true });
+        ILocator gamesList = black.GetByRole(AriaRole.Region, new() { Name = "Your games", Exact = true });
+        await gamesLink.ClickAsync();
+        await gamesList.GetByRole(AriaRole.Link).Filter(new() { HasText = "Invitation received" }).TapAsync();
+        await Expect(black).ToHaveURLAsync(gameLink);
         await black.GetByRole(AriaRole.Button, new() { Name = "Accept game" }).TapAsync();
         await accepted.Task.WaitAsync(liveTimeout, cancellationToken);
         await Expect(white.GetByText("Your turn", new() { Exact = true })).ToBeVisibleAsync();
+        await gamesLink.ClickAsync();
+        await gamesList.GetByRole(AriaRole.Button, new() { Name = "Active", Exact = true }).TapAsync();
+        await gamesList.GetByRole(AriaRole.Link).Filter(new() { HasText = "Opponent’s turn" }).TapAsync();
+        await Expect(black).ToHaveURLAsync(gameLink);
 
         ILocator whitePawn = white.GetByRole(AriaRole.Button, new() { Name = "e2, White pawn" });
         await whitePawn.PressAsync("Enter");
@@ -138,6 +147,10 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
         await black.GetByRole(AriaRole.Button, new() { Name = "Accept draw", Exact = true }).TapAsync();
         await Expect(black.GetByText("Draw · By agreement", new() { Exact = true })).ToBeVisibleAsync();
         await Expect(white.GetByText("Draw · By agreement", new() { Exact = true })).ToBeVisibleAsync();
+        await gamesLink.ClickAsync();
+        await gamesList.GetByRole(AriaRole.Button, new() { Name = "Finished", Exact = true }).TapAsync();
+        await gamesList.GetByRole(AriaRole.Link).Filter(new() { HasText = "Draw · By agreement" }).TapAsync();
+        await Expect(black).ToHaveURLAsync(gameLink);
         await black.ReloadAsync();
         await Expect(black.GetByText("Draw · By agreement", new() { Exact = true })).ToBeVisibleAsync();
         await Expect(black.GetByRole(AriaRole.Button, new() { Name = "Resign", Exact = true })).ToHaveCountAsync(0);

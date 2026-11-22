@@ -4,7 +4,7 @@ import { defer, Observable, switchMap } from 'rxjs';
 import { AuthSession } from '../identity/auth-session';
 import { IdentityApiClient } from '../identity/identity-api.client';
 import { CurrentUser } from '../identity/identity-api.models';
-import { Game, GameBoard, GameFinishingAction } from './game.models';
+import { Game, GameBoard, GameFinishingAction, GameListPage, GameStatus } from './game.models';
 
 @Injectable({ providedIn: 'root' })
 export class GamesApi {
@@ -19,6 +19,13 @@ export class GamesApi {
   create(opponentId: string): Observable<Game> {
     return this.authorized(token =>
       this.http.post<Game>('/api/games', { opponentId }, this.options(token)));
+  }
+
+  list(status: GameStatus, before: string | null): Observable<GameListPage> {
+    return this.authorized(token => this.http.get<GameListPage>('/api/games', {
+      ...this.options(token),
+      params: before ? { status, before } : { status },
+    }));
   }
 
   board(id: string, revision?: number): Observable<GameBoard | null> {

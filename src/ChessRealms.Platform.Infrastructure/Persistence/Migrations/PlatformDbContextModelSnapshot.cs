@@ -31,6 +31,9 @@ namespace ChessRealms.Platform.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("BlackPlayerId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTimeOffset?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("DrawOfferedBy")
                         .HasMaxLength(8)
                         .HasColumnType("character varying(8)");
@@ -69,6 +72,10 @@ namespace ChessRealms.Platform.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(8)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("BlackPlayerId", "Status");
+
+                    b.HasIndex("WhitePlayerId", "Status");
 
                     b.ToTable("Games");
                 });

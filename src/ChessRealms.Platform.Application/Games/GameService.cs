@@ -2,8 +2,10 @@ using ChessRealms.Platform.Domain.Games;
 
 namespace ChessRealms.Platform.Application.Games;
 
-public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerDirectory players)
+public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerDirectory players, TimeProvider clock)
 {
+    private const int ListPageSize = 20;
+
     public async Task<GameOperationResult> CreateAsync(Guid creatorId, Guid opponentId, CancellationToken cancellationToken)
     {
         if (!Game.CanPair(creatorId, opponentId))
@@ -15,7 +17,7 @@ public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerD
             return new(GameError.OpponentUnavailable);
         }
 
-        Game game = new(creatorId, opponentId, rules.StartingPosition());
+        Game game = new(creatorId, opponentId, rules.StartingPosition(), clock.GetUtcNow());
         await store.CreateAsync(game, cancellationToken);
         return new(GameError.None, game);
     }
@@ -24,6 +26,21 @@ public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerD
     {
         Game? game = await store.FindAsync(gameId, cancellationToken);
         return game?.HasPlayer(playerId) == true ? game : null;
+    }
+
+    public async Task<GameListPage> ListAsync(Guid playerId, GameStatus status, Guid? before, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<GameListItem> rows = await store.ListAsync(playerId, status, before, ListPageSize + 1, cancellationToken);
+        if (rows.Count == 0)
+        {
+            return new([], null);
+        }
+
+        GameListItem[] items = rows.Take(ListPageSize).ToArray();
+        Guid[] opponents = items.Select(item => item.OpponentId).Distinct().ToArray();
+        IReadOnlyDictionary<Guid, string> names = await players.FindNamesAsync(opponents, cancellationToken);
+        return new(items.Select(item => item with { OpponentName = names.GetValueOrDefault(item.OpponentId) }).ToArray(),
+            rows.Count > ListPageSize ? items[^1].Id : null);
     }
 
     public GameMoveList ReadMoves(Game game, Guid playerId)
