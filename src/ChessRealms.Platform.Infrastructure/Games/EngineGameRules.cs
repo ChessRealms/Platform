@@ -37,6 +37,62 @@ internal sealed class EngineGameRules : IGameRules
         return game.MakeMove(coordinate) == MoveResult.None ? null : ReadPosition(game);
     }
 
+    public bool HasInsufficientMatingMaterial(string fen, PlayerColor attacker)
+    {
+        PieceColor attackingColor = attacker == PlayerColor.White ? PieceColor.White : PieceColor.Black;
+        Span<ChessPiece> board = stackalloc ChessPiece[64];
+        ChessGame.FromFen(fen).CopyBoardTo(board);
+
+        int attackingMinors = 0;
+        bool attackerHasKnight = false;
+        int bishopSquareColors = 0;
+        bool defenderHasNonQueen = false;
+        bool defenderHasPawnOrKnight = false;
+        for (int index = 0; index < board.Length; index++)
+        {
+            ChessPiece piece = board[index];
+            if (piece.IsEmpty || piece.Value == PieceValue.King)
+            {
+                continue;
+            }
+
+            if (piece.Color == attackingColor)
+            {
+                if (piece.Value is PieceValue.Pawn or PieceValue.Rook or PieceValue.Queen)
+                {
+                    return false;
+                }
+                attackingMinors++;
+                attackerHasKnight |= piece.Value == PieceValue.Knight;
+            }
+            else
+            {
+                defenderHasNonQueen |= piece.Value != PieceValue.Queen;
+                defenderHasPawnOrKnight |= piece.Value is PieceValue.Pawn or PieceValue.Knight;
+            }
+
+            if (piece.Value == PieceValue.Bishop)
+            {
+                int squareColor = (index / 8 + index % 8) % 2;
+                bishopSquareColors |= 1 << squareColor;
+            }
+        }
+
+        if (attackingMinors == 0)
+        {
+            return true;
+        }
+
+        // Count the defender's pieces too. They can block their own king in a mating position.
+        if (attackerHasKnight)
+        {
+            return attackingMinors == 1 && !defenderHasNonQueen;
+        }
+
+        const int bothSquareColors = 0b11;
+        return bishopSquareColors != bothSquareColors && !defenderHasPawnOrKnight;
+    }
+
     public GamePosition? ClaimDraw(string rulesRecord, DrawClaimReason reason, string? intendedMove)
     {
         CoordinateMove? move = null;

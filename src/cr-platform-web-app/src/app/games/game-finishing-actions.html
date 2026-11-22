@@ -24,7 +24,7 @@
 @switch (panel()) {
   @case ('resign') {
     <div class="panel" role="group" aria-label="Confirm resignation">
-      <p>Your opponent will win this game.</p>
+      <p>Resigning ends the game. The result is a draw if your opponent has insufficient mating material.</p>
       <div class="actions">
         <button type="button" [disabled]="!canAct()" (click)="action.emit({ kind: 'resign' })">Confirm resignation</button>
         <button type="button" (click)="panel.set(null)">Cancel</button>

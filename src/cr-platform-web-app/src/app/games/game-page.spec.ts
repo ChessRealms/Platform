@@ -56,6 +56,14 @@ describe('GamePage', () => {
     expect(page.commandError()).toContain('The game changed');
   });
 
+  it('explains a resignation draw on the board', () => {
+    const finished: Game = {
+      ...game, status: 'Finished', sideToMove: null, endReason: 'ResignationNoPossibleMate',
+    };
+    const page = open(vi.fn().mockReturnValue(of({ ...initial, game: finished, legalMoves: [] })));
+    expect(page.status()).toBe('Draw · Insufficient mating material after resignation');
+  });
+
   it('reads after reconnect and lets a newer notification supersede an in-flight read', () => {
     const updates = new Subject<number | null>();
     const delayed = new Subject<GameBoard>();

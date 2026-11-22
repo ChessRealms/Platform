@@ -25,11 +25,12 @@ describe('GameFinishingActions', () => {
   }
 
   it('asks for confirmation before resigning and clears it when the revision changes', async () => {
-    const { fixture, actions, button } = await open();
+    const { fixture, actions, element, button } = await open();
     button('Resign')!.click();
     await fixture.whenStable();
     expect(actions).toEqual([]);
     expect(button('Confirm resignation')).toBeDefined();
+    expect(element.textContent).toContain('draw if your opponent has insufficient mating material');
 
     fixture.componentRef.setInput('game', { ...game, revision: 9 });
     await fixture.whenStable();

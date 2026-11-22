@@ -39,7 +39,7 @@ game and a game belonging to other players both return `404 NotFound`.
 | `GET /api/games/{id}/board?afterRevision={revision}` | None | `200` with the game, coordinate move history, legal moves, and `drawClaims` available on the current position for the caller's turn. `204` if the supplied revision is current. Omit the query parameter for a full board. |
 | `POST /api/games/{id}/accept` | `{"expectedRevision":0}` | `200` with the active game at revision 1. |
 | `POST /api/games/{id}/moves` | `{"move":"e2e4","expectedRevision":1}` | `200` with the next position and incremented revision. |
-| `POST /api/games/{id}/resign` | `{"expectedRevision":1}` | `200` with the game finished and the opponent as winner. |
+| `POST /api/games/{id}/resign` | `{"expectedRevision":1}` | `200` with the game finished as a win for the opponent or a draw for insufficient mating material. |
 | `POST /api/games/{id}/draw/offer` | `{"expectedRevision":1}` | `200` with the offerer's color. |
 | `POST /api/games/{id}/draw/accept` or `/draw/decline` | `{"expectedRevision":2}` | `200` with the offer cleared. Acceptance finishes the game as a draw. |
 | `POST /api/games/{id}/draw/claim` | `{"expectedRevision":9,"reason":"ThreefoldRepetition"}`, optionally with `intendedMove` | `200` with the game finished as a draw. |
@@ -79,6 +79,17 @@ recorded in the claim without adding a move to the game history. Each accepted
 finishing action, draw offer, or response advances the revision. The offer
 survives the offerer's own move and clears when its recipient moves or the game
 finishes.
+
+Resignation awards the opponent a win unless their mating material is
+insufficient. In that case the game ends with `winner: null` and
+`endReason: "ResignationNoPossibleMate"`. The material check follows the intent
+of [FIDE Laws of Chess, article 5.1.2](https://handbook.fide.com/chapter/E012023).
+It covers a bare king, a lone knight against a king with only queens or no other
+pieces, and a bishop-only attacking side when all bishops share one square
+color and the defending side has no pawns or knights. It accounts for the
+defender's pieces as possible blockers. Position-specific forced lines and
+locked positions fall back to the ordinary resignation result if the material
+check cannot establish a draw. The board and move history are preserved.
 
 ## Realtime synchronization
 

@@ -84,7 +84,7 @@ public sealed class Game
         return GameError.None;
     }
 
-    public GameError Resign(Guid playerId, long expectedRevision)
+    public GameError Resign(Guid playerId, long expectedRevision, Func<string, PlayerColor, bool> hasInsufficientMatingMaterial)
     {
         GameError error = CheckActive(playerId, expectedRevision);
         if (error != GameError.None)
@@ -92,7 +92,9 @@ public sealed class Game
             return error;
         }
 
-        Finish(GameEndReason.Resignation, playerId == WhitePlayerId ? PlayerColor.Black : PlayerColor.White);
+        PlayerColor opponent = playerId == WhitePlayerId ? PlayerColor.Black : PlayerColor.White;
+        bool drawn = hasInsufficientMatingMaterial(Fen, opponent);
+        Finish(drawn ? GameEndReason.ResignationNoPossibleMate : GameEndReason.Resignation, drawn ? null : opponent);
         Revision++;
         return GameError.None;
     }

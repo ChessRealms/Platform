@@ -314,7 +314,7 @@ public sealed class GameEndpointTests : IAsyncLifetime
         Game secondGame = Assert.IsType<Game>(await secondStore.FindAsync(pending.Id, Cancellation));
         Assert.Equal(GameError.None, firstGame.Play(whiteId, 1, record => rules.Play(record, "e2e4")));
         GameError secondAction = resign
-            ? secondGame.Resign(blackId, 1)
+            ? secondGame.Resign(blackId, 1, rules.HasInsufficientMatingMaterial)
             : secondGame.Play(whiteId, 1, record => rules.Play(record, "d2d4"));
         Assert.Equal(GameError.None, secondAction);
 
@@ -406,6 +406,59 @@ public sealed class GameEndpointTests : IAsyncLifetime
         Assert.Equal(result, await white.GetFromJsonAsync<GameResponse>(url, Cancellation));
     }
 
+    [Fact]
+    public async Task ResignationUsesTheOpponentsMatingMaterialAndPersistsTheResult()
+    {
+        (Guid whiteId, string whiteToken) = await RegisterAndSignInAsync("white");
+        (Guid blackId, string blackToken) = await RegisterAndSignInAsync("black");
+        using HttpClient white = CreateClient(whiteToken);
+        using HttpClient black = CreateClient(blackToken);
+        await using AsyncServiceScope scope = app!.Services.CreateAsyncScope();
+        IGameStore store = scope.ServiceProvider.GetRequiredService<IGameStore>();
+        IGameRules rules = scope.ServiceProvider.GetRequiredService<IGameRules>();
+
+        (string Fen, HttpClient Resigning, string? Winner)[] positions =
+        [
+            ("7k/8/8/8/8/8/R7/K7 w - - 0 1", white, null),
+            ("k7/r7/8/8/8/8/8/7K w - - 0 1", black, null),
+            ("7k/6n1/8/8/8/8/Q7/K7 w - - 0 1", white, null),
+            ("7k/5b2/8/8/8/8/R7/K7 w - - 0 1", white, null),
+            ("7k/8/8/8/8/8/NN6/K7 w - - 0 1", black, "White"),
+            ("k1K5/p7/4N3/8/8/8/8/8 w - - 0 1", black, "White")
+        ];
+
+        // The defending pawn blocks its own king, so one knight is enough in this position.
+        string matingRecord = PositionRecord(positions[^1].Fen);
+        Assert.Equal(GameEndReason.Checkmate, rules.Play(matingRecord, "e6c7")?.EndReason);
+
+        foreach ((string fen, HttpClient resigning, string? winner) in positions)
+        {
+            Game game = new(whiteId, blackId, new(PositionRecord(fen), fen, PlayerColor.White), DateTimeOffset.UtcNow);
+            await store.CreateAsync(game, Cancellation);
+            string url = $"/api/games/{game.Id}";
+            GameResponse active = await AcceptGameAsync(black, url);
+            GameResponse offered = await ApplyActionAsync(resigning, url, "draw/offer", active.Revision);
+            GameResponse result = await ApplyActionAsync(resigning, url, "resign", offered.Revision);
+
+            string reason = winner is null ? "ResignationNoPossibleMate" : "Resignation";
+            Assert.Equal("Finished", result.Status);
+            Assert.Equal(offered.Revision + 1, result.Revision);
+            Assert.Equal(winner, result.Winner);
+            Assert.Equal(reason, result.EndReason);
+            Assert.Equal(fen, result.Fen);
+            Assert.Null(result.DrawOfferedBy);
+
+            HttpClient opponent = resigning == white ? black : white;
+            GameBoardResponse board = await ReadBoardAsync(opponent, url);
+            Assert.Equal(result, board.Game);
+            Assert.Empty(board.Moves);
+            GameListItemResponse listed = Assert.Single((await ListGamesAsync(opponent, "?status=Finished")).Items,
+                item => item.Id == game.Id);
+            Assert.Equal(winner, listed.Winner);
+            Assert.Equal(reason, listed.EndReason);
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -467,7 +520,7 @@ public sealed class GameEndpointTests : IAsyncLifetime
         using HttpClient black = CreateClient(blackToken);
 
         const string fen = "7k/8/8/8/8/8/R7/K7 w - - 100 60";
-        string record = JsonSerializer.Serialize(new { schemaVersion = 1, initialFen = fen, moves = Array.Empty<string>() });
+        string record = PositionRecord(fen);
         Game game = new(whiteId, blackId, new(record, fen, PlayerColor.White), DateTimeOffset.UtcNow);
         await using (AsyncServiceScope scope = app!.Services.CreateAsyncScope())
         {
@@ -600,6 +653,9 @@ public sealed class GameEndpointTests : IAsyncLifetime
 
     private async Task<GameListResponse> ListGamesAsync(HttpClient client, string query = "") =>
         Assert.IsType<GameListResponse>(await client.GetFromJsonAsync<GameListResponse>("/api/games" + query, Cancellation));
+
+    private static string PositionRecord(string fen) =>
+        JsonSerializer.Serialize(new { schemaVersion = 1, initialFen = fen, moves = Array.Empty<string>() });
 
     private async Task<(Guid Id, string Token)> RegisterAndSignInAsync(string name)
     {
