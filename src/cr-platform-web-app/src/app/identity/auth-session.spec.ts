@@ -3,10 +3,12 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { Component, createEnvironmentInjector, EnvironmentInjector } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
+import { RouterTestingHarness } from '@angular/router/testing';
 import { vi } from 'vitest';
 import { AuthSession } from './auth-session';
 import { authGuard } from './auth.guard';
 import { RefreshJournal } from './refresh-journal';
+import { SessionRecoveryPage } from './session-recovery-page';
 import { createTestRefreshJournal } from './testing-refresh-journal';
 import { installTestWebLocks } from './testing-web-locks';
 
@@ -15,6 +17,9 @@ class EmptyPage {}
 
 describe('AuthSession and protected routes', () => {
   const refreshUrl = '/api/identity/web/refresh';
+  const gameId = '1ae1fd73-7d50-43e2-bc5c-f9ef232fcdad';
+  const inviteUrl = `/games/${gameId}`;
+  const inviteLoginUrl = `/login?gameId=${gameId}`;
   const refreshKey = 'chessrealms.web-session.refresh-in-progress';
   const response = {
     code: 'Success', accessToken: 'access-token', tokenType: 'Bearer', expiresIn: 600,
@@ -35,8 +40,9 @@ describe('AuthSession and protected routes', () => {
       { provide: RefreshJournal, useValue: journal },
       provideRouter([
         { path: 'home', canActivate: [authGuard], component: EmptyPage },
+        { path: 'games/:id', canActivate: [authGuard], component: EmptyPage },
         { path: 'login', component: EmptyPage },
-        { path: 'session-unavailable', component: EmptyPage },
+        { path: 'session-unavailable', component: SessionRecoveryPage },
       ]),
     ] });
     http = TestBed.inject(HttpTestingController);
@@ -75,6 +81,41 @@ describe('AuthSession and protected routes', () => {
     refresh.flush({ code: 'InvalidRefreshToken' }, { status: 401, statusText: 'Unauthorized' });
     await navigation;
     expect(router.url).toBe('/login');
+  });
+
+  it.each([true, false])('preserves an offline invite when session retry succeeds or requires login (%s)', async restoresSession => {
+    const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    const harness = await RouterTestingHarness.create();
+    const page = await harness.navigateByUrl(inviteUrl, SessionRecoveryPage);
+    const router = TestBed.inject(Router);
+    expect(router.url).toBe(`/session-unavailable?gameId=${gameId}`);
+    http.expectNone(refreshUrl);
+
+    online.mockReturnValue(true);
+    const retry = page.retry();
+    const refresh = await vi.waitFor(() => http.expectOne(refreshUrl));
+    if (restoresSession) {
+      refresh.flush(response);
+    } else {
+      refresh.flush({ code: 'InvalidRefreshToken' }, { status: 401, statusText: 'Unauthorized' });
+    }
+    await retry;
+    expect(router.url).toBe(restoresSession ? inviteUrl : inviteLoginUrl);
+  });
+
+  it('keeps the invite in the sign-in link when a refresh response is lost', async () => {
+    const harness = await RouterTestingHarness.create();
+    const navigation = harness.navigateByUrl(inviteUrl, SessionRecoveryPage);
+    (await vi.waitFor(() => http.expectOne(refreshUrl))).error(new ProgressEvent('error'));
+    await navigation;
+    const page = harness.routeNativeElement;
+    expect(page?.querySelector('button')).toBeNull();
+    expect(page?.querySelector('a')?.getAttribute('href')).toBe(inviteLoginUrl);
+  });
+
+  it('discards invalid game IDs supplied to session recovery', async () => {
+    const harness = await RouterTestingHarness.create('/session-unavailable?gameId=invalid');
+    expect(harness.routeNativeElement?.querySelector('a')?.getAttribute('href')).toBe('/login');
   });
 
   it('coalesces refresh within a tab and serializes refresh across tabs', async () => {

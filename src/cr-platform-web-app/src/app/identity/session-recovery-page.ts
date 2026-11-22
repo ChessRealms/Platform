@@ -1,5 +1,6 @@
 import { Component, inject, signal } from '@angular/core';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { gameIdPattern } from '../games/game.models';
 import { AuthSession } from './auth-session';
 
 @Component({
@@ -16,22 +17,31 @@ import { AuthSession } from './auth-session';
         @if (session.state() !== 'sign-in-required') {
           <button type="button" [disabled]="retrying()" (click)="retry()">Try again</button>
         }
-        <a class="button-link" routerLink="/login">Go to sign in</a>
+        <a class="button-link" routerLink="/login" [queryParams]="gameId ? { gameId } : null">Go to sign in</a>
       </div>
     </section>
   `,
 })
 export class SessionRecoveryPage {
   readonly session = inject(AuthSession);
+  private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   readonly retrying = signal(false);
+
+  protected get gameId(): string | null {
+    const id = this.route.snapshot.queryParamMap.get('gameId');
+    return id && gameIdPattern.test(id) ? id : null;
+  }
 
   async retry(): Promise<void> {
     this.retrying.set(true);
     try {
       const state = await this.session.ensureSession(true);
-      if (state === 'authenticated' || state === 'anonymous') {
-        void this.router.navigate([state === 'authenticated' ? '/home' : '/login'], { replaceUrl: true });
+      const gameId = this.gameId;
+      if (state === 'authenticated') {
+        await this.router.navigate(gameId ? ['/games', gameId] : ['/home'], { replaceUrl: true });
+      } else if (state === 'anonymous') {
+        await this.router.navigate(['/login'], { queryParams: gameId ? { gameId } : undefined, replaceUrl: true });
       }
     } finally {
       this.retrying.set(false);
