@@ -1,3 +1,4 @@
+using ChessRealms.Platform.Api.Realtime;
 using ChessRealms.Platform.Infrastructure.Identity;
 using ChessRealms.Platform.Infrastructure.Identity.Jwt;
 
@@ -39,6 +40,17 @@ public static class IdentityAuthentication
                 };
                 bearer.Events = new JwtBearerEvents
                 {
+                    OnMessageReceived = context =>
+                    {
+                        // Browser WebSockets cannot set the Authorization header.
+                        if (context.Request.Path == GameHub.Path && context.HttpContext.WebSockets.IsWebSocketRequest
+                            && !context.Request.Headers.ContainsKey("Authorization")
+                            && context.Request.Query.TryGetValue("access_token", out var tokens) && tokens.Count == 1)
+                        {
+                            context.Token = tokens[0];
+                        }
+                        return Task.CompletedTask;
+                    },
                     OnTokenValidated = context =>
                     {
                         System.Security.Claims.Claim[] subjects = context.Principal?.FindAll("sub").ToArray() ?? [];

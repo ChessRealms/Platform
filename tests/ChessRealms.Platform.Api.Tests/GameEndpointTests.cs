@@ -1,11 +1,14 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Net.WebSockets;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 using ChessRealms.Platform.Api;
 using ChessRealms.Platform.Api.Controllers;
+using ChessRealms.Platform.Api.Realtime;
 using ChessRealms.Platform.Application.Games;
 using ChessRealms.Platform.Application.Identity;
 using ChessRealms.Platform.Domain.Games;
@@ -15,9 +18,11 @@ using ChessRealms.Platform.Infrastructure.Persistence;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 using Testcontainers.PostgreSql;
 
@@ -53,6 +58,46 @@ public sealed class GameEndpointTests : IAsyncLifetime
         }
         signingKey.Dispose();
         await postgres.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task LiveUpdatesRequireMembershipAndReportOnlyCommittedRevisions()
+    {
+        (_, string whiteToken) = await RegisterAndSignInAsync("white");
+        (Guid blackId, string blackToken) = await RegisterAndSignInAsync("black");
+        (_, string outsiderToken) = await RegisterAndSignInAsync("outsider");
+        using HttpClient white = CreateClient(whiteToken);
+        using HttpClient black = CreateClient(blackToken);
+        GameResponse game = await CreateGameAsync(white, blackId);
+        string gameUrl = $"/api/games/{game.Id}";
+
+        using ClientWebSocket anonymous = new();
+        anonymous.Options.CollectHttpResponseDetails = true;
+        await Assert.ThrowsAsync<WebSocketException>(() => anonymous.ConnectAsync(LiveUri(), Cancellation));
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymous.HttpStatusCode);
+
+        using ClientWebSocket participant = new();
+        using ClientWebSocket outsider = new();
+        await ConnectLiveAsync(participant, whiteToken);
+        await ConnectLiveAsync(outsider, outsiderToken);
+
+        JsonElement privateGame = await SubscribeAsync(outsider, game.Id);
+        JsonElement unknownGame = await SubscribeAsync(outsider, Guid.NewGuid());
+        string? denial = privateGame.GetProperty("error").GetString();
+        Assert.Contains("This game is unavailable.", denial);
+        Assert.Equal(denial, unknownGame.GetProperty("error").GetString());
+        Assert.False((await SubscribeAsync(participant, game.Id)).TryGetProperty("error", out _));
+
+        using HttpResponseMessage rejected = await PlayAsync(white, gameUrl, "e2e4", 0);
+        await AssertErrorAsync(rejected, HttpStatusCode.Conflict, "GameNotActive");
+        GameResponse active = await AcceptGameAsync(black, gameUrl);
+        JsonElement notified = await ReadLiveMessageAsync(participant);
+        Assert.Equal(GameHub.ChangeEvent, notified.GetProperty("target").GetString());
+        Assert.Equal(game.Id, notified.GetProperty("arguments")[0].GetGuid());
+        Assert.Equal(active.Revision, notified.GetProperty("arguments")[1].GetInt64());
+
+        // A completion on the same socket also proves no update was queued for the outsider.
+        Assert.Equal(denial, (await SubscribeAsync(outsider, game.Id)).GetProperty("error").GetString());
     }
 
     [Fact]
@@ -375,6 +420,7 @@ public sealed class GameEndpointTests : IAsyncLifetime
             Args = []
         });
         builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting", LogLevel.Warning);
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["ConnectionStrings:platform"] = postgres.GetConnectionString(),
@@ -386,13 +432,60 @@ public sealed class GameEndpointTests : IAsyncLifetime
         builder.Services.AddScoped<GameService>();
         builder.Services.AddIdentityAuthentication(builder.Configuration);
         builder.Services.AddControllers().AddApplicationPart(typeof(GamesController).Assembly);
+        builder.Services.AddSignalR();
         builder.Services.AddProblemDetails();
         WebApplication server = builder.Build();
         server.UseExceptionHandler();
+        server.UseWebSockets();
         server.UseAuthentication();
         server.UseAuthorization();
         server.MapControllers();
+        server.MapHub<GameHub>(GameHub.Path, options => options.Transports = HttpTransportType.WebSockets);
         return server;
+    }
+
+    private Uri LiveUri(string? token = null) => new UriBuilder(Assert.Single(app!.Urls))
+    {
+        Scheme = "ws",
+        Path = GameHub.Path,
+        Query = token is null ? string.Empty : $"access_token={Uri.EscapeDataString(token)}"
+    }.Uri;
+
+    private async Task ConnectLiveAsync(ClientWebSocket socket, string token)
+    {
+        await socket.ConnectAsync(LiveUri(token), Cancellation);
+        await SendLiveMessageAsync(socket, new { protocol = "json", version = 1 });
+        Assert.False((await ReadLiveMessageAsync(socket)).TryGetProperty("error", out _));
+    }
+
+    private async Task<JsonElement> SubscribeAsync(ClientWebSocket socket, Guid gameId)
+    {
+        await SendLiveMessageAsync(socket, new { type = 1, invocationId = "join", target = "Subscribe", arguments = new[] { gameId } });
+        JsonElement reply = await ReadLiveMessageAsync(socket);
+        Assert.Equal("join", reply.GetProperty("invocationId").GetString());
+        return reply;
+    }
+
+    private Task SendLiveMessageAsync(ClientWebSocket socket, object message) =>
+        socket.SendAsync(new ArraySegment<byte>(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message) + '\u001e')),
+            WebSocketMessageType.Text, true, Cancellation);
+
+    private async Task<JsonElement> ReadLiveMessageAsync(ClientWebSocket socket)
+    {
+        using CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(Cancellation);
+        deadline.CancelAfter(TimeSpan.FromSeconds(10));
+        byte[] buffer = new byte[4096];
+        while (true)
+        {
+            WebSocketReceiveResult received = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), deadline.Token);
+            Assert.Equal(WebSocketMessageType.Text, received.MessageType);
+            Assert.True(received.EndOfMessage && buffer[received.Count - 1] == 0x1e);
+            JsonElement message = JsonSerializer.Deserialize<JsonElement>(buffer.AsSpan(0, received.Count - 1));
+            if (!message.TryGetProperty("type", out JsonElement type) || type.GetInt32() != 6)
+            {
+                return message;
+            }
+        }
     }
 
     private HttpClient CreateClient(string? token = null)

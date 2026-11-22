@@ -3,9 +3,10 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { catchError, distinctUntilChanged, EMPTY, exhaustMap, finalize, map, merge, Observable, Subject, switchMap, timer } from 'rxjs';
+import { catchError, distinctUntilChanged, EMPTY, filter, finalize, map, merge, Observable, of, Subject, switchMap, take, takeUntil, timer } from 'rxjs';
 import { ChessBoard } from './chess-board';
 import { GameFinishingActions } from './game-finishing-actions';
+import { GameLiveUpdates } from './game-live-updates';
 import { Game, GameBoard, GameFinishingAction, gameIdPattern } from './game.models';
 import { GamesApi } from './games-api';
 
@@ -24,9 +25,11 @@ const finishReasons: Record<string, string> = {
 })
 export class GamePage {
   private readonly api = inject(GamesApi);
+  private readonly liveUpdates = inject(GameLiveUpdates);
   private readonly document = inject(DOCUMENT);
   private readonly destroyRef = inject(DestroyRef);
   private readonly refresh = new Subject<void>();
+  private readonly stopUpdates = new Subject<void>();
   protected currentId: string | null = null;
   private commandVersion = 0;
   readonly playerId = signal<string | null>(null);
@@ -86,8 +89,30 @@ export class GamePage {
         this.synchronizing.set(false);
         this.signInRequired.set(false);
         this.unavailable.set(!gameIdPattern.test(id));
-        return this.unavailable() ? EMPTY : merge(timer(0, 2500), this.refresh).pipe(
-          exhaustMap(() => this.busy() || this.unavailable() ? EMPTY : this.readBoard(id)),
+        if (this.unavailable()) {
+          return EMPTY;
+        }
+
+        const boardLoaded = new Subject<void>();
+        let latestNotification = -1;
+        const revisions = boardLoaded.pipe(
+          take(1),
+          switchMap(() => this.liveUpdates.watch(id)),
+          filter(revision => {
+            if (revision === null) {
+              return true;
+            }
+            if (revision <= Math.max(latestNotification, this.game()?.revision ?? -1)) {
+              return false;
+            }
+            latestNotification = revision;
+            return true;
+          }),
+        );
+        return merge(revisions, this.refresh, timer(15000, 15000), of(null)).pipe(
+          filter(() => !this.busy()),
+          switchMap(() => this.readBoard(id, boardLoaded)),
+          takeUntil(this.stopUpdates),
         );
       }),
       takeUntilDestroyed(this.destroyRef),
@@ -146,7 +171,7 @@ export class GamePage {
     });
   }
 
-  private readBoard(id: string): Observable<unknown> {
+  private readBoard(id: string, boardLoaded: Subject<void>): Observable<unknown> {
     const version = this.commandVersion;
     return this.api.board(id, this.game()?.revision).pipe(
       map(board => {
@@ -159,6 +184,7 @@ export class GamePage {
         }
         this.connectionError.set(null);
         this.synchronizing.set(false);
+        boardLoaded.next();
       }),
       catchError(error => {
         if (version === this.commandVersion) {
@@ -170,6 +196,9 @@ export class GamePage {
           this.connectionError.set(error.status === 401 ? 'Sign in to see this game.'
             : error.status === 404 ? 'This game is unavailable.'
             : 'Connection interrupted. The board will retry automatically.');
+          if (this.unavailable()) {
+            this.stopUpdates.next();
+          }
         }
         return EMPTY;
       }),

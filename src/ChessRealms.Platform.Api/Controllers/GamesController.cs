@@ -1,8 +1,10 @@
+using ChessRealms.Platform.Api.Realtime;
 using ChessRealms.Platform.Application.Games;
 using ChessRealms.Platform.Domain.Games;
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 
 namespace ChessRealms.Platform.Api.Controllers;
 
@@ -10,7 +12,8 @@ namespace ChessRealms.Platform.Api.Controllers;
 [Authorize]
 [Route("api/games")]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-public sealed class GamesController(GameService games) : ControllerBase
+public sealed class GamesController(GameService games, IHubContext<GameHub> live,
+    ILogger<GamesController> logger) : ControllerBase
 {
     [HttpPost]
     public async Task<IActionResult> Create(CreateGameRequest request, CancellationToken cancellationToken)
@@ -34,7 +37,7 @@ public sealed class GamesController(GameService games) : ControllerBase
 
     [HttpPost("{id:guid}/accept")]
     public async Task<IActionResult> Accept(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
-        ChangeResponse(await games.AcceptAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken));
+        await ChangeResponseAsync(await games.AcceptAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken));
 
     [HttpGet("{id:guid}/board")]
     public async Task<ActionResult<GameBoardResponse>> Board(Guid id, [FromQuery] long? afterRevision,
@@ -58,23 +61,23 @@ public sealed class GamesController(GameService games) : ControllerBase
 
     [HttpPost("{id:guid}/moves")]
     public async Task<IActionResult> Play(Guid id, PlayGameMoveRequest request, CancellationToken cancellationToken) =>
-        ChangeResponse(await games.PlayAsync(id, PlayerId(), request.ExpectedRevision!.Value, request.Move, cancellationToken));
+        await ChangeResponseAsync(await games.PlayAsync(id, PlayerId(), request.ExpectedRevision!.Value, request.Move, cancellationToken));
 
     [HttpPost("{id:guid}/resign")]
     public async Task<IActionResult> Resign(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
-        ChangeResponse(await games.ResignAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken));
+        await ChangeResponseAsync(await games.ResignAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken));
 
     [HttpPost("{id:guid}/draw/offer")]
     public async Task<IActionResult> OfferDraw(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
-        ChangeResponse(await games.OfferDrawAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken));
+        await ChangeResponseAsync(await games.OfferDrawAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken));
 
     [HttpPost("{id:guid}/draw/accept")]
     public async Task<IActionResult> AcceptDraw(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
-        ChangeResponse(await games.ReplyToDrawOfferAsync(id, PlayerId(), request.ExpectedRevision!.Value, true, cancellationToken));
+        await ChangeResponseAsync(await games.ReplyToDrawOfferAsync(id, PlayerId(), request.ExpectedRevision!.Value, true, cancellationToken));
 
     [HttpPost("{id:guid}/draw/decline")]
     public async Task<IActionResult> DeclineDraw(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
-        ChangeResponse(await games.ReplyToDrawOfferAsync(id, PlayerId(), request.ExpectedRevision!.Value, false, cancellationToken));
+        await ChangeResponseAsync(await games.ReplyToDrawOfferAsync(id, PlayerId(), request.ExpectedRevision!.Value, false, cancellationToken));
 
     [HttpPost("{id:guid}/draw/claim")]
     public async Task<IActionResult> ClaimDraw(Guid id, ClaimGameDrawRequest request, CancellationToken cancellationToken)
@@ -90,14 +93,35 @@ public sealed class GamesController(GameService games) : ControllerBase
             return BadRequest(new { code = "InvalidDrawClaimReason" });
         }
 
-        return ChangeResponse(await games.ClaimDrawAsync(id, PlayerId(), request.ExpectedRevision!.Value,
+        return await ChangeResponseAsync(await games.ClaimDrawAsync(id, PlayerId(), request.ExpectedRevision!.Value,
             reason.Value, request.IntendedMove, cancellationToken));
     }
 
     private Guid PlayerId() => Guid.Parse(User.FindFirst("sub")!.Value);
 
-    private IActionResult ChangeResponse(GameOperationResult result) =>
-        result.Error == GameError.None ? Ok(GameResponse.From(result.Game!)) : ErrorResponse(result.Error);
+    private async Task<IActionResult> ChangeResponseAsync(GameOperationResult result)
+    {
+        if (result.Error != GameError.None)
+        {
+            return ErrorResponse(result.Error);
+        }
+
+        Game game = result.Game!;
+        using CancellationTokenSource notification = new(TimeSpan.FromSeconds(1));
+        try
+        {
+            await live.Clients.Group(GameHub.GroupName(game.Id))
+                .SendAsync(GameHub.ChangeEvent, game.Id, game.Revision, notification.Token);
+        }
+        catch (Exception exception)
+        {
+            // The command has already committed. Clients can recover from the board endpoint.
+            logger.LogWarning(exception, "Could not notify players of game {GameId} at revision {Revision}",
+                game.Id, game.Revision);
+        }
+
+        return Ok(GameResponse.From(game));
+    }
 
     private ObjectResult ErrorResponse(GameError error)
     {

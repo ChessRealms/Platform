@@ -28,9 +28,11 @@ The session lifecycle tests also verify:
 
 The suite also covers a private game between two confirmed accounts. White plays
 with the keyboard and Black plays on a touch-enabled mobile viewport. Each
-browser sees the other player's move through polling, and reloading restores
-the saved board and move list. The two players can then agree to a draw and both
-browsers show the persisted result.
+browser sees the other player's move. The test observes a real SignalR
+notification, drops a move notification, and verifies that the browser
+resubscribes and recovers the missed move after disconnect. Reloading restores
+the saved board and move list. The two players can then agree to a draw and
+both browsers show the persisted result.
 
 ## Run locally
 
