@@ -10,5 +10,6 @@ public enum GameEndReason
     Resignation,
     DrawAgreement,
     ThreefoldRepetition,
-    FiftyMoveRule
+    FiftyMoveRule,
+    ResignationNoPossibleMate
 }

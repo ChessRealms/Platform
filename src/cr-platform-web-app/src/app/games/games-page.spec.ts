@@ -69,4 +69,15 @@ describe('My games', () => {
     expect(element.querySelectorAll('.game-row')).toHaveLength(2);
     expect(element.querySelector('[role="alert"]')).toBeNull();
   });
+
+  it('shows a resignation draw and its reason in the finished list', () => {
+    const finished: GameListItem = { ...incoming, status: 'Finished', endReason: 'ResignationNoPossibleMate' };
+    const list = vi.fn().mockReturnValueOnce(of({ items: [], nextCursor: null }))
+      .mockReturnValueOnce(of({ items: [finished], nextCursor: null }));
+    open(list);
+
+    click('Finished');
+    expect(element.querySelector('.game-status')?.textContent)
+      .toBe('Draw · Insufficient mating material after resignation');
+  });
 });

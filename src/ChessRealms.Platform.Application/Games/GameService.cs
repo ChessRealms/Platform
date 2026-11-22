@@ -59,7 +59,7 @@ public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerD
 
     public Task<GameOperationResult> ResignAsync(Guid gameId, Guid playerId, long expectedRevision,
         CancellationToken cancellationToken) =>
-        ChangeAsync(gameId, game => game.Resign(playerId, expectedRevision), cancellationToken);
+        ChangeAsync(gameId, game => game.Resign(playerId, expectedRevision, rules.HasInsufficientMatingMaterial), cancellationToken);
 
     public Task<GameOperationResult> OfferDrawAsync(Guid gameId, Guid playerId, long expectedRevision,
         CancellationToken cancellationToken) =>

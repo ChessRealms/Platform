@@ -48,5 +48,6 @@ export const finishReasons: Record<string, string> = {
   Checkmate: 'Checkmate', Stalemate: 'Stalemate', DeadPosition: 'Dead position',
   FivefoldRepetition: 'Fivefold repetition', SeventyFiveMoveRule: '75-move rule',
   Resignation: 'Resignation', DrawAgreement: 'By agreement',
+  ResignationNoPossibleMate: 'Insufficient mating material after resignation',
   ThreefoldRepetition: 'Threefold repetition', FiftyMoveRule: '50-move rule',
 };
