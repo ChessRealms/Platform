@@ -2,6 +2,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Component, inject, signal } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { gameIdPattern } from '../games/game.models';
 import { AuthSession } from './auth-session';
 import { ConfirmationSession } from './confirmation-session';
 
@@ -45,7 +46,8 @@ export class LoginPage {
         return;
       }
       this.form.controls.password.reset();
-      void this.router.navigate(['/home']);
+      const gameId = this.route.snapshot.queryParamMap.get('gameId');
+      void this.router.navigate(gameId && gameIdPattern.test(gameId) ? ['/games', gameId] : ['/home']);
     } catch (error) {
       if (error instanceof HttpErrorResponse && error.status === 403
         && error.error?.code === 'EmailNotConfirmed' && error.error.emailConfirmation?.sessionToken) {

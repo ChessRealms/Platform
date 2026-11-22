@@ -36,6 +36,25 @@ public sealed class GamesController(GameService games) : ControllerBase
     public async Task<IActionResult> Accept(Guid id, AcceptGameRequest request, CancellationToken cancellationToken) =>
         ChangeResponse(await games.AcceptAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken));
 
+    [HttpGet("{id:guid}/board")]
+    public async Task<ActionResult<GameBoardResponse>> Board(Guid id, [FromQuery] long? afterRevision,
+        CancellationToken cancellationToken)
+    {
+        Guid playerId = PlayerId();
+        Game? game = await games.GetAsync(id, playerId, cancellationToken);
+        if (game is null)
+        {
+            return ErrorResponse(GameError.NotFound);
+        }
+        if (game.Revision == afterRevision)
+        {
+            return NoContent();
+        }
+
+        GameMoveList moves = games.ReadMoves(game, playerId);
+        return new GameBoardResponse(GameResponse.From(game), moves.Moves, moves.LegalMoves);
+    }
+
     [HttpPost("{id:guid}/moves")]
     public async Task<IActionResult> Play(Guid id, PlayGameMoveRequest request, CancellationToken cancellationToken) =>
         ChangeResponse(await games.PlayAsync(id, PlayerId(), request.ExpectedRevision!.Value, request.Move, cancellationToken));

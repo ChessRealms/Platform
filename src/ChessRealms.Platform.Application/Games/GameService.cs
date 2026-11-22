@@ -26,6 +26,12 @@ public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerD
         return game?.HasPlayer(playerId) == true ? game : null;
     }
 
+    public GameMoveList ReadMoves(Game game, Guid playerId)
+    {
+        Guid playerToMove = game.SideToMove == PlayerColor.White ? game.WhitePlayerId : game.BlackPlayerId;
+        return rules.ReadMoves(game.RulesRecord, game.Status == GameStatus.Active && playerId == playerToMove);
+    }
+
     public Task<GameOperationResult> AcceptAsync(Guid gameId, Guid playerId, long expectedRevision,
         CancellationToken cancellationToken) =>
         ChangeAsync(gameId, game => game.Accept(playerId, expectedRevision), cancellationToken);

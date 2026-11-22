@@ -8,6 +8,15 @@ internal sealed class EngineGameRules : IGameRules
 {
     public GamePosition StartingPosition() => ReadPosition(new ChessGame());
 
+    public GameMoveList ReadMoves(string rulesRecord, bool includeLegalMoves)
+    {
+        GameRecord record = GameRecord.Deserialize(rulesRecord);
+        string[] legalMoves = includeLegalMoves
+            ? ChessGame.FromRecord(record).GetLegalMoves().Select(move => move.ToString()).ToArray()
+            : [];
+        return new(record.Moves.Select(move => move.ToString()).ToArray(), legalMoves);
+    }
+
     public GamePosition? Play(string rulesRecord, string move)
     {
         if (!CoordinateMove.TryParse(move, out CoordinateMove coordinate))

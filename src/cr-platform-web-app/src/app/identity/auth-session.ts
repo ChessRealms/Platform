@@ -28,6 +28,10 @@ export class AuthSession {
   readonly state = this.currentState.asReadonly();
   readonly hasSession = computed(() => this.state() === 'authenticated');
 
+  async getAccessToken(): Promise<string | null> {
+    return await this.ensureSession() === 'authenticated' ? this.validAccessToken() : null;
+  }
+
   constructor() {
     const destroyRef = inject(DestroyRef);
     fromEvent<StorageEvent>(this.window, 'storage').pipe(takeUntilDestroyed(destroyRef))

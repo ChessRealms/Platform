@@ -100,5 +100,6 @@ repository rules will be configured manually later.
 2. Registration/email confirmation, JWT and refresh sessions, revocation, and recovery.
 3. Angular authentication integration.
 4. Engine integration and persistent game state.
-5. Next milestone: playable board, online synchronization, reconnects, guests, lobbies, and invitations.
-6. Computer opponent; optional Google login and additional Identity features separately.
+5. Playable Angular board with polling.
+6. Next milestone: realtime synchronization, reconnects, guests, lobbies, and invitations.
+7. Computer opponent; optional Google login and additional Identity features separately.

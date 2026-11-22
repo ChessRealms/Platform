@@ -82,6 +82,8 @@ public sealed class GameEndpointTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Unauthorized, unauthenticated.StatusCode);
         using HttpResponseMessage hidden = await outsider.GetAsync(gameUrl, Cancellation);
         await AssertErrorAsync(hidden, HttpStatusCode.NotFound, "NotFound");
+        using HttpResponseMessage hiddenBoard = await outsider.GetAsync($"{gameUrl}/board?afterRevision=0", Cancellation);
+        await AssertErrorAsync(hiddenBoard, HttpStatusCode.NotFound, "NotFound");
         using HttpResponseMessage hiddenMutation = await PlayAsync(outsider, gameUrl, "e2e4", 0);
         await AssertErrorAsync(hiddenMutation, HttpStatusCode.NotFound, "NotFound");
         using HttpResponseMessage pendingMove = await PlayAsync(white, gameUrl, "e2e4", 0);
@@ -95,6 +97,14 @@ public sealed class GameEndpointTests : IAsyncLifetime
         Assert.Equal("Active", active.Status);
         Assert.Equal("White", active.SideToMove);
         Assert.Equal(1, active.Revision);
+        GameBoardResponse firstBoard = Assert.IsType<GameBoardResponse>(
+            await white.GetFromJsonAsync<GameBoardResponse>($"{gameUrl}/board", Cancellation));
+        Assert.Equal(active, firstBoard.Game);
+        Assert.Empty(firstBoard.Moves);
+        Assert.Equal(20, firstBoard.LegalMoves.Count);
+        Assert.Contains("e2e4", firstBoard.LegalMoves);
+        using HttpResponseMessage unchanged = await white.GetAsync($"{gameUrl}/board?afterRevision=1", Cancellation);
+        Assert.Equal(HttpStatusCode.NoContent, unchanged.StatusCode);
         using HttpResponseMessage wrongTurn = await PlayAsync(black, gameUrl, "e7e5", 1);
         await AssertErrorAsync(wrongTurn, HttpStatusCode.Conflict, "NotYourTurn");
         using HttpResponseMessage illegal = await PlayAsync(white, gameUrl, "e2e5", 1);
@@ -104,6 +114,14 @@ public sealed class GameEndpointTests : IAsyncLifetime
         GameResponse whiteMove = await MakeMoveAsync(white, gameUrl, "e2e4", 1);
         Assert.Equal("Black", whiteMove.SideToMove);
         Assert.Equal(whiteMove, await black.GetFromJsonAsync<GameResponse>(gameUrl, Cancellation));
+        GameBoardResponse changedBoard = Assert.IsType<GameBoardResponse>(
+            await black.GetFromJsonAsync<GameBoardResponse>($"{gameUrl}/board?afterRevision=1", Cancellation));
+        Assert.Equal(whiteMove, changedBoard.Game);
+        Assert.Equal(["e2e4"], changedBoard.Moves);
+        Assert.Contains("e7e5", changedBoard.LegalMoves);
+        GameBoardResponse waitingBoard = Assert.IsType<GameBoardResponse>(
+            await white.GetFromJsonAsync<GameBoardResponse>($"{gameUrl}/board", Cancellation));
+        Assert.Empty(waitingBoard.LegalMoves);
         GameResponse blackMove = await MakeMoveAsync(black, gameUrl, "e7e5", 2);
         Assert.StartsWith("rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w ", blackMove.Fen);
 
