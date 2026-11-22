@@ -28,7 +28,7 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
     }
 
     [Fact]
-    public async Task PlayersAcceptPrivateGameExchangeMovesAndAgreeToDrawAcrossBrowsers()
+    public async Task PlayersSyncPrivateGameAcrossBrowsersAndRecoverAfterDisconnect()
     {
         await using IBrowser browser = await LaunchBrowserAsync();
         await using IBrowserContext whiteContext = await NewContextAsync(browser);
@@ -37,6 +37,55 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
         (IPage black, string blackEmail) = await RegisterAndOpenSignInAsync(blackContext);
         await SignInAsync(white, whiteEmail);
         await SignInAsync(black, blackEmail);
+
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+        TimeSpan liveTimeout = TimeSpan.FromSeconds(15);
+        var subscribed = new TaskCompletionSource<IWebSocketRoute>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var accepted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var missedMove = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var resubscribed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await white.RouteWebSocketAsync(url => new Uri(url).AbsolutePath == "/api/games/live", socket =>
+        {
+            bool reconnecting = subscribed.Task.IsCompleted;
+            IWebSocketRoute server = socket.ConnectToServer();
+            server.OnMessage(frame =>
+            {
+                foreach (string payload in frame.Text?.Split('\u001e', StringSplitOptions.RemoveEmptyEntries) ?? [])
+                {
+                    using JsonDocument document = JsonDocument.Parse(payload);
+                    JsonElement message = document.RootElement;
+                    if (!reconnecting && message.TryGetProperty("target", out JsonElement target)
+                        && target.GetString() == "GameChanged")
+                    {
+                        long revision = message.GetProperty("arguments")[1].GetInt64();
+                        if (revision == 1)
+                        {
+                            accepted.TrySetResult();
+                        }
+                        else if (revision == 3)
+                        {
+                            // Drop Black's move notification so White has to read after reconnecting.
+                            missedMove.TrySetResult();
+                            continue;
+                        }
+                    }
+
+                    socket.Send(payload + '\u001e');
+                    if (message.TryGetProperty("type", out JsonElement type) && type.GetInt32() == 3
+                        && !message.TryGetProperty("error", out _))
+                    {
+                        if (reconnecting)
+                        {
+                            resubscribed.TrySetResult();
+                        }
+                        else
+                        {
+                            subscribed.TrySetResult(socket);
+                        }
+                    }
+                }
+            });
+        });
 
         await black.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
         ILocator playerId = black.GetByLabel("Your player ID");
@@ -49,8 +98,10 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
         ILocator invite = white.GetByLabel("Share this link with your opponent");
         await Expect(invite).ToHaveValueAsync(new Regex(@"/games/[0-9a-f-]{36}$"));
         string gameLink = await invite.InputValueAsync();
+        IWebSocketRoute whiteSocket = await subscribed.Task.WaitAsync(liveTimeout, cancellationToken);
         await black.GotoAsync(gameLink);
         await black.GetByRole(AriaRole.Button, new() { Name = "Accept game" }).TapAsync();
+        await accepted.Task.WaitAsync(liveTimeout, cancellationToken);
         await Expect(white.GetByText("Your turn", new() { Exact = true })).ToBeVisibleAsync();
 
         ILocator whitePawn = white.GetByRole(AriaRole.Button, new() { Name = "e2, White pawn" });
@@ -66,6 +117,9 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
 
         await black.GetByRole(AriaRole.Button, new() { Name = "e7, Black pawn" }).TapAsync();
         await black.GetByRole(AriaRole.Button, new() { Name = "e5, empty" }).TapAsync();
+        await missedMove.Task.WaitAsync(liveTimeout, cancellationToken);
+        await whiteSocket.CloseAsync();
+        await resubscribed.Task.WaitAsync(liveTimeout, cancellationToken);
         await Expect(white.GetByRole(AriaRole.Button, new() { Name = "e5, Black pawn" })).ToBeVisibleAsync();
         await white.ReloadAsync();
         await Expect(white.GetByRole(AriaRole.Button, new() { Name = "e5, Black pawn" })).ToBeVisibleAsync();

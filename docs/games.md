@@ -12,7 +12,7 @@ there and create a private game. Share the game link with that player. They can
 sign in from the link and accept the invitation. The board shows legal
 destinations for the selected piece and asks for a piece when promoting.
 Arrow keys move between squares. Enter or Space selects the focused square.
-The board polls for updates every 2.5 seconds and restores the saved game on reload.
+The board updates when the other player acts and restores the saved game on reload.
 Either player can resign or offer a draw during an active game. The recipient
 can accept, decline, or play a move to decline. On their turn, a player can claim
 a draw on the current position or select an intended move to support the claim.
@@ -64,6 +64,29 @@ finishing action, draw offer, or response advances the revision. The offer
 survives the offerer's own move and clears when its recipient moves or the game
 finishes.
 
+## Realtime synchronization
+
+The API exposes a SignalR WebSocket at `/api/games/live`. Each connection calls
+`Subscribe(gameId)`. The API checks participation before joining the game's
+group. An unknown game and a game belonging to other players are both rejected
+as unavailable.
+
+After a successful save, the API sends `GameChanged(gameId, revision)` to the
+group. The board requests a snapshot using `afterRevision` and ignores
+duplicate and older notifications. After each join or reconnect, it reads the
+latest board to recover updates that could have been missed. An HTTP read every
+15 seconds also covers interrupted connections and dropped notifications.
+Commands and snapshots continue to use the HTTP contract above.
+
+The deployment proxy must forward WebSocket upgrades and use HTTPS. The
+browser sends the short-lived bearer token in the upgrade query string because
+the browser WebSocket API cannot set the authorization header. Keep query values
+redacted in proxy and application telemetry. The API closes the connection at
+token expiry. The reconnect uses the current access token from the web session.
+
+Game groups live in the API process. Deployments with multiple API replicas need
+a shared SignalR service or backplane for notifications across replicas.
+
 ## Persistence and rules
 
 MigrationWorker applies the Platform migrations, including the nullable draw
@@ -80,4 +103,4 @@ endings follow the engine's documented behavior, including its limited
 dead-position detection.
 
 Private games use known opponent IDs and explicit acceptance. Opponent discovery
-and realtime notifications are subsequent features.
+is a subsequent feature.

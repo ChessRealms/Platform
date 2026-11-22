@@ -91,10 +91,12 @@ milestone, verify one browser scenario with independent sessions: open the invit
 while signed out, sign in and return to the game, accept, play to a visible result,
 and restore the saved state after reloading or losing the connection. The backend
 continues to enforce participant access, move legality, and revision consistency.
-The Angular board uses polling for this milestone.
+The Angular board uses SignalR revision notifications and reads the authoritative
+HTTP snapshot on updates and reconnect. Periodic HTTP reads cover missed
+notifications. Realtime delivery stays in the API layer.
 
-Realtime updates, opponent discovery, richer invitations and lobbies, guests, and
-clocks are follow-ups. Private lobbies may support incoming invitation opt-out,
+Opponent discovery, richer invitations and lobbies, guests, and clocks are
+follow-ups. Private lobbies may support incoming invitation opt-out,
 passwords, and spam protection. Guests would use a protected session and could
 play with guests or registered users. Clock and guest-to-account conversion
 requirements remain open.
@@ -142,6 +144,7 @@ stale result be discarded if the game changes during search.
    50-move rule.
 7. Finish the private two-player milestone with end-to-end invitation, sign-in,
    gameplay, result, and recovery coverage.
-8. Extend multiplayer with realtime synchronization, opponent discovery,
-   invitations and lobbies, guests, and clocks as needed.
-9. Consider computer opponents independently, with interchangeable move providers.
+8. Synchronize private games in realtime and verify recovery after a disconnect.
+9. Extend multiplayer with opponent discovery, invitations and lobbies, guests,
+   and clocks as needed.
+10. Consider computer opponents independently, with interchangeable move providers.

@@ -17,6 +17,12 @@ if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password 
 }
 
 module.exports = {
+  '/api/games/live': {
+    target: url.origin,
+    secure: false,
+    changeOrigin: true,
+    ws: true,
+  },
   '/api/**': {
     target: url.origin,
     secure: false,

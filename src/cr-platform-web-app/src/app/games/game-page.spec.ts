@@ -1,9 +1,10 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
-import { of, throwError } from 'rxjs';
+import { NEVER, Observable, of, Subject, throwError } from 'rxjs';
 import { vi } from 'vitest';
 import { GamePage } from './game-page';
+import { GameLiveUpdates } from './game-live-updates';
 import { Game, GameBoard } from './game.models';
 import { GamesApi } from './games-api';
 
@@ -15,17 +16,17 @@ describe('GamePage', () => {
   };
   const initial: GameBoard = { game, moves: [], legalMoves: ['a7a8q', 'a7a8r', 'a7a8b', 'a7a8n'], drawClaims: [] };
 
-  function open(board: ReturnType<typeof vi.fn>, move = vi.fn().mockReturnValue(of(game))): GamePage {
+  function open(board: ReturnType<typeof vi.fn>, move = vi.fn().mockReturnValue(of(game)),
+    updates: Observable<number | null> = NEVER): GamePage {
     TestBed.configureTestingModule({
       providers: [
         provideRouter([]),
         { provide: GamesApi, useValue: { me: () => of({ userId: 'white' }), board, move } },
+        { provide: GameLiveUpdates, useValue: { watch: () => updates } },
         { provide: ActivatedRoute, useValue: { paramMap: of(convertToParamMap({ id })) } },
       ],
     });
-    const page = TestBed.createComponent(GamePage).componentInstance;
-    page.retry();
-    return page;
+    return TestBed.createComponent(GamePage).componentInstance;
   }
 
   it('uses server legal moves and requires an explicit promotion choice', () => {
@@ -53,5 +54,30 @@ describe('GamePage', () => {
     expect(page.game()?.revision).toBe(23);
     expect(page.promotion()).toEqual([]);
     expect(page.commandError()).toContain('The game changed');
+  });
+
+  it('reads after reconnect and lets a newer notification supersede an in-flight read', () => {
+    const updates = new Subject<number | null>();
+    const delayed = new Subject<GameBoard>();
+    const move = vi.fn();
+    const board = vi.fn()
+      .mockReturnValueOnce(of(initial))
+      .mockReturnValueOnce(delayed)
+      .mockReturnValueOnce(of({ ...initial, game: { ...game, revision: 24 } }))
+      .mockReturnValueOnce(of({ ...initial, game: { ...game, revision: 25 } }));
+    const page = open(board, move, updates);
+
+    updates.next(23);
+    updates.next(23);
+    updates.next(24);
+    delayed.next({ ...initial, game: { ...game, revision: 23 } });
+    updates.next(23);
+    expect(page.game()?.revision).toBe(24);
+    expect(board).toHaveBeenCalledTimes(3);
+
+    updates.next(null);
+    expect(board).toHaveBeenLastCalledWith(id, 24);
+    expect(page.game()?.revision).toBe(25);
+    expect(move).not.toHaveBeenCalled();
   });
 });
