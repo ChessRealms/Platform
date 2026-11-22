@@ -10,9 +10,12 @@ The session lifecycle tests also verify:
 - Closing Chromium and relaunching it with the same profile restores the session
   on `/home` through a real refresh.
 - Two tabs sharing cookies queue concurrent refreshes through Web Locks. A
-  third tab holds the lock until both reloads are queued. The test releases
-  the lock and verifies that both refresh requests succeed and both tabs stay
-  signed in.
+  third page on the same origin holds the lock until both reloads are queued.
+  The test observes both refresh requests before verifying that both tabs
+  stay signed in.
+- Closing a tab with a pending refresh makes the next tab ask for sign-in
+  without retrying the refresh. Signing in clears the pending journal and
+  a subsequent reload restores the new session.
 - Sign-out ends the active session and updates another tab of the same browser
   context. A separate browser context signed in as the same user can still
   refresh successfully.

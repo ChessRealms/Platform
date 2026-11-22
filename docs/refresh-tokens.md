@@ -62,8 +62,12 @@ JWT. They use the existing revocation operations and clear the cookie after
 success. The access JWT lifetime and server revocation semantics below still apply.
 
 Angular uses Web Locks to serialize login, refresh and logout across tabs on the
-same origin. After an interrupted refresh with an unknown outcome, it asks the
-user to sign in again. This avoids replaying a potentially consumed refresh token.
+same origin. It commits a pending marker to IndexedDB before sending a refresh
+request and clears it after a definite outcome before releasing the lock.
+IndexedDB contains only the marker. Open tabs from the previous version can
+still see a compatibility marker in local storage. An interrupted or uncertain
+refresh leaves the journal pending until successful sign-in or sign-out. This
+prevents another tab from replaying a potentially consumed refresh token.
 
 ## Rotation and strict reuse detection
 

@@ -5,18 +5,21 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { firstValueFrom, fromEvent, timeout } from 'rxjs';
 import { IdentityApiClient } from './identity-api.client';
 import { LoginRequest, WebSessionResult } from './identity-api.models';
+import { RefreshJournal } from './refresh-journal';
 
 type SessionState = 'checking' | 'authenticated' | 'anonymous' | 'unavailable' | 'sign-in-required';
 type SharedState = 'active' | 'signed-out' | 'refresh-uncertain';
 
 const sessionKey = 'chessrealms.web-session';
 const refreshKey = 'chessrealms.web-session.refresh-in-progress';
+const journalMarker = 'indexeddb';
 const lockName = 'chessrealms.web-session';
 const requestTimeout = 10000;
 
 @Injectable({ providedIn: 'root' })
 export class AuthSession {
   private readonly api = inject(IdentityApiClient);
+  private readonly journal = inject(RefreshJournal);
   private readonly document = inject(DOCUMENT);
   private readonly window = this.document.defaultView!;
   private readonly currentState = signal<SessionState>('checking');
@@ -81,7 +84,7 @@ export class AuthSession {
         return false;
       }
       this.publish('active');
-      this.window.localStorage.removeItem(refreshKey);
+      await this.clearPendingRefresh();
       return true;
     });
   }
@@ -105,8 +108,8 @@ export class AuthSession {
       const request = all ? this.api.logoutAll(token) : this.api.logout(token);
       await firstValueFrom(request.pipe(timeout(requestTimeout)));
       this.publish('signed-out');
-      this.window.localStorage.removeItem(refreshKey);
       this.clearAccess('anonymous');
+      await this.clearPendingRefresh();
       return true;
     });
   }
@@ -125,7 +128,9 @@ export class AuthSession {
     if (this.validAccessToken() || this.state() === 'anonymous' || this.state() === 'sign-in-required') {
       return this.state();
     }
-    if (this.window.localStorage.getItem(refreshKey) !== null) {
+    const pending = await this.journal.isPending();
+    const legacyMarker = this.window.localStorage.getItem(refreshKey);
+    if (pending || (legacyMarker !== null && legacyMarker !== journalMarker)) {
       // The previous tab closed before it could establish which refresh token is current.
       this.publish('refresh-uncertain');
       this.clearAccess('sign-in-required');
@@ -137,7 +142,9 @@ export class AuthSession {
     }
 
     this.clearAccess('checking');
-    this.window.localStorage.setItem(refreshKey, '1');
+    await this.journal.setPending(true);
+    // Keep the marker for open tabs still running the previous implementation.
+    this.window.localStorage.setItem(refreshKey, journalMarker);
     try {
       const result = await firstValueFrom(this.api.refresh().pipe(timeout(requestTimeout)));
       if (!this.accept(result)) {
@@ -154,11 +161,16 @@ export class AuthSession {
         // A lost response may have consumed the cookie's token. Leave recovery to a new login.
         this.publish('refresh-uncertain');
         this.clearAccess('sign-in-required');
+        return this.state();
       }
-    } finally {
-      this.window.localStorage.removeItem(refreshKey);
     }
+    await this.clearPendingRefresh();
     return this.state();
+  }
+
+  private async clearPendingRefresh(): Promise<void> {
+    this.window.localStorage.removeItem(refreshKey);
+    await this.journal.setPending(false);
   }
 
   private accept(result: WebSessionResult): boolean {

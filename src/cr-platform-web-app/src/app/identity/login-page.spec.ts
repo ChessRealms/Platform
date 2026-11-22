@@ -7,6 +7,8 @@ import { firstValueFrom, filter } from 'rxjs';
 import { AuthSession } from './auth-session';
 import { ConfirmationSession } from './confirmation-session';
 import { LoginPage } from './login-page';
+import { RefreshJournal } from './refresh-journal';
+import { createTestRefreshJournal } from './testing-refresh-journal';
 import { installTestWebLocks } from './testing-web-locks';
 
 @Component({ template: '' })
@@ -26,6 +28,7 @@ describe('LoginPage', () => {
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
+        { provide: RefreshJournal, useValue: createTestRefreshJournal() },
         provideRouter([
           { path: 'home', component: EmptyPage },
           { path: 'check-email', component: EmptyPage },
