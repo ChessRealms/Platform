@@ -28,7 +28,7 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
     }
 
     [Fact]
-    public async Task PlayersSyncPrivateGameAcrossBrowsersAndRecoverAfterDisconnect()
+    public async Task PlayersSignInFromInviteAndSyncPrivateGameAcrossBrowsers()
     {
         await using IBrowser browser = await LaunchBrowserAsync();
         await using IBrowserContext whiteContext = await NewContextAsync(browser);
@@ -91,6 +91,9 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
         ILocator playerId = black.GetByLabel("Your player ID");
         await Expect(playerId).ToHaveValueAsync(new Regex(@"^[0-9a-f-]{36}$"));
         string opponent = await playerId.InputValueAsync();
+        await black.GetByRole(AriaRole.Main).GetByRole(AriaRole.Link, new() { Name = "Home", Exact = true }).ClickAsync();
+        await SignOutAsync(black, "Sign out", "logout");
+
         await white.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
         await Expect(white.GetByLabel("Your player ID")).ToBeVisibleAsync();
         await white.GetByLabel("Opponent’s player ID").FillAsync(opponent);
@@ -100,6 +103,10 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
         string gameLink = await invite.InputValueAsync();
         IWebSocketRoute whiteSocket = await subscribed.Task.WaitAsync(liveTimeout, cancellationToken);
         await black.GotoAsync(gameLink);
+        string gameId = new Uri(gameLink).Segments[^1];
+        await Expect(black).ToHaveURLAsync(new Uri(fixture.WebOrigin, $"/login?gameId={gameId}").AbsoluteUri);
+        await SubmitSignInAsync(black, blackEmail);
+        await Expect(black).ToHaveURLAsync(gameLink);
         await black.GetByRole(AriaRole.Button, new() { Name = "Accept game" }).TapAsync();
         await accepted.Task.WaitAsync(liveTimeout, cancellationToken);
         await Expect(white.GetByText("Your turn", new() { Exact = true })).ToBeVisibleAsync();
@@ -464,12 +471,17 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
 
     private async Task SignInAsync(IPage page, string email, string password = Password)
     {
+        await SubmitSignInAsync(page, email, password);
+        await ExpectSignedInAsync(page);
+    }
+
+    private async Task SubmitSignInAsync(IPage page, string email, string password = Password)
+    {
         await page.GetByLabel("Email", new() { Exact = true }).FillAsync(email);
         await page.GetByLabel("Password", new() { Exact = true }).FillAsync(password);
         IResponse response = await ObserveWebPostAsync(page, "login",
             () => page.GetByRole(AriaRole.Button, new() { Name = "Sign in", Exact = true }).ClickAsync());
         Assert.Equal(200, response.Status);
-        await ExpectSignedInAsync(page);
     }
 
     private async Task<IPage> OpenSignedInTabAsync(IBrowserContext context)

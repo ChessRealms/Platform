@@ -8,9 +8,10 @@ game is active.
 ## Play from the web app
 
 Choose **Play chess** on the home page. Ask your opponent for the player ID shown
-there and create a private game. Share the game link with that player. They can
-sign in from the link and accept the invitation. The board shows legal
-destinations for the selected piece and asks for a piece when promoting.
+there and create a private game. Share the game link with that player. The link
+returns them to the game after sign-in or session recovery, where they can accept
+the invitation. The board shows legal destinations for the selected piece and
+asks for a piece when promoting.
 Arrow keys move between squares. Enter or Space selects the focused square.
 The board updates when the other player acts and restores the saved game on reload.
 Either player can resign or offer a draw during an active game. The recipient

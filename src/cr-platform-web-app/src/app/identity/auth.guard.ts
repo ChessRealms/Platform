@@ -11,8 +11,6 @@ export const authGuard: CanActivateFn = async route => {
     return true;
   }
   const gameId = route.paramMap.get('id');
-  if (state === 'anonymous' && gameId && gameIdPattern.test(gameId)) {
-    return router.createUrlTree(['/login'], { queryParams: { gameId } });
-  }
-  return router.createUrlTree([state === 'anonymous' ? '/login' : '/session-unavailable']);
+  const queryParams = gameId && gameIdPattern.test(gameId) ? { gameId } : undefined;
+  return router.createUrlTree([state === 'anonymous' ? '/login' : '/session-unavailable'], { queryParams });
 };

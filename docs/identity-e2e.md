@@ -26,9 +26,10 @@ The session lifecycle tests also verify:
   the address bar, accepts the new password, and rejects the previous session's
   next refresh.
 
-The suite also covers a private game between two confirmed accounts. White plays
-with the keyboard and Black plays on a touch-enabled mobile viewport. Each
-browser sees the other player's move. The test observes a real SignalR
+The suite also covers a private game between two confirmed accounts. Black opens
+the invitation while signed out, signs in, returns to the same game, and accepts.
+White plays with the keyboard and Black plays on a touch-enabled mobile viewport.
+Each browser sees the other player's move. The test observes a real SignalR
 notification, drops a move notification, and verifies that the browser
 resubscribes and recovers the missed move after disconnect. Reloading restores
 the saved board and move list. The two players can then agree to a draw and
