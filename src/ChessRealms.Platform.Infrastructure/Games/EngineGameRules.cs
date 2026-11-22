@@ -10,10 +10,9 @@ internal sealed class EngineGameRules : IGameRules
 
     public GameMoveList ReadMoves(string rulesRecord, bool includeLegalMoves)
     {
-        GameRecord record = GameRecord.Deserialize(rulesRecord);
-        string[] legalMoves = includeLegalMoves
-            ? ChessGame.FromRecord(record).GetLegalMoves().Select(move => move.ToString()).ToArray()
-            : [];
+        ChessGame? game = includeLegalMoves ? ChessGame.FromRecordJson(rulesRecord) : null;
+        GameRecord record = game?.ExportRecord() ?? GameRecord.Deserialize(rulesRecord);
+        string[] legalMoves = game?.GetLegalMoves().Select(move => move.ToString()).ToArray() ?? [];
         return new(record.Moves.Select(move => move.ToString()).ToArray(), legalMoves);
     }
 
@@ -24,7 +23,7 @@ internal sealed class EngineGameRules : IGameRules
             return null;
         }
 
-        ChessGame game = ChessGame.FromRecord(GameRecord.Deserialize(rulesRecord));
+        ChessGame game = ChessGame.FromRecordJson(rulesRecord);
         return game.MakeMove(coordinate) == MoveResult.None ? null : ReadPosition(game);
     }
 

@@ -730,7 +730,7 @@
         "type": "Project",
         "dependencies": {
           "Aspire.Npgsql.EntityFrameworkCore.PostgreSQL": "[13.6.5, )",
-          "ChessRealms.Engine": "[1.1.0, )",
+          "ChessRealms.Engine": "[1.2.0, )",
           "ChessRealms.Platform.Application": "[1.0.0, )",
           "MailKit": "[5.0.0, )",
           "Microsoft.AspNetCore.Identity.EntityFrameworkCore": "[10.0.15, )",
@@ -766,9 +766,9 @@
       },
       "ChessRealms.Engine": {
         "type": "CentralTransitive",
-        "requested": "[1.1.0, )",
-        "resolved": "1.1.0",
-        "contentHash": "IokR7MogIcjvhvRdpGGlTSa7wA5lvwHFxoAJvtCsG3S76eFODRv3Pxi/kljwVnpyr0uGdthwg4CxgxSfMpiFqg=="
+        "requested": "[1.2.0, )",
+        "resolved": "1.2.0",
+        "contentHash": "I/MAHHxGYbC/ONSuJv3LdDPHKgi6X5W55IbAvaYw5ELTEJdDEHDB8OGFkTVv8bcs192XpoeG0rMT6hXfjV4Z9A=="
       },
       "MailKit": {
         "type": "CentralTransitive",

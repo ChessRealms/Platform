@@ -56,9 +56,9 @@ original revision when updating the row, so two writes on one revision cannot
 both succeed. Rejected commands leave the revision and board unchanged.
 
 The engine record retains the initial position and the move sequence, so
-rehydration restores repetition counts. ChessRealms.Engine 1.1.0 replays the
-history when validating the JSON record and again when restoring the playable
-game. Read requests use the persisted FEN and outcome directly. Automatic
+rehydration restores repetition counts. ChessRealms.Engine 1.2.0 validates the
+record and restores the playable game in one replay through `FromRecordJson`.
+Read requests use the persisted FEN and outcome directly. Automatic
 endings follow the engine's documented behavior, including its limited
 dead-position detection.
 
