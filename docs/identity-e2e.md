@@ -23,6 +23,11 @@ The session lifecycle tests also verify:
   the address bar, accepts the new password, and rejects the previous session's
   next refresh.
 
+The suite also covers a private game between two confirmed accounts. White plays
+with the keyboard and Black plays on a touch-enabled mobile viewport. Each
+browser sees the other player's move through polling, and reloading restores
+the saved board and move list.
+
 ## Run locally
 
 Start Docker with Linux containers. Install the .NET SDK from `global.json` and

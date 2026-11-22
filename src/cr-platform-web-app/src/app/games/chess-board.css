@@ -1,0 +1,50 @@
+:host { display: block; }
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  border: 1px solid #96836a;
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.square {
+  display: grid;
+  place-items: center;
+  position: relative;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  width: 100%;
+  aspect-ratio: 1;
+  background: #ecdfc7;
+  color: #171b20;
+  touch-action: manipulation;
+  container-type: inline-size;
+}
+
+.square.dark { background: #a38869; }
+.square.last-move { box-shadow: inset 0 0 0 100px #efcf5545; }
+.square.selected { box-shadow: inset 0 0 0 3px #315d80; }
+.square:focus-visible { outline: 3px solid #183d64; outline-offset: -3px; z-index: 1; }
+
+.piece {
+  font-family: 'DejaVu Sans', 'Segoe UI Symbol', sans-serif;
+  font-size: 79cqi;
+  line-height: 1;
+}
+
+.legal::after {
+  content: '';
+  position: absolute;
+  width: 30%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #16476d9c;
+  pointer-events: none;
+}
+
+.legal.occupied::after { width: 88%; border: 3px solid #16476d; background: transparent; }
+.rank, .file { position: absolute; font-size: clamp(0.58rem, 24cqi, 0.82rem); font-weight: 700; }
+.rank { inset: 2px auto auto 4px; }
+.file { inset: auto 4px 2px auto; }

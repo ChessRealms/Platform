@@ -1,8 +1,9 @@
 import { Component, effect, inject, signal } from '@angular/core';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { AuthSession } from './identity/auth-session';
 
 @Component({
+  imports: [RouterLink],
   template: `
     <section class="home-card">
       <h1>Welcome to ChessRealms</h1>
@@ -12,6 +13,7 @@ import { AuthSession } from './identity/auth-session';
           <p class="form-errors" role="alert">{{ message }}</p>
         }
         <div class="auth-actions">
+          <a class="button-link" routerLink="/games">Play chess</a>
           <button type="button" [disabled]="busy()" (click)="logout(false)">Sign out</button>
           <button type="button" [disabled]="busy()" (click)="logout(true)">Sign out of all sessions</button>
         </div>

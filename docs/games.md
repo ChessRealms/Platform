@@ -5,6 +5,15 @@ plays White and invites a distinct confirmed account by its user ID. The invited
 player plays Black and explicitly accepts. White can play the first move once the
 game is active.
 
+## Play from the web app
+
+Choose **Play chess** on the home page. Ask your opponent for the player ID shown
+there and create a private game. Share the game link with that player. They can
+sign in from the link and accept the invitation. The board shows legal
+destinations for the selected piece and asks for a piece when promoting.
+Arrow keys move between squares. Enter or Space selects the focused square.
+The board polls for updates every 2.5 seconds and restores the saved game on reload.
+
 ## HTTP contract
 
 Every route requires a bearer access token. The API uses the JWT subject as the
@@ -15,6 +24,7 @@ game and a game belonging to other players both return `404 NotFound`.
 | --- | --- | --- |
 | `POST /api/games` | `{"opponentId":"<user-id>"}` | `201` with a pending game at revision 0 and a `Location` header. |
 | `GET /api/games/{id}` | None | `200` with the current game. |
+| `GET /api/games/{id}/board?afterRevision={revision}` | None | `200` with the game, coordinate move history and legal moves for the caller's turn. `204` if the supplied revision is current. Omit the query parameter for a full board. |
 | `POST /api/games/{id}/accept` | `{"expectedRevision":0}` | `200` with the active game at revision 1. |
 | `POST /api/games/{id}/moves` | `{"move":"e2e4","expectedRevision":1}` | `200` with the next position and incremented revision. |
 
@@ -46,12 +56,12 @@ original revision when updating the row, so two writes on one revision cannot
 both succeed. Rejected commands leave the revision and board unchanged.
 
 The engine record retains the initial position and the move sequence, so
-rehydration restores repetition counts. ChessRealms.Engine 1.1.0 replays the
-history when validating the JSON record and again when restoring the playable
-game. Read requests use the persisted FEN and outcome directly. Automatic
+rehydration restores repetition counts. ChessRealms.Engine 1.2.0 validates the
+record and restores the playable game in one replay through `FromRecordJson`.
+Read requests use the persisted FEN and outcome directly. Automatic
 endings follow the engine's documented behavior, including its limited
 dead-position detection.
 
-The first API uses known opponent IDs and explicit acceptance. The board,
-opponent discovery, realtime notifications, and player actions such as
-resignation and draw claims are subsequent features.
+Private games use known opponent IDs and explicit acceptance. Opponent discovery,
+realtime notifications, and player actions such as resignation and draw claims
+are subsequent features.

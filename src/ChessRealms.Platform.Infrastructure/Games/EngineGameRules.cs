@@ -8,6 +8,14 @@ internal sealed class EngineGameRules : IGameRules
 {
     public GamePosition StartingPosition() => ReadPosition(new ChessGame());
 
+    public GameMoveList ReadMoves(string rulesRecord, bool includeLegalMoves)
+    {
+        ChessGame? game = includeLegalMoves ? ChessGame.FromRecordJson(rulesRecord) : null;
+        GameRecord record = game?.ExportRecord() ?? GameRecord.Deserialize(rulesRecord);
+        string[] legalMoves = game?.GetLegalMoves().Select(move => move.ToString()).ToArray() ?? [];
+        return new(record.Moves.Select(move => move.ToString()).ToArray(), legalMoves);
+    }
+
     public GamePosition? Play(string rulesRecord, string move)
     {
         if (!CoordinateMove.TryParse(move, out CoordinateMove coordinate))
@@ -15,7 +23,7 @@ internal sealed class EngineGameRules : IGameRules
             return null;
         }
 
-        ChessGame game = ChessGame.FromRecord(GameRecord.Deserialize(rulesRecord));
+        ChessGame game = ChessGame.FromRecordJson(rulesRecord);
         return game.MakeMove(coordinate) == MoveResult.None ? null : ReadPosition(game);
     }
 

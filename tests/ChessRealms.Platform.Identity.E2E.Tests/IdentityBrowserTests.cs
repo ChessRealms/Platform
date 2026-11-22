@@ -27,6 +27,52 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
     }
 
     [Fact]
+    public async Task PlayersAcceptPrivateGameAndSeeEachOthersMovesAcrossBrowsers()
+    {
+        await using IBrowser browser = await LaunchBrowserAsync();
+        await using IBrowserContext whiteContext = await NewContextAsync(browser);
+        await using IBrowserContext blackContext = await NewContextAsync(browser, touch: true);
+        (IPage white, string whiteEmail) = await RegisterAndOpenSignInAsync(whiteContext);
+        (IPage black, string blackEmail) = await RegisterAndOpenSignInAsync(blackContext);
+        await SignInAsync(white, whiteEmail);
+        await SignInAsync(black, blackEmail);
+
+        await black.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
+        ILocator playerId = black.GetByLabel("Your player ID");
+        await Expect(playerId).ToHaveValueAsync(new Regex(@"^[0-9a-f-]{36}$"));
+        string opponent = await playerId.InputValueAsync();
+        await white.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
+        await Expect(white.GetByLabel("Your player ID")).ToBeVisibleAsync();
+        await white.GetByLabel("Opponent’s player ID").FillAsync(opponent);
+        await white.GetByRole(AriaRole.Button, new() { Name = "Create private game" }).ClickAsync();
+        ILocator invite = white.GetByLabel("Share this link with your opponent");
+        await Expect(invite).ToHaveValueAsync(new Regex(@"/games/[0-9a-f-]{36}$"));
+        string gameLink = await invite.InputValueAsync();
+        await black.GotoAsync(gameLink);
+        await black.GetByRole(AriaRole.Button, new() { Name = "Accept game" }).TapAsync();
+        await Expect(white.GetByText("Your turn", new() { Exact = true })).ToBeVisibleAsync();
+
+        ILocator whitePawn = white.GetByRole(AriaRole.Button, new() { Name = "e2, White pawn" });
+        await whitePawn.PressAsync("Enter");
+        await Expect(white.Locator("[data-square=e4]")).ToHaveClassAsync(new Regex(@"\blegal\b"));
+        await white.Keyboard.PressAsync("ArrowUp");
+        await Expect(white.Locator("[data-square=e3]")).ToBeFocusedAsync();
+        await white.Keyboard.PressAsync("ArrowUp");
+        await white.Keyboard.PressAsync("Enter");
+        await Expect(black.GetByRole(AriaRole.Button, new() { Name = "e4, White pawn" })).ToBeVisibleAsync();
+        await Expect(black.GetByText("Your turn", new() { Exact = true })).ToBeVisibleAsync();
+        await Expect(black.Locator(".square").First).ToHaveAttributeAsync("data-square", "h1");
+
+        await black.GetByRole(AriaRole.Button, new() { Name = "e7, Black pawn" }).TapAsync();
+        await black.GetByRole(AriaRole.Button, new() { Name = "e5, empty" }).TapAsync();
+        await Expect(white.GetByRole(AriaRole.Button, new() { Name = "e5, Black pawn" })).ToBeVisibleAsync();
+        await white.ReloadAsync();
+        await Expect(white.GetByRole(AriaRole.Button, new() { Name = "e5, Black pawn" })).ToBeVisibleAsync();
+        await Expect(white.GetByText("e2e4", new() { Exact = true })).ToBeVisibleAsync();
+        await Expect(white.GetByText("e7e5", new() { Exact = true })).ToBeVisibleAsync();
+    }
+
+    [Fact]
     public async Task PasswordResetThroughMailpitAllowsNewPasswordAndRevokesExistingSession()
     {
         const string newPassword = "Replacement-password8!";
@@ -174,12 +220,14 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
 
     private Task<IBrowser> LaunchBrowserAsync() => fixture.Chromium.LaunchAsync(new() { Channel = "chromium" });
 
-    private async Task<IBrowserContext> NewContextAsync(IBrowser browser)
+    private async Task<IBrowserContext> NewContextAsync(IBrowser browser, bool touch = false)
     {
         IBrowserContext context = await browser.NewContextAsync(new()
         {
             BaseURL = fixture.WebOrigin.AbsoluteUri,
-            IgnoreHTTPSErrors = true
+            IgnoreHTTPSErrors = true,
+            HasTouch = touch,
+            ViewportSize = touch ? new ViewportSize { Width = 390, Height = 844 } : null
         });
         context.SetDefaultTimeout(15000);
         return context;

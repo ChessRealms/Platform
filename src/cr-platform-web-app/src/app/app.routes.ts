@@ -11,5 +11,7 @@ export const routes: Routes = [
   { path: 'confirm-email', loadComponent: () => import('./identity/confirm-email-page').then(module => module.ConfirmEmailPage) },
   { path: 'session-unavailable', loadComponent: () => import('./identity/session-recovery-page').then(module => module.SessionRecoveryPage) },
   { path: 'home', canActivate: [authGuard], loadComponent: () => import('./home-page').then(module => module.HomePage) },
+  { path: 'games', canActivate: [authGuard], loadComponent: () => import('./games/games-page').then(module => module.GamesPage) },
+  { path: 'games/:id', canActivate: [authGuard], loadComponent: () => import('./games/game-page').then(module => module.GamePage) },
   { path: '**', redirectTo: 'home' },
 ];
