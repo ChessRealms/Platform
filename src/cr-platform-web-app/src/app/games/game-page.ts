@@ -7,16 +7,10 @@ import { catchError, distinctUntilChanged, EMPTY, filter, finalize, map, merge, 
 import { ChessBoard } from './chess-board';
 import { GameFinishingActions } from './game-finishing-actions';
 import { GameLiveUpdates } from './game-live-updates';
-import { Game, GameBoard, GameFinishingAction, gameIdPattern } from './game.models';
+import { finishReasons, Game, GameBoard, GameFinishingAction, gameIdPattern } from './game.models';
 import { GamesApi } from './games-api';
 
 const promotionNames: Record<string, string> = { q: 'Queen', r: 'Rook', b: 'Bishop', n: 'Knight' };
-const finishReasons: Record<string, string> = {
-  Checkmate: 'Checkmate', Stalemate: 'Stalemate', DeadPosition: 'Dead position',
-  FivefoldRepetition: 'Fivefold repetition', SeventyFiveMoveRule: '75-move rule',
-  Resignation: 'Resignation', DrawAgreement: 'By agreement',
-  ThreefoldRepetition: 'Threefold repetition', FiftyMoveRule: '50-move rule',
-};
 
 @Component({
   imports: [ChessBoard, GameFinishingActions, RouterLink],

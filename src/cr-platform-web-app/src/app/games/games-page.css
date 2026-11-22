@@ -1,0 +1,111 @@
+.games {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 1.15rem;
+  align-items: start;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.games-heading {
+  grid-column: 1 / -1;
+}
+
+.games-heading h1 {
+  margin: 0.5rem 0 0;
+}
+
+.games .home-card {
+  width: 100%;
+  padding: clamp(1rem, 3vw, 1.5rem);
+}
+
+h2 {
+  margin: 0 0 1rem;
+  font-size: 1.2rem;
+}
+
+.list-controls,
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.list-controls {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.list-controls button,
+.game-list > button {
+  padding: 0.4rem 0.7rem;
+}
+
+.filters button[aria-pressed='false'],
+.refresh {
+  background: transparent;
+}
+
+.filters button:hover,
+.refresh:hover {
+  background: #536681;
+}
+
+.list-message {
+  color: #b1b9c5;
+  margin-bottom: 0;
+}
+
+.game-rows {
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.game-rows li {
+  border-top: 1px solid #3b414b;
+}
+
+.game-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 0.8rem;
+  padding: 0.75rem 0.25rem;
+  text-decoration: none;
+  color: inherit;
+  overflow-wrap: anywhere;
+}
+
+.game-row:hover {
+  background: #2b323d;
+}
+
+.game-details,
+.game-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.65rem;
+}
+
+.game-details {
+  flex-direction: column;
+}
+
+.game-meta,
+.game-status {
+  color: #bdc9db;
+  font-size: 0.84rem;
+}
+
+.game-list > button {
+  margin-top: 0.7rem;
+}
+
+@media (max-width: 720px) {
+  .games {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -1,0 +1,69 @@
+<section class="games" aria-labelledby="my-games-title">
+  <header class="games-heading">
+    <a routerLink="/home">Home</a>
+    <h1 id="my-games-title">My games</h1>
+  </header>
+
+  <section class="home-card game-list" aria-label="Your games">
+    <div class="list-controls">
+      <div class="filters" role="group" aria-label="Game status">
+        @for (option of filters; track option.status) {
+          <button type="button" [attr.aria-pressed]="filter() === option" (click)="show(option)">{{ option.label }}</button>
+        }
+      </div>
+      <button class="refresh" type="button" [disabled]="listLoading()" (click)="refresh()">Refresh</button>
+    </div>
+
+    @if (listError(); as message) {
+      <p class="form-errors" role="alert">{{ message }}</p>
+    } @else if (listLoading()) {
+      <p class="list-message" role="status">Loading games…</p>
+    } @else if (!games().length) {
+      <p class="list-message" role="status">{{ filter().empty }}</p>
+    }
+
+    @if (games().length) {
+      <ul class="game-rows">
+        @for (game of games(); track game.id) {
+          <li>
+            <a class="game-row" [routerLink]="['/games', game.id]">
+              <span class="game-details">
+                <strong>{{ game.opponentName ?? game.opponentId }}</strong>
+                <span class="game-meta">
+                  {{ game.color }}
+                  @if (game.createdAt; as createdAt) {
+                    <time [attr.datetime]="createdAt">{{ createdAt | date:'medium' }}</time>
+                  }
+                </span>
+              </span>
+              <span class="game-status">{{ statusText(game) }}</span>
+            </a>
+          </li>
+        }
+      </ul>
+    }
+
+    @if (nextCursor()) {
+      <button type="button" [disabled]="listLoading()" (click)="loadMore()">Load more</button>
+    }
+  </section>
+
+  <section class="home-card" aria-labelledby="new-game-title">
+    <h2 id="new-game-title">New private game</h2>
+    @if (userId(); as id) {
+      <label for="player-id">Your player ID</label>
+      <input id="player-id" readonly [value]="id" />
+    }
+    @if (error(); as message) {
+      <p class="form-errors" role="alert">{{ message }}</p>
+    }
+    <form (ngSubmit)="create()">
+      <div class="form-field">
+        <label for="opponent-id">Opponent’s player ID</label>
+        <input id="opponent-id" name="opponentId" [(ngModel)]="opponentId" required maxlength="36"
+          autocomplete="off" spellcheck="false" />
+      </div>
+      <button type="submit" [disabled]="busy()">Create private game</button>
+    </form>
+  </section>
+</section>

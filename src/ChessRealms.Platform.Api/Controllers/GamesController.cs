@@ -15,6 +15,20 @@ namespace ChessRealms.Platform.Api.Controllers;
 public sealed class GamesController(GameService games, IHubContext<GameHub> live,
     ILogger<GamesController> logger) : ControllerBase
 {
+    [HttpGet]
+    public async Task<ActionResult<GameListResponse>> List([FromQuery] GameStatus? status, [FromQuery] Guid? before,
+        CancellationToken cancellationToken)
+    {
+        GameStatus filter = status ?? GameStatus.Pending;
+        if (!Enum.IsDefined(filter))
+        {
+            return BadRequest(new { code = "InvalidGameStatus" });
+        }
+
+        GameListPage page = await games.ListAsync(PlayerId(), filter, before, cancellationToken);
+        return GameListResponse.From(page);
+    }
+
     [HttpPost]
     public async Task<IActionResult> Create(CreateGameRequest request, CancellationToken cancellationToken)
     {

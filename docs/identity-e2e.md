@@ -28,6 +28,7 @@ The session lifecycle tests also verify:
 
 The suite also covers a private game between two confirmed accounts. Black opens
 the invitation while signed out, signs in, returns to the same game, and accepts.
+The test reopens the game from Invitations, Active, and Finished in My games.
 White plays with the keyboard and Black plays on a touch-enabled mobile viewport.
 Each browser sees the other player's move. The test observes a real SignalR
 notification, drops a move notification, and verifies that the browser

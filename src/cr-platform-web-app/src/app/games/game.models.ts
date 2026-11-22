@@ -1,4 +1,5 @@
 export type PlayerColor = 'White' | 'Black';
+export type GameStatus = 'Pending' | 'Active' | 'Finished';
 export type DrawClaimReason = 'ThreefoldRepetition' | 'FiftyMoveRule';
 export type GameFinishingAction =
   | { kind: 'resign' | 'offer' | 'accept' | 'decline' }
@@ -8,13 +9,30 @@ export interface Game {
   id: string;
   whitePlayerId: string;
   blackPlayerId: string;
-  status: 'Pending' | 'Active' | 'Finished';
+  status: GameStatus;
   revision: number;
   fen: string;
   sideToMove: PlayerColor | null;
   winner: PlayerColor | null;
   endReason: string | null;
   drawOfferedBy: PlayerColor | null;
+}
+
+export interface GameListItem {
+  id: string;
+  opponentId: string;
+  opponentName: string | null;
+  color: PlayerColor;
+  status: GameStatus;
+  createdAt: string | null;
+  isYourTurn: boolean;
+  winner: PlayerColor | null;
+  endReason: string | null;
+}
+
+export interface GameListPage {
+  items: GameListItem[];
+  nextCursor: string | null;
 }
 
 export interface GameBoard {
@@ -25,3 +43,10 @@ export interface GameBoard {
 }
 
 export const gameIdPattern = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
+
+export const finishReasons: Record<string, string> = {
+  Checkmate: 'Checkmate', Stalemate: 'Stalemate', DeadPosition: 'Dead position',
+  FivefoldRepetition: 'Fivefold repetition', SeventyFiveMoveRule: '75-move rule',
+  Resignation: 'Resignation', DrawAgreement: 'By agreement',
+  ThreefoldRepetition: 'Threefold repetition', FiftyMoveRule: '50-move rule',
+};

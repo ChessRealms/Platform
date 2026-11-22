@@ -19,6 +19,8 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
             game.Property(item => item.DrawOfferedBy).HasConversion<string>().HasMaxLength(8);
             game.Property(item => item.EndReason).HasConversion<string>().HasMaxLength(32);
             game.Property(item => item.RulesRecord).HasColumnType("jsonb");
+            game.HasIndex(item => new { item.WhitePlayerId, item.Status });
+            game.HasIndex(item => new { item.BlackPlayerId, item.Status });
         });
     }
 }

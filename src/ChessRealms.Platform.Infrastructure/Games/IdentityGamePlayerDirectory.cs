@@ -13,4 +13,10 @@ internal sealed class IdentityGamePlayerDirectory(IdentityDbContext database) : 
             .CountAsync(user => user.EmailConfirmed && (user.Id == whitePlayerId || user.Id == blackPlayerId), cancellationToken);
         return eligiblePlayers == 2;
     }
+
+    public async Task<IReadOnlyDictionary<Guid, string>> FindNamesAsync(IReadOnlyCollection<Guid> playerIds,
+        CancellationToken cancellationToken) =>
+        await database.Users.Where(user => playerIds.Contains(user.Id) && user.UserName != null)
+            .Select(user => new { user.Id, user.UserName })
+            .ToDictionaryAsync(user => user.Id, user => user.UserName!, cancellationToken);
 }
