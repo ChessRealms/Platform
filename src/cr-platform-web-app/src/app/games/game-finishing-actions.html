@@ -1,0 +1,60 @@
+@if (game().drawOfferedBy; as offerer) {
+  @if (offerer === color()) {
+    <p role="status">Draw offered. Waiting for your opponent.</p>
+  } @else {
+    <p role="status">Your opponent offered a draw.</p>
+    <div class="actions">
+      <button type="button" [disabled]="!canAct()" (click)="action.emit({ kind: 'accept' })">Accept draw</button>
+      <button type="button" [disabled]="!canAct()" (click)="action.emit({ kind: 'decline' })">Decline draw</button>
+    </div>
+  }
+}
+<div class="actions">
+  @if (!game().drawOfferedBy) {
+    <button type="button" [disabled]="!canAct()" (click)="action.emit({ kind: 'offer' })">Offer draw</button>
+  }
+  @if (game().sideToMove === color() && legalMoves().length > 0) {
+    <button type="button" [disabled]="!canAct()" [attr.aria-expanded]="panel() === 'claim'"
+      (click)="panel() === 'claim' ? panel.set(null) : openClaim()">Claim draw</button>
+  }
+  <button type="button" [disabled]="!canAct()" [attr.aria-expanded]="panel() === 'resign'"
+    (click)="panel.set(panel() === 'resign' ? null : 'resign')">Resign</button>
+</div>
+
+@switch (panel()) {
+  @case ('resign') {
+    <div class="panel" role="group" aria-label="Confirm resignation">
+      <p>Your opponent will win this game.</p>
+      <div class="actions">
+        <button type="button" [disabled]="!canAct()" (click)="action.emit({ kind: 'resign' })">Confirm resignation</button>
+        <button type="button" (click)="panel.set(null)">Cancel</button>
+      </div>
+    </div>
+  }
+  @case ('claim') {
+    <div class="panel" role="group" aria-label="Draw claim">
+      <label for="draw-claim-reason">Reason</label>
+      <select id="draw-claim-reason" [ngModel]="claimReason()" (ngModelChange)="claimReason.set($event)">
+        <option value="ThreefoldRepetition">Threefold repetition</option>
+        <option value="FiftyMoveRule">50-move rule</option>
+      </select>
+      <label for="draw-claim-move">Intended move</label>
+      <select id="draw-claim-move" [ngModel]="intendedMove()" (ngModelChange)="intendedMove.set($event)">
+        <option value="">Claim on the current position</option>
+        @for (move of legalMoves(); track move) {
+          <option [value]="move">{{ move }}</option>
+        }
+      </select>
+      @if (intendedMove()) {
+        <p>The selected move will not be played if the claim succeeds.</p>
+      } @else if (!drawClaims().includes(claimReason())) {
+        <p>That claim is unavailable on the current position.</p>
+      }
+      <div class="actions">
+        <button type="button" [disabled]="!canAct() || (!intendedMove() && !drawClaims().includes(claimReason()))"
+          (click)="submitClaim()">Submit claim</button>
+        <button type="button" (click)="panel.set(null)">Cancel</button>
+      </div>
+    </div>
+  }
+}

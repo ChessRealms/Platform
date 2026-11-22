@@ -33,7 +33,7 @@ public sealed class GamesController(GameService games) : ControllerBase
     }
 
     [HttpPost("{id:guid}/accept")]
-    public async Task<IActionResult> Accept(Guid id, AcceptGameRequest request, CancellationToken cancellationToken) =>
+    public async Task<IActionResult> Accept(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
         ChangeResponse(await games.AcceptAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken));
 
     [HttpGet("{id:guid}/board")]
@@ -52,12 +52,47 @@ public sealed class GamesController(GameService games) : ControllerBase
         }
 
         GameMoveList moves = games.ReadMoves(game, playerId);
-        return new GameBoardResponse(GameResponse.From(game), moves.Moves, moves.LegalMoves);
+        return new GameBoardResponse(GameResponse.From(game), moves.Moves, moves.LegalMoves,
+            moves.DrawClaims.Select(reason => reason.ToString()).ToArray());
     }
 
     [HttpPost("{id:guid}/moves")]
     public async Task<IActionResult> Play(Guid id, PlayGameMoveRequest request, CancellationToken cancellationToken) =>
         ChangeResponse(await games.PlayAsync(id, PlayerId(), request.ExpectedRevision!.Value, request.Move, cancellationToken));
+
+    [HttpPost("{id:guid}/resign")]
+    public async Task<IActionResult> Resign(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
+        ChangeResponse(await games.ResignAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken));
+
+    [HttpPost("{id:guid}/draw/offer")]
+    public async Task<IActionResult> OfferDraw(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
+        ChangeResponse(await games.OfferDrawAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken));
+
+    [HttpPost("{id:guid}/draw/accept")]
+    public async Task<IActionResult> AcceptDraw(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
+        ChangeResponse(await games.ReplyToDrawOfferAsync(id, PlayerId(), request.ExpectedRevision!.Value, true, cancellationToken));
+
+    [HttpPost("{id:guid}/draw/decline")]
+    public async Task<IActionResult> DeclineDraw(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
+        ChangeResponse(await games.ReplyToDrawOfferAsync(id, PlayerId(), request.ExpectedRevision!.Value, false, cancellationToken));
+
+    [HttpPost("{id:guid}/draw/claim")]
+    public async Task<IActionResult> ClaimDraw(Guid id, ClaimGameDrawRequest request, CancellationToken cancellationToken)
+    {
+        DrawClaimReason? reason = request.Reason switch
+        {
+            nameof(DrawClaimReason.ThreefoldRepetition) => DrawClaimReason.ThreefoldRepetition,
+            nameof(DrawClaimReason.FiftyMoveRule) => DrawClaimReason.FiftyMoveRule,
+            _ => null
+        };
+        if (reason is null)
+        {
+            return BadRequest(new { code = "InvalidDrawClaimReason" });
+        }
+
+        return ChangeResponse(await games.ClaimDrawAsync(id, PlayerId(), request.ExpectedRevision!.Value,
+            reason.Value, request.IntendedMove, cancellationToken));
+    }
 
     private Guid PlayerId() => Guid.Parse(User.FindFirst("sub")!.Value);
 
@@ -72,8 +107,9 @@ public sealed class GamesController(GameService games) : ControllerBase
             GameError.Forbidden => StatusCodes.Status403Forbidden,
             GameError.InvalidPlayers or GameError.OpponentUnavailable => StatusCodes.Status400BadRequest,
             GameError.RevisionConflict or GameError.GameNotPending or GameError.GameNotActive or GameError.NotYourTurn
+                or GameError.DrawOfferPending or GameError.NoDrawOffer
                 => StatusCodes.Status409Conflict,
-            GameError.IllegalMove => StatusCodes.Status422UnprocessableEntity,
+            GameError.IllegalMove or GameError.DrawClaimUnavailable => StatusCodes.Status422UnprocessableEntity,
             _ => throw new InvalidOperationException("Unexpected game operation result.")
         };
         return StatusCode(status, new { code = error.ToString() });

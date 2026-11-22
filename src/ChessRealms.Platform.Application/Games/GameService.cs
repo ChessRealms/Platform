@@ -40,6 +40,23 @@ public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerD
         CancellationToken cancellationToken) =>
         ChangeAsync(gameId, game => game.Play(playerId, expectedRevision, record => rules.Play(record, move)), cancellationToken);
 
+    public Task<GameOperationResult> ResignAsync(Guid gameId, Guid playerId, long expectedRevision,
+        CancellationToken cancellationToken) =>
+        ChangeAsync(gameId, game => game.Resign(playerId, expectedRevision), cancellationToken);
+
+    public Task<GameOperationResult> OfferDrawAsync(Guid gameId, Guid playerId, long expectedRevision,
+        CancellationToken cancellationToken) =>
+        ChangeAsync(gameId, game => game.OfferDraw(playerId, expectedRevision), cancellationToken);
+
+    public Task<GameOperationResult> ReplyToDrawOfferAsync(Guid gameId, Guid playerId, long expectedRevision,
+        bool accept, CancellationToken cancellationToken) =>
+        ChangeAsync(gameId, game => game.ReplyToDrawOffer(playerId, expectedRevision, accept), cancellationToken);
+
+    public Task<GameOperationResult> ClaimDrawAsync(Guid gameId, Guid playerId, long expectedRevision,
+        DrawClaimReason reason, string? intendedMove, CancellationToken cancellationToken) =>
+        ChangeAsync(gameId, game => game.ClaimDraw(playerId, expectedRevision,
+            record => rules.ClaimDraw(record, reason, intendedMove)), cancellationToken);
+
     private async Task<GameOperationResult> ChangeAsync(Guid gameId, Func<Game, GameError> change,
         CancellationToken cancellationToken)
     {

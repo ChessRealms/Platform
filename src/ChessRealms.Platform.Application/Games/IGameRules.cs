@@ -6,5 +6,6 @@ public interface IGameRules
 {
     GamePosition StartingPosition();
     GamePosition? Play(string rulesRecord, string move);
+    GamePosition? ClaimDraw(string rulesRecord, DrawClaimReason reason, string? intendedMove);
     GameMoveList ReadMoves(string rulesRecord, bool includeLegalMoves);
 }

@@ -4,7 +4,7 @@ import { defer, Observable, switchMap } from 'rxjs';
 import { AuthSession } from '../identity/auth-session';
 import { IdentityApiClient } from '../identity/identity-api.client';
 import { CurrentUser } from '../identity/identity-api.models';
-import { Game, GameBoard } from './game.models';
+import { Game, GameBoard, GameFinishingAction } from './game.models';
 
 @Injectable({ providedIn: 'root' })
 export class GamesApi {
@@ -36,6 +36,15 @@ export class GamesApi {
   move(game: Game, move: string): Observable<Game> {
     return this.authorized(token => this.http.post<Game>(`/api/games/${encodeURIComponent(game.id)}/moves`,
       { move, expectedRevision: game.revision }, this.options(token)));
+  }
+
+  finish(game: Game, action: GameFinishingAction): Observable<Game> {
+    const path = action.kind === 'resign' ? 'resign' : `draw/${action.kind}`;
+    const body = action.kind === 'claim'
+      ? { expectedRevision: game.revision, reason: action.reason, intendedMove: action.intendedMove }
+      : { expectedRevision: game.revision };
+    return this.authorized(token => this.http.post<Game>(`/api/games/${encodeURIComponent(game.id)}/${path}`,
+      body, this.options(token)));
   }
 
   private authorized<T>(request: (token: string) => Observable<T>): Observable<T> {

@@ -11,5 +11,8 @@ public enum GameError
     GameNotPending,
     GameNotActive,
     NotYourTurn,
-    IllegalMove
+    IllegalMove,
+    DrawOfferPending,
+    NoDrawOffer,
+    DrawClaimUnavailable
 }

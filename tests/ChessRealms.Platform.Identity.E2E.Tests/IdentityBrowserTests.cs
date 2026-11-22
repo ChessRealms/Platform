@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -27,7 +28,7 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
     }
 
     [Fact]
-    public async Task PlayersAcceptPrivateGameAndSeeEachOthersMovesAcrossBrowsers()
+    public async Task PlayersAcceptPrivateGameExchangeMovesAndAgreeToDrawAcrossBrowsers()
     {
         await using IBrowser browser = await LaunchBrowserAsync();
         await using IBrowserContext whiteContext = await NewContextAsync(browser);
@@ -70,6 +71,15 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
         await Expect(white.GetByRole(AriaRole.Button, new() { Name = "e5, Black pawn" })).ToBeVisibleAsync();
         await Expect(white.GetByText("e2e4", new() { Exact = true })).ToBeVisibleAsync();
         await Expect(white.GetByText("e7e5", new() { Exact = true })).ToBeVisibleAsync();
+
+        await white.GetByRole(AriaRole.Button, new() { Name = "Offer draw", Exact = true }).ClickAsync();
+        await Expect(black.GetByText("Your opponent offered a draw.", new() { Exact = true })).ToBeVisibleAsync();
+        await black.GetByRole(AriaRole.Button, new() { Name = "Accept draw", Exact = true }).TapAsync();
+        await Expect(black.GetByText("Draw · By agreement", new() { Exact = true })).ToBeVisibleAsync();
+        await Expect(white.GetByText("Draw · By agreement", new() { Exact = true })).ToBeVisibleAsync();
+        await black.ReloadAsync();
+        await Expect(black.GetByText("Draw · By agreement", new() { Exact = true })).ToBeVisibleAsync();
+        await Expect(black.GetByRole(AriaRole.Button, new() { Name = "Resign", Exact = true })).ToHaveCountAsync(0);
     }
 
     [Fact]
@@ -152,7 +162,23 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
         (IPage first, string email) = await RegisterAndOpenSignInAsync(context);
         await SignInAsync(first, email);
         IPage second = await OpenSignedInTabAsync(context);
-        IPage lockOwner = await OpenSignedInTabAsync(context);
+        IPage lockOwner = await context.NewPageAsync();
+        const string lockOwnerPath = "/__identity-e2e/lock-owner";
+        await lockOwner.RouteAsync("**" + lockOwnerPath, route => route.FulfillAsync(new()
+        {
+            ContentType = "text/html",
+            Body = "<!doctype html><title>Session lock owner</title>"
+        }));
+        await lockOwner.GotoAsync(lockOwnerPath);
+
+        // Observe at the context level before either navigation replaces its document.
+        ConcurrentQueue<string> firstEvents = new();
+        ConcurrentQueue<string> secondEvents = new();
+        TaskCompletionSource<int> firstResponse = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<int> secondResponse = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        context.Request += (_, request) => RecordRefresh(request, "sent");
+        context.Response += (_, response) => RecordRefresh(response.Request, $"HTTP {response.Status}", response.Status);
+        context.RequestFailed += (_, request) => RecordRefresh(request, "failed", 0);
 
         // Hold the same browser lock so both reloads contend for it without delaying network traffic.
         await lockOwner.EvaluateAsync("""
@@ -174,14 +200,109 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
             }
             """, SessionLockName, new() { PollingInterval = 50, Timeout = 10000 });
 
-        // The lock prevents either request from starting until both response waiters are attached.
-        Task<IResponse> firstRefresh = first.WaitForResponseAsync(response => IsWebPost(response, RefreshPath));
-        Task<IResponse> secondRefresh = second.WaitForResponseAsync(response => IsWebPost(response, RefreshPath));
+        Assert.Empty(firstEvents);
+        Assert.Empty(secondEvents);
         await lockOwner.EvaluateAsync("() => globalThis.releaseSessionTestLock()");
-        IResponse[] responses = await Task.WhenAll(firstRefresh, secondRefresh);
-        Assert.All(responses, response => Assert.Equal(200, response.Status));
+        try
+        {
+            await Task.WhenAll(firstResponse.Task, secondResponse.Task)
+                .WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+        }
+        catch (TimeoutException)
+        {
+            string lockState = await DescribeLockStateAsync();
+            Assert.Fail($"Expected a refresh response from both tabs. {DescribeRefreshes()} {lockState}");
+        }
+        Assert.True(await firstResponse.Task == 200 && await secondResponse.Task == 200, DescribeRefreshes());
         await ExpectSignedInAsync(first);
         await ExpectSignedInAsync(second);
+
+        void RecordRefresh(IRequest request, string observation, int? status = null)
+        {
+            if (request.Method != "POST" || new Uri(request.Url).AbsolutePath != RefreshPath)
+            {
+                return;
+            }
+
+            IPage page = request.Frame.Page;
+            if (page == first)
+            {
+                firstEvents.Enqueue(observation);
+                if (status is { } firstStatus)
+                {
+                    firstResponse.TrySetResult(firstStatus);
+                }
+            }
+            else if (page == second)
+            {
+                secondEvents.Enqueue(observation);
+                if (status is { } secondStatus)
+                {
+                    secondResponse.TrySetResult(secondStatus);
+                }
+            }
+        }
+
+        string DescribeRefreshes() =>
+            $"First tab: [{string.Join(", ", firstEvents)}]. Second tab: [{string.Join(", ", secondEvents)}].";
+
+        async Task<string> DescribeLockStateAsync()
+        {
+            try
+            {
+                return await lockOwner.EvaluateAsync<string>("""
+                    async name => {
+                        const { held, pending } = await navigator.locks.query();
+                        const marker = localStorage.getItem(name)?.split(':', 1)[0] ?? 'none';
+                        const refreshing = localStorage.getItem(name + '.refresh-in-progress') !== null;
+                        return `Session state: ${marker}; compatibility marker present: ${refreshing}; `
+                            + `held locks: ${held.filter(lock => lock.name === name).length}; `
+                            + `pending locks: ${pending.filter(lock => lock.name === name).length}.`;
+                    }
+                    """, SessionLockName).WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+            }
+            catch (Exception exception) when (exception is PlaywrightException or TimeoutException)
+            {
+                return "Shared session diagnostics unavailable.";
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ClosingATabDuringRefreshRequiresSignInBeforeAnotherRefresh()
+    {
+        await using IBrowser browser = await LaunchBrowserAsync();
+        await using IBrowserContext context = await NewContextAsync(browser);
+        (IPage interrupted, string email) = await RegisterAndOpenSignInAsync(context);
+        await SignInAsync(interrupted, email);
+
+        TaskCompletionSource refreshStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        await interrupted.RouteAsync("**" + RefreshPath, _ =>
+        {
+            // Leave the request paused until closing the document aborts it.
+            refreshStarted.TrySetResult();
+            return Task.CompletedTask;
+        });
+        await ReloadAsync(interrupted);
+        await refreshStarted.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+        await interrupted.CloseAsync();
+
+        IPage restored = await context.NewPageAsync();
+        int refreshAttempts = 0;
+        restored.Request += (_, request) =>
+        {
+            if (request.Method == "POST" && new Uri(request.Url).AbsolutePath == RefreshPath)
+            {
+                Interlocked.Increment(ref refreshAttempts);
+            }
+        };
+        await restored.GotoAsync("/home");
+        await Expect(restored.GetByText("We couldn’t verify your session after an interrupted request. Sign in again to continue."))
+            .ToBeVisibleAsync();
+        Assert.Equal(0, Volatile.Read(ref refreshAttempts));
+        await restored.GetByRole(AriaRole.Link, new() { Name = "Go to sign in" }).ClickAsync();
+        await SignInAsync(restored, email);
+        await ReloadAndExpectSignedInAsync(restored);
     }
 
     [Fact]

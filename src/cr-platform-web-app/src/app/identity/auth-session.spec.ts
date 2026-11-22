@@ -6,6 +6,8 @@ import { provideRouter, Router } from '@angular/router';
 import { vi } from 'vitest';
 import { AuthSession } from './auth-session';
 import { authGuard } from './auth.guard';
+import { RefreshJournal } from './refresh-journal';
+import { createTestRefreshJournal } from './testing-refresh-journal';
 import { installTestWebLocks } from './testing-web-locks';
 
 @Component({ template: '' })
@@ -13,20 +15,24 @@ class EmptyPage {}
 
 describe('AuthSession and protected routes', () => {
   const refreshUrl = '/api/identity/web/refresh';
+  const refreshKey = 'chessrealms.web-session.refresh-in-progress';
   const response = {
     code: 'Success', accessToken: 'access-token', tokenType: 'Bearer', expiresIn: 600,
   };
   let http: HttpTestingController;
   let restoreLocks: () => void;
   let tabs: EnvironmentInjector[];
+  let journal: ReturnType<typeof createTestRefreshJournal>;
 
   beforeEach(() => {
     localStorage.clear();
     restoreLocks = installTestWebLocks();
     tabs = [];
+    journal = createTestRefreshJournal();
     TestBed.configureTestingModule({ providers: [
       provideHttpClient(),
       provideHttpClientTesting(),
+      { provide: RefreshJournal, useValue: journal },
       provideRouter([
         { path: 'home', canActivate: [authGuard], component: EmptyPage },
         { path: 'login', component: EmptyPage },
@@ -80,12 +86,14 @@ describe('AuthSession and protected routes', () => {
 
     const request = await vi.waitFor(() => http.expectOne(refreshUrl));
     http.expectNone(refreshUrl);
+    expect(await journal.isPending()).toBe(true);
     request.flush(response);
     expect(await firstRefresh).toBe('authenticated');
 
     const queued = await vi.waitFor(() => http.expectOne(refreshUrl));
     queued.flush({ ...response, accessToken: 'second-access-token' });
     expect(await secondRefresh).toBe('authenticated');
+    expect(await journal.isPending()).toBe(false);
   });
 
   it('refreshes an expired access token and uses the successor for logout', async () => {
@@ -129,6 +137,32 @@ describe('AuthSession and protected routes', () => {
     expect(await attempted).toBe('sign-in-required');
     expect(await queued).toBe('sign-in-required');
     expect(await openTab().ensureSession(true)).toBe('sign-in-required');
+    expect(await journal.isPending()).toBe(true);
+    http.expectNone(refreshUrl);
+  });
+
+  it('ignores a stale localStorage mirror after the journal was cleared', async () => {
+    localStorage.setItem(refreshKey, 'indexeddb');
+    const refresh = openTab().ensureSession();
+    (await vi.waitFor(() => http.expectOne(refreshUrl))).flush(response);
+    expect(await refresh).toBe('authenticated');
+    expect(await journal.isPending()).toBe(false);
+  });
+
+  it.each(['journal', 'legacy'])('blocks an interrupted %s refresh', async source => {
+    if (source === 'journal') {
+      await journal.setPending(true);
+    } else {
+      localStorage.setItem(refreshKey, '1');
+    }
+
+    expect(await openTab().ensureSession()).toBe('sign-in-required');
+    http.expectNone(refreshUrl);
+  });
+
+  it('requires working journal storage before sending a refresh', async () => {
+    vi.spyOn(journal, 'setPending').mockRejectedValueOnce(new Error('Journal unavailable'));
+    expect(await openTab().ensureSession()).toBe('unavailable');
     http.expectNone(refreshUrl);
   });
 

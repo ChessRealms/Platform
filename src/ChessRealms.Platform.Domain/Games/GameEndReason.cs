@@ -6,5 +6,9 @@ public enum GameEndReason
     Stalemate,
     DeadPosition,
     FivefoldRepetition,
-    SeventyFiveMoveRule
+    SeventyFiveMoveRule,
+    Resignation,
+    DrawAgreement,
+    ThreefoldRepetition,
+    FiftyMoveRule
 }

@@ -11,9 +11,9 @@ describe('GamePage', () => {
   const id = '1ae1fd73-7d50-43e2-bc5c-f9ef232fcdad';
   const game: Game = {
     id, whitePlayerId: 'white', blackPlayerId: 'black', status: 'Active', revision: 22,
-    fen: '7k/P7/8/8/8/8/8/7K w - - 0 12', sideToMove: 'White', winner: null, endReason: null,
+    fen: '7k/P7/8/8/8/8/8/7K w - - 0 12', sideToMove: 'White', winner: null, endReason: null, drawOfferedBy: null,
   };
-  const initial: GameBoard = { game, moves: [], legalMoves: ['a7a8q', 'a7a8r', 'a7a8b', 'a7a8n'] };
+  const initial: GameBoard = { game, moves: [], legalMoves: ['a7a8q', 'a7a8r', 'a7a8b', 'a7a8n'], drawClaims: [] };
 
   function open(board: ReturnType<typeof vi.fn>, move = vi.fn().mockReturnValue(of(game))): GamePage {
     TestBed.configureTestingModule({
