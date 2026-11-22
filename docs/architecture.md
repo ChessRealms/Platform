@@ -84,15 +84,52 @@ commands and Infrastructure applies chess rules through the ChessRealms.Engine
 adapter. PostgreSQL stores a versioned game record and commits each position,
 result, and revision together.
 
-Guests are temporary participants without
-an ASP.NET Core Identity record, but require a protected guest session. They can play
-with guests or registered users. Login sessions, lobbies, and chess games are distinct
-concepts. Private lobbies will support invitations to registered users, an opt-out
-for incoming invitations, optional passwords, and invitation spam protection.
+The first product milestone is a complete private game between two registered
+players. The current flow creates a game for a known player ID and gives the
+creator a link to share. The invited player accepts explicitly. To close the
+milestone, verify one browser scenario with independent sessions: open the invite
+while signed out, sign in and return to the game, accept, play to a visible result,
+and restore the saved state after reloading or losing the connection. The backend
+continues to enforce participant access, move legality, and revision consistency.
+The Angular board uses polling for this milestone.
 
-Clock requirements and guest-to-account conversion remain open. Playing against the
-computer remains part of the initial product milestone. Branch protection and
-repository rules will be configured manually later.
+Realtime updates, opponent discovery, richer invitations and lobbies, guests, and
+clocks are follow-ups. Private lobbies may support incoming invitation opt-out,
+passwords, and spam protection. Guests would use a protected session and could
+play with guests or registered users. Clock and guest-to-account conversion
+requirements remain open.
+
+Branch protection and repository rules will be configured manually later.
+
+## ChessRealms library plans
+
+These are candidate projects for the ChessRealms organization. Each could live in
+its own repository and publish independently alongside `ChessRealms.Engine`.
+
+| Package | Proposed responsibility |
+| --- | --- |
+| `ChessRealms.Engine` | Existing rules library. Owns positions, legal moves, game history, and chess outcomes. |
+| `ChessRealms.Uci` | Universal Chess Interface (UCI) tooling for exchanging positions, search requests, and move responses with chess engines. Its chess-specific code can reuse `ChessRealms.Engine` for positions and move notation. The scope of client and host support is open. |
+| `ChessRealms.Search` (working name, originally `ChessRealms.AI`) | Own move selection, including position evaluation and search under time or depth limits. The search library can depend on `ChessRealms.Engine`. A UCI entry point in that repository can combine it with `ChessRealms.Uci` for external clients. |
+
+UCI is the protocol boundary for running an engine as an external program.
+An in-process caller could use the search library directly. This keeps the
+search reusable from Platform, a UCI executable, or tests. See the
+[UCI specification](https://backscattering.de/chess/uci/) and
+[Stockfish](https://github.com/official-stockfish/Stockfish).
+
+### Future Platform integration
+
+If Platform adds a computer opponent, Application can define a move provider
+that takes a position with its history and a search budget, then returns a
+coordinate move. One adapter could call Stockfish through UCI. Another could
+call ChessRealms search directly or through its UCI entry point. Platform can
+choose the provider per game if it offers both.
+
+A computer-controlled seat would need an explicit participant model. Platform
+would run search outside the save transaction and submit the candidate through
+the same legality and revision checks used for a player's move. This lets a
+stale result be discarded if the game changes during search.
 
 ## Delivery order
 
@@ -101,5 +138,8 @@ repository rules will be configured manually later.
 3. Angular authentication integration.
 4. Engine integration and persistent game state.
 5. Playable Angular board with polling.
-6. Next milestone: realtime synchronization, reconnects, guests, lobbies, and invitations.
-7. Computer opponent; optional Google login and additional Identity features separately.
+6. Finish the private two-player milestone with end-to-end invitation, sign-in,
+   gameplay, result, and recovery coverage.
+7. Extend multiplayer with realtime synchronization, opponent discovery,
+   invitations and lobbies, guests, and clocks as needed.
+8. Consider computer opponents independently, with interchangeable move providers.

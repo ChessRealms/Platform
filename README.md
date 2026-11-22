@@ -4,7 +4,10 @@ An open-source chess platform focused on playing chess against other players or 
 
 ## Scope and status
 
-The first milestone is the core experience of playing a complete chess game against another player or a computer opponent. Additional features will be considered after this core functionality is in place.
+The first milestone is a complete private chess game between two people who
+connect through an invitation. See [how to play](docs/games.md#play-from-the-web-app)
+and the [delivery plan](docs/architecture.md#delivery-order). A computer opponent
+is a possible follow-up.
 
 The repository contains a .NET 10 backend scaffold, an Angular frontend, and Aspire orchestration with PostgreSQL and an EF Core migration worker.
 
