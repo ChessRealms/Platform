@@ -18,13 +18,16 @@ describe('GamePage', () => {
   };
   const initial: GameBoard = { game, moves: [], legalMoves: ['a7a8q', 'a7a8r', 'a7a8b', 'a7a8n'], drawClaims: [] };
 
+  afterEach(() => vi.useRealTimers());
+
   function open(board: ReturnType<typeof vi.fn>, move = vi.fn().mockReturnValue(of(game)),
     updates: Observable<number | null> = NEVER, params = of(convertToParamMap({ id }))) {
+    const watch = vi.fn(() => updates);
     TestBed.configureTestingModule({
       providers: [
         provideRouter([]),
         { provide: AuthSession, useValue: { state: () => 'authenticated' } },
-        { provide: GameLiveUpdates, useValue: { watch: () => updates } },
+        { provide: GameLiveUpdates, useValue: { watch } },
         { provide: ActivatedRoute, useValue: { paramMap: params } },
       ],
     }).overrideComponent(GamePage, { set: { providers: [
@@ -32,7 +35,7 @@ describe('GamePage', () => {
       { provide: GamesApi, useValue: { me: () => of({ userId: 'white' }), board, move } },
     ] } });
     const fixture = TestBed.createComponent(GamePage);
-    return { page: fixture.componentInstance, sync: fixture.debugElement.injector.get(GameBoardSync) };
+    return { page: fixture.componentInstance, sync: fixture.debugElement.injector.get(GameBoardSync), watch };
   }
 
   it('uses server legal moves and requires an explicit promotion choice', () => {
@@ -62,12 +65,46 @@ describe('GamePage', () => {
     expect(sync.commandError()).toContain('The game changed');
   });
 
-  it('explains a resignation draw on the board', () => {
+  it('opens a finished game once and explains a resignation draw', () => {
+    vi.useFakeTimers();
     const finished: Game = {
       ...game, status: 'Finished', sideToMove: null, endReason: 'ResignationNoPossibleMate',
     };
-    const { page } = open(vi.fn().mockReturnValue(of({ ...initial, game: finished, legalMoves: [] })));
+    const board = vi.fn().mockReturnValue(of({ ...initial, game: finished, legalMoves: [] }));
+    const { page, watch } = open(board);
+
     expect(page.status()).toBe('Draw · Insufficient mating material after resignation');
+    expect(watch).not.toHaveBeenCalled();
+    window.dispatchEvent(new Event('online'));
+    vi.advanceTimersByTime(45000);
+    expect(board).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops background reads after reconnecting and discovering the final result', () => {
+    vi.useFakeTimers();
+    const updates = new Subject<number | null>();
+    const finished: Game = {
+      ...game, status: 'Finished', revision: 23, sideToMove: null, endReason: 'DrawAgreement',
+    };
+    const board = vi.fn().mockReturnValueOnce(of(initial)).mockReturnValueOnce(of(null))
+      .mockReturnValue(of({ ...initial, game: finished, legalMoves: [] }));
+    const { page, sync } = open(board, undefined, updates);
+
+    expect(updates.observed).toBe(true);
+    vi.advanceTimersByTime(15000);
+    expect(board).toHaveBeenCalledTimes(2);
+    expect(page.game()?.status).toBe('Active');
+
+    updates.next(null);
+    expect(board).toHaveBeenLastCalledWith(id, 22);
+    expect(page.game()).toEqual(finished);
+    expect(updates.observed).toBe(false);
+    expect(sync.canAct()).toBe(false);
+
+    updates.next(24);
+    window.dispatchEvent(new Event('online'));
+    vi.advanceTimersByTime(45000);
+    expect(board).toHaveBeenCalledTimes(3);
   });
 
   it('reads after reconnect and lets a newer notification supersede an in-flight read', () => {

@@ -324,6 +324,10 @@ public sealed class GameEndpointTests : IAsyncLifetime
         Assert.Contains("e2e4", firstBoard.LegalMoves);
         using HttpResponseMessage unchanged = await white.GetAsync($"{gameUrl}/board?afterRevision=1", Cancellation);
         Assert.Equal(HttpStatusCode.NoContent, unchanged.StatusCode);
+        GameBoardResponse futureRevision = Assert.IsType<GameBoardResponse>(
+            await white.GetFromJsonAsync<GameBoardResponse>($"{gameUrl}/board?afterRevision=99", Cancellation));
+        Assert.Equal(active, futureRevision.Game);
+        Assert.Contains("e2e4", futureRevision.LegalMoves);
         using HttpResponseMessage wrongTurn = await PlayAsync(black, gameUrl, "e7e5", 1);
         await AssertErrorAsync(wrongTurn, HttpStatusCode.Conflict, "NotYourTurn");
         using HttpResponseMessage illegal = await PlayAsync(white, gameUrl, "e2e5", 1);

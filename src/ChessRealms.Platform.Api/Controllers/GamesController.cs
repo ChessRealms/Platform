@@ -57,19 +57,18 @@ public sealed class GamesController(GameService games, IHubContext<GameHub> live
     public async Task<ActionResult<GameBoardResponse>> Board(Guid id, [FromQuery] long? afterRevision,
         CancellationToken cancellationToken)
     {
-        Guid playerId = PlayerId();
-        Game? game = await games.GetAsync(id, playerId, cancellationToken);
-        if (game is null)
+        (GameBoardSnapshot? board, GameMoveList? moves) = await games.ReadBoardAsync(id, PlayerId(), afterRevision,
+            cancellationToken);
+        if (board is null)
         {
             return ErrorResponse(GameError.NotFound);
         }
-        if (game.Revision == afterRevision)
+        if (moves is null)
         {
             return NoContent();
         }
 
-        GameMoveList moves = games.ReadMoves(game, playerId);
-        return new GameBoardResponse(GameResponse.From(game), moves.Moves, moves.LegalMoves,
+        return new GameBoardResponse(GameResponse.From(board), moves.Moves, moves.LegalMoves,
             moves.DrawClaims.Select(reason => reason.ToString()).ToArray());
     }
 

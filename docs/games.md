@@ -120,6 +120,8 @@ group. The board requests a snapshot using `afterRevision` and ignores
 duplicate and older notifications. After each join or reconnect, it reads the
 latest board to recover updates that could have been missed. An HTTP read every
 15 seconds also covers interrupted connections and dropped notifications.
+After receiving the final position, the board closes the live subscription and
+stops background reads. Reopening a finished game loads its saved position once.
 Commands and snapshots continue to use the HTTP contract above.
 
 The deployment proxy must forward WebSocket upgrades and use HTTPS. The
@@ -138,6 +140,10 @@ offer field, before the API starts. Each row stores the participants, revision, 
 and result alongside the engine's JSON game record. EF Core compares the
 original revision when updating the row, so two writes on one revision cannot
 both succeed. Rejected commands leave the revision and board unchanged.
+
+Board reads check participation and revision in the same SQL query. When
+`afterRevision` matches, PostgreSQL omits the JSON history from the result and
+the API returns `204`.
 
 The engine record retains the initial position and the move sequence, so
 rehydration restores repetition counts. ChessRealms.Engine 1.2.0 validates the

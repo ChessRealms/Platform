@@ -10,8 +10,21 @@ namespace ChessRealms.Platform.Infrastructure.Games;
 
 internal sealed class PostgresGameStore(PlatformDbContext database) : IGameStore
 {
+    // Compare the revision and project the history in the same database snapshot.
+    private static readonly Func<PlatformDbContext, Guid, Guid, long?, CancellationToken, Task<GameBoardSnapshot?>> ReadBoardQuery =
+        EF.CompileAsyncQuery((PlatformDbContext db, Guid id, Guid playerId, long? afterRevision, CancellationToken _) =>
+            db.Games.AsNoTracking()
+                .Where(game => game.Id == id && (game.WhitePlayerId == playerId || game.BlackPlayerId == playerId))
+                .Select(game => new GameBoardSnapshot(game.Id, game.WhitePlayerId, game.BlackPlayerId, game.Status,
+                    game.Revision, game.Fen, game.SideToMove, game.Winner, game.EndReason, game.DrawOfferedBy,
+                    game.Revision == afterRevision ? null : game.RulesRecord))
+                .SingleOrDefault());
+
     public Task<Game?> FindAsync(Guid id, CancellationToken cancellationToken) =>
         database.Games.SingleOrDefaultAsync(game => game.Id == id, cancellationToken);
+
+    public Task<GameBoardSnapshot?> ReadBoardAsync(Guid id, Guid playerId, long? afterRevision,
+        CancellationToken cancellationToken) => ReadBoardQuery(database, id, playerId, afterRevision, cancellationToken);
 
     public Task<Game?> FindByCreationRequestAsync(Guid creatorId, Guid requestId, CancellationToken cancellationToken) =>
         database.Games.AsNoTracking().SingleOrDefaultAsync(game => game.WhitePlayerId == creatorId
