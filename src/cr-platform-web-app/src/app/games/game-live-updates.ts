@@ -9,12 +9,13 @@ export class GameLiveUpdates {
 
   // A null emission requests a read after joining or rejoining the game.
   watch(gameId: string): Observable<number | null> {
+    const login = this.session.loginKey();
     return new Observable(subscriber => {
       const connection = new HubConnectionBuilder()
         .withUrl('/api/games/live', {
           transport: HttpTransportType.WebSockets,
           skipNegotiation: true,
-          accessTokenFactory: async () => await this.session.getAccessToken() ?? '',
+          accessTokenFactory: async () => await this.session.getAccessToken(login) ?? '',
         })
         .configureLogging(LogLevel.None)
         .build();

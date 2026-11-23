@@ -16,7 +16,7 @@
     <p class="form-errors" role="alert">Could not load your player ID.</p>
     <button type="button" (click)="retry()">Retry</button>
   }
-  @if (game(); as game) {
+  @if (playerId() && game(); as game) {
     <div class="layout">
       <div class="board-area">
         <cr-chess-board [fen]="game.fen" [color]="color()" [selected]="selected()"

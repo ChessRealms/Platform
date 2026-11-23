@@ -25,6 +25,10 @@ and **Finished** shows the result from your perspective. Use **Refresh** to chec
 for changes and **Load more** to browse older entries. If a creation response
 is lost, check **Invitations** for the new game before submitting again.
 
+Tabs in the same browser profile share a login. Switching accounts in another
+tab reloads the board and My games for the new player. Signing out clears both
+views. The board's sign-in link keeps the game ID.
+
 ## HTTP contract
 
 Every route requires a bearer access token. The API uses the JWT subject as the

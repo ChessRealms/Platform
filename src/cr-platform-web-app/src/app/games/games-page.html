@@ -63,7 +63,7 @@
         <input id="opponent-id" name="opponentId" [(ngModel)]="opponentId" required maxlength="36"
           autocomplete="off" spellcheck="false" />
       </div>
-      <button type="submit" [disabled]="busy()">Create private game</button>
+      <button type="submit" [disabled]="busy() || !userId()">Create private game</button>
     </form>
   </section>
 </section>

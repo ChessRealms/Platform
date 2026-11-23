@@ -16,10 +16,10 @@ describe('My games', () => {
   let element: HTMLElement;
 
   function open(list: ReturnType<typeof vi.fn>): void {
-    TestBed.configureTestingModule({ providers: [
-      provideRouter([]),
-      { provide: GamesApi, useValue: { list, me: () => of({ userId: 'p2' }) } },
-    ] });
+    TestBed.configureTestingModule({ providers: [provideRouter([])] })
+      .overrideComponent(GamesPage, { set: { providers: [
+        { provide: GamesApi, useValue: { list, me: () => of({ userId: 'p2' }) } },
+      ] } });
     fixture = TestBed.createComponent(GamesPage);
     element = fixture.nativeElement;
     fixture.detectChanges();

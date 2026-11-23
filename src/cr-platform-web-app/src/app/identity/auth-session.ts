@@ -25,22 +25,29 @@ export class AuthSession {
   private readonly currentState = signal<SessionState>('checking');
   private access: { token: string; expiresAt: number } | null = null;
   private marker: string | null = null;
+  private readonly authenticatedMarker = signal<string | null>(null);
   private refreshing: Promise<SessionState> | null = null;
   private refreshTimer: number | undefined;
 
   readonly state = this.currentState.asReadonly();
   readonly hasSession = computed(() => this.state() === 'authenticated');
+  // Identifies the verified browser login across token rotations. It contains no credentials.
+  readonly loginKey = this.authenticatedMarker.asReadonly();
 
-  async getAccessToken(): Promise<string | null> {
-    return await this.ensureSession() === 'authenticated' ? this.validAccessToken() : null;
+  async getAccessToken(expectedLogin: string | null): Promise<string | null> {
+    const state = await this.ensureSession();
+    return state === 'authenticated' && expectedLogin !== null && expectedLogin === this.loginKey()
+      ? this.validAccessToken() : null;
   }
 
   constructor() {
     const destroyRef = inject(DestroyRef);
     fromEvent<StorageEvent>(this.window, 'storage').pipe(takeUntilDestroyed(destroyRef))
-      .subscribe(event => {
+      .subscribe(async event => {
         if (event.key === sessionKey || event.key === null) {
-          void this.ensureSession();
+          // A storage event can arrive while this tab is finishing its previous refresh.
+          await this.refreshing;
+          await this.ensureSession();
         }
       });
     fromEvent(this.document, 'visibilitychange').pipe(takeUntilDestroyed(destroyRef))
@@ -152,6 +159,8 @@ export class AuthSession {
       }
       if (!this.marker) {
         this.publish('active');
+      } else {
+        this.authenticatedMarker.set(this.marker);
       }
     } catch (error) {
       if (error instanceof HttpErrorResponse && error.status === 401) {
@@ -200,6 +209,7 @@ export class AuthSession {
       return;
     }
     this.marker = shared;
+    this.authenticatedMarker.set(null);
     if (shared?.startsWith('signed-out:')) {
       this.clearAccess('anonymous');
     } else if (shared?.startsWith('refresh-uncertain:')) {
@@ -213,6 +223,7 @@ export class AuthSession {
     const marker = state + ':' + this.window.crypto.randomUUID();
     this.window.localStorage.setItem(sessionKey, marker);
     this.marker = marker;
+    this.authenticatedMarker.set(state === 'active' ? marker : null);
   }
 
   private clearAccess(state: SessionState): void {
