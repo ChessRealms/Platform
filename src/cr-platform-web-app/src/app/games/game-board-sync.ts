@@ -45,7 +45,7 @@ export class GameBoardSync {
   readonly sessionUnavailable = computed(() => this.session.state() === 'unavailable');
   readonly updating = computed(() => this.activity() !== 'idle');
   readonly canAct = computed(() => !!this.player() && !this.updating()
-    && !this.readError() && !this.sessionUnavailable());
+    && !this.readError() && !this.sessionUnavailable() && this.game()?.status !== 'Finished');
 
   constructor() {
     this.loadPlayer();
@@ -145,7 +145,11 @@ export class GameBoardSync {
         }
         this.readError.set(null);
         this.activity.set('idle');
-        firstRead.next();
+        if (this.game()?.status === 'Finished') {
+          this.stopUpdates.next();
+        } else {
+          firstRead.next();
+        }
       }),
       catchError((error: HttpErrorResponse) => {
         // Without an access token, GamesApi returns 401 even when the session can still be restored.

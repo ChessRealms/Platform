@@ -56,10 +56,17 @@ public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerD
             rows.Count > ListPageSize ? items[^1].Id : null);
     }
 
-    public GameMoveList ReadMoves(Game game, Guid playerId)
+    public async Task<(GameBoardSnapshot? Board, GameMoveList? Moves)> ReadBoardAsync(Guid gameId, Guid playerId,
+        long? afterRevision, CancellationToken cancellationToken)
     {
-        Guid playerToMove = game.SideToMove == PlayerColor.White ? game.WhitePlayerId : game.BlackPlayerId;
-        return rules.ReadMoves(game.RulesRecord, game.Status == GameStatus.Active && playerId == playerToMove);
+        GameBoardSnapshot? board = await store.ReadBoardAsync(gameId, playerId, afterRevision, cancellationToken);
+        if (board?.RulesRecord is not { } record)
+        {
+            return (board, null);
+        }
+
+        Guid playerToMove = board.SideToMove == PlayerColor.White ? board.WhitePlayerId : board.BlackPlayerId;
+        return (board, rules.ReadMoves(record, board.Status == GameStatus.Active && playerId == playerToMove));
     }
 
     public Task<GameOperationResult> AcceptAsync(Guid gameId, Guid playerId, long expectedRevision,
