@@ -1,7 +1,8 @@
-# Identity browser E2E tests
+# Browser E2E tests for Identity and Games
 
-The suite runs headless Chromium against the Aspire AppHost over HTTPS. The smoke
-test registers a synthetic account through Angular, opens its Mailpit
+The suite runs headless Chromium against the Aspire AppHost over HTTPS.
+`IdentityBrowserTests` covers accounts and sessions. Its registration test
+registers a synthetic account through Angular, opens its Mailpit
 confirmation link, signs in, and verifies that a reload gets HTTP 200 from the
 refresh endpoint and keeps the user signed in.
 
@@ -19,9 +20,6 @@ The session lifecycle tests also verify:
 - Sign-out ends the active session and updates another tab of the same browser
   context. A separate browser context signed in as the same user can still
   refresh successfully.
-- An open board and My games switch to the new player when another tab signs
-  in as the opponent. Signing out removes both private views, and signing in
-  from the board reopens the original invitation.
 - Sign-out everywhere causes the other context's next refresh to return HTTP
   401 and redirects it to sign-in. Already issued access tokens can still be
   valid until they expire.
@@ -29,7 +27,7 @@ The session lifecycle tests also verify:
   the address bar, accepts the new password, and rejects the previous session's
   next refresh.
 
-The suite also covers a private game between two confirmed accounts. Black opens
+`GameBrowserTests` covers a private game between two confirmed accounts. Black opens
 the invitation while signed out, signs in, returns to the same game, and accepts.
 The test reopens the game from Invitations, Active, and Finished in My games.
 White plays with the keyboard and Black plays on a touch-enabled mobile viewport.
@@ -38,6 +36,10 @@ notification, drops a move notification, and verifies that the browser
 resubscribes and recovers the missed move after disconnect. Reloading restores
 the saved board and move list. The two players can then agree to a draw and
 both browsers show the persisted result.
+
+The game tests also verify that an open board and My games switch to the new
+player when another tab signs in as the opponent. Signing out removes both
+private views. Signing in from the board reopens the original invitation.
 
 ## Run locally
 
@@ -68,7 +70,8 @@ context that accepts the local certificate, and the test requires HTTPS.
 
 ## Isolation and cleanup
 
-The tests share one AppHost per run with dynamically allocated endpoints, an
+Both classes belong to `BrowserTestCollection`, which shares one AppHost per
+run with dynamically allocated endpoints, an
 ephemeral PostgreSQL container, Mailpit, and an in-memory JWT signing key. Each
 test uses a unique account and fresh browser contexts. The restart test uses a
 temporary profile directory and deletes it after closing Chromium. PostgreSQL

@@ -10,7 +10,7 @@ using Xunit;
 
 namespace ChessRealms.Platform.Identity.E2E.Tests;
 
-public sealed class IdentityAppFixture : IAsyncLifetime
+public sealed class BrowserAppFixture : IAsyncLifetime
 {
     private IDistributedApplicationTestingBuilder? appHost;
     private DistributedApplication? app;

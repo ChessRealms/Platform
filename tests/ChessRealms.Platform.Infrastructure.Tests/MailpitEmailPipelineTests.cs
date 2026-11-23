@@ -64,7 +64,7 @@ public sealed class MailpitEmailPipelineTests : IAsyncLifetime
         builder.AddInfrastructure();
         builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
         builder.Services.AddIdentityLogin(builder.Configuration);
-        builder.Services.AddConfirmationEmailWorker();
+        builder.Services.AddIdentityEmailWorker();
         _host = builder.Build();
         await using (AsyncServiceScope scope = _host.Services.CreateAsyncScope())
         {

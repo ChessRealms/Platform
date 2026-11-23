@@ -1,3 +1,4 @@
+using ChessRealms.Platform.Infrastructure.Identity.EmailConfirmation;
 using ChessRealms.Platform.Infrastructure.Identity.PasswordReset;
 using ChessRealms.Platform.Infrastructure.Identity.Persistence;
 
@@ -6,12 +7,12 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace ChessRealms.Platform.Infrastructure.Identity.EmailConfirmation;
+namespace ChessRealms.Platform.Infrastructure.Identity;
 
-public sealed class ConfirmationEmailWorker(
-    IServiceScopeFactory scopes, 
+public sealed class IdentityEmailWorker(
+    IServiceScopeFactory scopes,
     TimeProvider clock,
-    ILogger<ConfirmationEmailWorker> logger) : BackgroundService
+    ILogger<IdentityEmailWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
