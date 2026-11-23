@@ -538,11 +538,22 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
 
     private async Task SubmitSignInAsync(IPage page, string email, string password = Password)
     {
-        await page.GetByLabel("Email", new() { Exact = true }).FillAsync(email);
-        await page.GetByLabel("Password", new() { Exact = true }).FillAsync(password);
+        ILocator form = page.GetByRole(AriaRole.Main).Locator("form");
+        await TypeSignInFieldAsync(form.GetByLabel("Email", new() { Exact = true }), email);
+        await TypeSignInFieldAsync(form.GetByLabel("Password", new() { Exact = true }), password);
+        // Verify that Angular received the input before waiting for the HTTP response.
+        await Expect(form).ToHaveClassAsync(new Regex(@"\bng-valid\b"));
         IResponse response = await ObserveWebPostAsync(page, "login",
-            () => page.GetByRole(AriaRole.Button, new() { Name = "Sign in", Exact = true }).ClickAsync());
+            () => form.GetByRole(AriaRole.Button, new() { Name = "Sign in", Exact = true }).ClickAsync());
         Assert.Equal(200, response.Status);
+    }
+
+    private static async Task TypeSignInFieldAsync(ILocator field, string value)
+    {
+        // Focus the control with a pointer action before typing in a recently activated tab.
+        await field.ClickAsync();
+        await field.PressAsync("ControlOrMeta+a");
+        await field.PressSequentiallyAsync(value);
     }
 
     private async Task<IPage> OpenSignedInTabAsync(IBrowserContext context)
