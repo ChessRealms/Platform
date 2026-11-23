@@ -108,8 +108,8 @@ npm test -- --watch=false
 ```
 
 The Angular app stays outside the .NET solution; Aspire runs it directly from its directory.
-The separate [Identity browser E2E suite](docs/identity-e2e.md) uses Aspire and
-Chromium to verify registration, email confirmation, and the browser session lifecycle.
+The separate [browser E2E suite](docs/identity-e2e.md) uses Aspire and Chromium to
+verify account and session flows, private invitations, and game synchronization.
 To run `npm start` independently at http://localhost:4200, set the API target as
 described in the [frontend setup](src/cr-platform-web-app/README.md#api-connection).
 

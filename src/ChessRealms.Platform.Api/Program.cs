@@ -15,7 +15,7 @@ builder.AddServiceDefaults();
 builder.AddInfrastructure();
 builder.Services.AddScoped<GameService>();
 builder.Services.AddIdentityAuthentication(builder.Configuration);
-builder.Services.AddConfirmationEmailWorker();
+builder.Services.AddIdentityEmailWorker();
 builder.Services.AddHostedService<LoginSessionCleanupWorker>();
 builder.Services.AddControllers();
 builder.Services.AddSignalR();

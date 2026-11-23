@@ -58,7 +58,8 @@ the tests that use them. Infrastructure is grouped by responsibility:
 | --- | --- |
 | Root services | Registration and login orchestration, Identity registration |
 | `IdentityLoginServiceCollectionExtensions.cs` | API-only login, JWT, and session service registration |
-| `EmailConfirmation/` | Confirmation sessions and dispatch, SMTP transport, identity email worker |
+| `IdentityEmailWorker.cs` | Background delivery and cleanup for confirmation and password reset emails |
+| `EmailConfirmation/` | Confirmation sessions and dispatch, SMTP transport |
 | `PasswordReset/` | Reset token provider, password recovery, and reset email dispatch |
 | `Sessions/` | Refresh rotation, session configuration and cleanup |
 | `Jwt/` | Signing keys, JWT settings and issuance |

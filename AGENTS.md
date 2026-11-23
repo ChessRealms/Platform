@@ -60,10 +60,15 @@ node node_modules/@angular/cli/bin/ng.js build --configuration development
 node node_modules/@angular/cli/bin/ng.js test --watch=false
 ```
 
-There is no lint script. Infrastructure tests require Docker with Linux containers
-and use a temporary PostgreSQL container; other backend test projects are empty.
-AppHost starts containers, installs frontend dependencies and applies migrations;
-do not use it as a substitute for build/test verification. See README.md for setup.
+There is no lint script. `Api.Tests` covers HTTP contracts and authentication.
+Its games integration tests and the tests in `Infrastructure.Tests` that use
+Testcontainers require Docker with Linux containers. These tests start temporary
+PostgreSQL containers, and the email pipeline tests also start Mailpit.
+`Application.Tests` and `Domain.Tests` are currently empty.
+The [browser E2E suite](docs/identity-e2e.md) covers Identity and Games using a
+shared Aspire AppHost. Run it with `pwsh -File scripts/test-identity-e2e.ps1`
+after completing its local setup. Keep the build and test checks above separate
+from starting AppHost for development. See README.md for setup.
 
 Codex permissions and approvals use the user's app settings; this repository
 does not provide custom permission profiles, command rules or reviewer agents.

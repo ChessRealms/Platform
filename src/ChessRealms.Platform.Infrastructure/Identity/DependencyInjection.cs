@@ -98,6 +98,6 @@ public static class DependencyInjection
         return builder;
     }
 
-    public static IServiceCollection AddConfirmationEmailWorker(this IServiceCollection services) =>
-        services.AddHostedService<ConfirmationEmailWorker>();
+    public static IServiceCollection AddIdentityEmailWorker(this IServiceCollection services) =>
+        services.AddHostedService<IdentityEmailWorker>();
 }
