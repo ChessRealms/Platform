@@ -15,7 +15,7 @@ import { createTestRefreshJournal } from '../identity/testing-refresh-journal';
 import { installTestWebLocks } from '../identity/testing-web-locks';
 import { GameLiveUpdates } from './game-live-updates';
 import { GameSessionPage } from './game-session-page';
-import { GameBoard } from './game.models';
+import { GameBoard, gameIdPattern } from './game.models';
 
 const id = '1ae1fd73-7d50-43e2-bc5c-f9ef232fcdad';
 const position: GameBoard = {
@@ -25,6 +25,8 @@ const position: GameBoard = {
 };
 
 describe('games across browser logins', () => {
+  afterEach(() => sessionStorage.clear());
+
   function setup() {
     const loginKey = signal<string | null>('white');
     const state = signal('authenticated');
@@ -92,6 +94,8 @@ describe('games across browser logins', () => {
     input.dispatchEvent(new Event('input'));
     page.querySelector('form')!.dispatchEvent(new Event('submit'));
     const lateCreation = await request('/api/games');
+    expect(lateCreation.request.body.opponentId).toBe(id);
+    expect(lateCreation.request.body.requestId).toMatch(gameIdPattern);
     loginKey.set('black');
     // The response can arrive before Angular has destroyed the previous view.
     lateCreation.flush(position.game);
@@ -101,6 +105,7 @@ describe('games across browser logins', () => {
     (await request('/api/games?status=Pending')).flush({ items: [], nextCursor: null });
     harness.detectChanges();
     expect(page.querySelector<HTMLInputElement>('#opponent-id')!.value).toBe('');
+    expect(page.textContent).not.toContain('Retry creation');
     expect(page.querySelector<HTMLInputElement>('#player-id')!.value).toBe('black');
     http.verify();
   });

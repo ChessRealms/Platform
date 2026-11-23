@@ -1,9 +1,10 @@
-import { DatePipe } from '@angular/common';
+import { DatePipe, DOCUMENT } from '@angular/common';
 import { Component, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { catchError, EMPTY, finalize, Subject, switchMap } from 'rxjs';
+import { AuthSession } from '../identity/auth-session';
 import { finishReasons, gameIdPattern, GameListItem } from './game.models';
 import { GamesApi } from './games-api';
 
@@ -14,6 +15,9 @@ const gameFilters = [
 ] as const;
 
 type GameFilter = (typeof gameFilters)[number];
+type GameCreation = { opponentId: string; requestId: string };
+
+const pendingCreationKey = 'chessrealms.pending-game-creation';
 
 @Component({
   selector: 'cr-games-page',
@@ -24,6 +28,9 @@ type GameFilter = (typeof gameFilters)[number];
 })
 export class GamesPage {
   private readonly api = inject(GamesApi);
+  private readonly session = inject(AuthSession);
+  private readonly login = this.session.loginKey();
+  private readonly window = inject(DOCUMENT).defaultView!;
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
   private readonly listRequests = new Subject<string | null>();
@@ -36,7 +43,8 @@ export class GamesPage {
   readonly userId = signal<string | null>(null);
   readonly error = signal<string | null>(null);
   readonly busy = signal(false);
-  opponentId = '';
+  protected readonly pendingCreation = signal(this.readPendingCreation());
+  opponentId = this.pendingCreation()?.opponentId ?? '';
 
   constructor() {
     this.listRequests.pipe(
@@ -100,21 +108,68 @@ export class GamesPage {
     if (this.busy() || !this.userId()) {
       return;
     }
-    const id = this.opponentId.trim();
-    if (!gameIdPattern.test(id) || id.toLowerCase() === this.userId()?.toLowerCase()) {
+    const pending = this.pendingCreation();
+    const opponentId = pending?.opponentId ?? this.opponentId.trim().toLowerCase();
+    if (!gameIdPattern.test(opponentId) || opponentId === this.userId()?.toLowerCase()) {
       this.error.set('Enter a different player’s ID.');
       return;
     }
+    const attempt = pending ?? { opponentId, requestId: this.window.crypto.randomUUID() };
+    this.rememberCreation(attempt);
     this.error.set(null);
     this.busy.set(true);
-    this.api.create(id).pipe(
+    this.api.create(attempt.opponentId, attempt.requestId).pipe(
       takeUntilDestroyed(this.destroyRef),
       finalize(() => this.busy.set(false)),
     ).subscribe({
-      next: game => void this.router.navigate(['/games', game.id]),
-      error: error => this.error.set(error.status === 400
-        ? 'That player is unavailable. Check the ID and ask them to confirm their email.'
-        : 'Could not confirm that the game was created. Check Invitations before trying again.'),
+      next: game => {
+        this.rememberCreation(null);
+        void this.router.navigate(['/games', game.id]);
+      },
+      error: error => {
+        if (error.status === 400 || error.status === 409) {
+          this.rememberCreation(null);
+          this.error.set(error.status === 400
+            ? 'That player is unavailable. Check the ID and ask them to confirm their email.'
+            : 'This request ID has already been used for a different invitation. Start a new invitation.');
+        }
+      },
     });
+  }
+
+  protected startNewInvitation(): void {
+    this.rememberCreation(null);
+    this.error.set(null);
+  }
+
+  private readPendingCreation(): GameCreation | null {
+    try {
+      const stored = this.window.sessionStorage.getItem(pendingCreationKey);
+      const attempt = JSON.parse(stored ?? 'null') as Partial<GameCreation & { login: string }> | null;
+      if (this.login && attempt?.login === this.login
+        && typeof attempt.requestId === 'string' && gameIdPattern.test(attempt.requestId)
+        && typeof attempt.opponentId === 'string' && gameIdPattern.test(attempt.opponentId)) {
+        return { opponentId: attempt.opponentId, requestId: attempt.requestId };
+      }
+    } catch {
+      // Stay usable when storage is blocked or contains invalid data.
+    }
+    return null;
+  }
+
+  private rememberCreation(attempt: GameCreation | null): void {
+    this.pendingCreation.set(attempt);
+    if (!this.login || this.session.loginKey() !== this.login) {
+      return;
+    }
+    try {
+      if (attempt) {
+        this.window.sessionStorage.setItem(pendingCreationKey, JSON.stringify({ login: this.login, ...attempt }));
+      } else {
+        this.window.sessionStorage.removeItem(pendingCreationKey);
+      }
+    } catch {
+      // The pending attempt remains available on this page.
+    }
   }
 }

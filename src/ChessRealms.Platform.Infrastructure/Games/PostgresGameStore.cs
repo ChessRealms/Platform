@@ -4,12 +4,18 @@ using ChessRealms.Platform.Infrastructure.Persistence;
 
 using Microsoft.EntityFrameworkCore;
 
+using Npgsql;
+
 namespace ChessRealms.Platform.Infrastructure.Games;
 
 internal sealed class PostgresGameStore(PlatformDbContext database) : IGameStore
 {
     public Task<Game?> FindAsync(Guid id, CancellationToken cancellationToken) =>
         database.Games.SingleOrDefaultAsync(game => game.Id == id, cancellationToken);
+
+    public Task<Game?> FindByCreationRequestAsync(Guid creatorId, Guid requestId, CancellationToken cancellationToken) =>
+        database.Games.AsNoTracking().SingleOrDefaultAsync(game => game.WhitePlayerId == creatorId
+            && EF.Property<Guid?>(game, PlatformDbContext.GameCreationRequestId) == requestId, cancellationToken);
 
     public async Task<IReadOnlyList<GameListItem>> ListAsync(Guid playerId, GameStatus status, Guid? before, int limit,
         CancellationToken cancellationToken)
@@ -44,10 +50,25 @@ internal sealed class PostgresGameStore(PlatformDbContext database) : IGameStore
             .ToListAsync(cancellationToken);
     }
 
-    public async Task CreateAsync(Game game, CancellationToken cancellationToken)
+    public async Task<Game> CreateOrGetAsync(Game game, Guid? requestId, CancellationToken cancellationToken)
     {
-        database.Games.Add(game);
-        await database.SaveChangesAsync(cancellationToken);
+        var entry = database.Games.Add(game);
+        entry.Property<Guid?>(PlatformDbContext.GameCreationRequestId).CurrentValue = requestId;
+        try
+        {
+            await database.SaveChangesAsync(cancellationToken);
+            return game;
+        }
+        catch (DbUpdateException exception) when (requestId.HasValue && exception.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: PlatformDbContext.GameCreationRequestIndex
+        })
+        {
+            // A concurrent insert has already saved the game for this creator and request.
+            entry.State = EntityState.Detached;
+            return await FindByCreationRequestAsync(game.WhitePlayerId, requestId.Value, cancellationToken)
+                ?? throw new InvalidOperationException("The game for the committed creation request was not found.", exception);
+        }
     }
 
     public async Task<bool> TrySaveChangesAsync(CancellationToken cancellationToken)

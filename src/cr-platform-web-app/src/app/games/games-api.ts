@@ -17,9 +17,9 @@ export class GamesApi {
     return this.authorized(token => this.identity.me(token));
   }
 
-  create(opponentId: string): Observable<Game> {
+  create(opponentId: string, requestId: string): Observable<Game> {
     return this.authorized(token =>
-      this.http.post<Game>('/api/games', { opponentId }, this.options(token)));
+      this.http.post<Game>('/api/games', { opponentId, requestId }, this.options(token)));
   }
 
   list(status: GameStatus, before: string | null): Observable<GameListPage> {

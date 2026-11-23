@@ -14,5 +14,7 @@ public enum GameError
     IllegalMove,
     DrawOfferPending,
     NoDrawOffer,
-    DrawClaimUnavailable
+    DrawClaimUnavailable,
+    InvalidRequestId,
+    CreationRequestConflict
 }

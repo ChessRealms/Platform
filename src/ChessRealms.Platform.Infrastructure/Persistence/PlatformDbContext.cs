@@ -6,6 +6,9 @@ namespace ChessRealms.Platform.Infrastructure.Persistence;
 
 public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> options) : DbContext(options)
 {
+    internal const string GameCreationRequestId = "CreationRequestId";
+    internal const string GameCreationRequestIndex = "IX_Games_WhitePlayerId_CreationRequestId";
+
     public DbSet<Game> Games => Set<Game>();
 
     protected override void OnModelCreating(ModelBuilder builder)
@@ -19,6 +22,9 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
             game.Property(item => item.DrawOfferedBy).HasConversion<string>().HasMaxLength(8);
             game.Property(item => item.EndReason).HasConversion<string>().HasMaxLength(32);
             game.Property(item => item.RulesRecord).HasColumnType("jsonb");
+            game.Property<Guid?>(GameCreationRequestId);
+            game.HasIndex(nameof(Game.WhitePlayerId), GameCreationRequestId)
+                .HasDatabaseName(GameCreationRequestIndex).IsUnique();
             game.HasIndex(item => new { item.WhitePlayerId, item.Status });
             game.HasIndex(item => new { item.BlackPlayerId, item.Status });
         });
