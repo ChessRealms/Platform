@@ -1,9 +1,10 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
-import { NEVER, Observable, of, Subject, throwError } from 'rxjs';
+import { BehaviorSubject, NEVER, Observable, of, Subject, throwError } from 'rxjs';
 import { vi } from 'vitest';
 import { AuthSession } from '../identity/auth-session';
+import { GameBoardSync } from './game-board-sync';
 import { GamePage } from './game-page';
 import { GameLiveUpdates } from './game-live-updates';
 import { Game, GameBoard } from './game.models';
@@ -18,23 +19,25 @@ describe('GamePage', () => {
   const initial: GameBoard = { game, moves: [], legalMoves: ['a7a8q', 'a7a8r', 'a7a8b', 'a7a8n'], drawClaims: [] };
 
   function open(board: ReturnType<typeof vi.fn>, move = vi.fn().mockReturnValue(of(game)),
-    updates: Observable<number | null> = NEVER): GamePage {
+    updates: Observable<number | null> = NEVER, params = of(convertToParamMap({ id }))) {
     TestBed.configureTestingModule({
       providers: [
         provideRouter([]),
         { provide: AuthSession, useValue: { state: () => 'authenticated' } },
         { provide: GameLiveUpdates, useValue: { watch: () => updates } },
-        { provide: ActivatedRoute, useValue: { paramMap: of(convertToParamMap({ id })) } },
+        { provide: ActivatedRoute, useValue: { paramMap: params } },
       ],
     }).overrideComponent(GamePage, { set: { providers: [
+      GameBoardSync,
       { provide: GamesApi, useValue: { me: () => of({ userId: 'white' }), board, move } },
     ] } });
-    return TestBed.createComponent(GamePage).componentInstance;
+    const fixture = TestBed.createComponent(GamePage);
+    return { page: fixture.componentInstance, sync: fixture.debugElement.injector.get(GameBoardSync) };
   }
 
   it('uses server legal moves and requires an explicit promotion choice', () => {
     const move = vi.fn().mockReturnValue(of(game));
-    const page = open(vi.fn().mockReturnValue(of(initial)), move);
+    const { page } = open(vi.fn().mockReturnValue(of(initial)), move);
     page.select('a7');
     expect([...page.targets()]).toEqual(['a8']);
     page.select('a8');
@@ -48,7 +51,7 @@ describe('GamePage', () => {
     const latest = { ...initial, game: { ...game, revision: 23 }, legalMoves: [] };
     const board = vi.fn().mockReturnValueOnce(of(initial)).mockReturnValue(of(latest));
     const move = vi.fn().mockReturnValue(throwError(() => new HttpErrorResponse({ status: 409 })));
-    const page = open(board, move);
+    const { page, sync } = open(board, move);
     page.select('a7');
     page.select('a8');
     page.play('a7a8q');
@@ -56,14 +59,14 @@ describe('GamePage', () => {
     expect(board).toHaveBeenLastCalledWith(id, 22);
     expect(page.game()?.revision).toBe(23);
     expect(page.promotion()).toEqual([]);
-    expect(page.commandError()).toContain('The game changed');
+    expect(sync.commandError()).toContain('The game changed');
   });
 
   it('explains a resignation draw on the board', () => {
     const finished: Game = {
       ...game, status: 'Finished', sideToMove: null, endReason: 'ResignationNoPossibleMate',
     };
-    const page = open(vi.fn().mockReturnValue(of({ ...initial, game: finished, legalMoves: [] })));
+    const { page } = open(vi.fn().mockReturnValue(of({ ...initial, game: finished, legalMoves: [] })));
     expect(page.status()).toBe('Draw · Insufficient mating material after resignation');
   });
 
@@ -76,7 +79,7 @@ describe('GamePage', () => {
       .mockReturnValueOnce(delayed)
       .mockReturnValueOnce(of({ ...initial, game: { ...game, revision: 24 } }))
       .mockReturnValueOnce(of({ ...initial, game: { ...game, revision: 25 } }));
-    const page = open(board, move, updates);
+    const { page } = open(board, move, updates);
 
     updates.next(23);
     updates.next(23);
@@ -90,5 +93,26 @@ describe('GamePage', () => {
     expect(board).toHaveBeenLastCalledWith(id, 24);
     expect(page.game()?.revision).toBe(25);
     expect(move).not.toHaveBeenCalled();
+  });
+
+  it('ignores a previous game command that finishes after navigation', () => {
+    const nextId = '81e318fb-8db7-4262-ad80-780ce7e343fc';
+    const nextBoard = { ...initial, game: { ...game, id: nextId, revision: 0 } };
+    const params = new BehaviorSubject(convertToParamMap({ id }));
+    const pendingMove = new Subject<Game>();
+    const move = vi.fn().mockReturnValue(pendingMove);
+    const board = vi.fn().mockReturnValueOnce(of(initial)).mockReturnValueOnce(of(nextBoard));
+    const { page, sync } = open(board, move, NEVER, params);
+
+    page.play('a7a8q');
+    expect(sync.updating()).toBe(true);
+    params.next(convertToParamMap({ id: nextId }));
+    expect(board).toHaveBeenLastCalledWith(nextId, undefined);
+
+    pendingMove.error(new HttpErrorResponse({ status: 409 }));
+    expect(page.game()?.id).toBe(nextId);
+    expect(sync.updating()).toBe(false);
+    expect(sync.commandError()).toBeNull();
+    expect(board).toHaveBeenCalledTimes(2);
   });
 });
