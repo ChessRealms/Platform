@@ -4,22 +4,24 @@
     <h1>Private game</h1>
   </header>
 
-  @if (sessionUnavailable() && !unavailable()) {
+  @let boardError = sync.boardError();
+  @let unavailable = boardError !== null && boardError !== 'connection';
+  @if (sync.sessionUnavailable() && !unavailable) {
     <p class="form-errors" role="alert">We couldn’t restore your session. Check your connection and try again.</p>
-    <a routerLink="/session-unavailable" [queryParams]="{ gameId: currentId }">Restore session</a>
-  } @else if (connectionError(); as message) {
-    <p class="form-errors" role="alert">{{ message }}</p>
-    @if (signInRequired()) {
-      <a routerLink="/login" [queryParams]="{ gameId: currentId }">Sign in</a>
-    } @else if (!unavailable()) {
-      <button type="button" (click)="retry()">Refresh board</button>
+    <a routerLink="/session-unavailable" [queryParams]="{ gameId: sync.gameId() }">Restore session</a>
+  } @else if (boardError && boardError !== 'invalid-link') {
+    <p class="form-errors" role="alert">{{ boardErrorMessages[boardError] }}</p>
+    @if (boardError === 'sign-in-required') {
+      <a routerLink="/login" [queryParams]="{ gameId: sync.gameId() }">Sign in</a>
+    } @else if (boardError === 'connection') {
+      <button type="button" (click)="sync.retry()">Refresh board</button>
     }
   }
-  @if (playerError() && !sessionUnavailable()) {
+  @if (sync.playerError() && !sync.sessionUnavailable()) {
     <p class="form-errors" role="alert">Could not load your player ID.</p>
-    <button type="button" (click)="retry()">Retry</button>
+    <button type="button" (click)="sync.retry()">Retry</button>
   }
-  @if (playerId() && game(); as game) {
+  @if (sync.playerId() && game(); as game) {
     <div class="layout">
       <div class="board-area">
         <cr-chess-board [fen]="game.fen" [color]="color()" [selected]="selected()"
@@ -28,20 +30,20 @@
       <aside>
         <div class="play-state">
           <p class="status" role="status">{{ status() }}</p>
-          @if (playerId()) { <p>You play {{ color() }}.</p> }
-          @if (busy() || synchronizing()) { <p role="status">Updating game…</p> }
-          @if (commandError(); as message) { <p class="form-errors" role="alert">{{ message }}</p> }
-          @if (game.status === 'Pending' && playerId()) {
+          <p>You play {{ color() }}.</p>
+          @if (sync.updating()) { <p role="status">Updating game…</p> }
+          @if (sync.commandError(); as message) { <p class="form-errors" role="alert">{{ message }}</p> }
+          @if (game.status === 'Pending') {
             @if (color() === 'Black') {
-              <button type="button" [disabled]="!canAct()" (click)="accept()">Accept game</button>
+              <button type="button" [disabled]="!sync.canAct()" (click)="accept()">Accept game</button>
             } @else {
               <label for="game-link">Share this link with your opponent</label>
               <input id="game-link" readonly [value]="gameLink(game)" />
             }
           }
-          @if (game.status === 'Active' && playerId()) {
+          @if (game.status === 'Active') {
             <cr-game-finishing-actions [game]="game" [color]="color()"
-              [canAct]="canAct()" [legalMoves]="board()?.legalMoves ?? []" [drawClaims]="board()?.drawClaims ?? []"
+              [canAct]="sync.canAct()" [legalMoves]="sync.board()?.legalMoves ?? []" [drawClaims]="sync.board()?.drawClaims ?? []"
               (action)="finish($event)" />
           }
           @if (promotion().length > 0) {
@@ -49,7 +51,7 @@
               <p role="status">Choose a promotion piece.</p>
               <div class="promotion">
                 @for (move of promotion(); track move) {
-                  <button type="button" [disabled]="!canAct()" (click)="play(move)">{{ promotionNames[move[4]] }}</button>
+                  <button type="button" [disabled]="!sync.canAct()" (click)="play(move)">{{ promotionNames[move[4]] }}</button>
                 }
                 <button type="button" (click)="clearSelection()">Cancel</button>
               </div>
@@ -70,9 +72,9 @@
         </div>
       </aside>
     </div>
-  } @else if (!unavailable() && !sessionUnavailable()) {
+  } @else if (!unavailable && !sync.sessionUnavailable()) {
     <p role="status">Loading game…</p>
-  } @else if (unavailable() && !connectionError()) {
+  } @else if (boardError === 'invalid-link') {
     <p role="alert">This game link is invalid.</p>
   }
 </section>
