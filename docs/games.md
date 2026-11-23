@@ -23,7 +23,9 @@ Use **My games** to reopen a game without keeping its link. **Invitations**
 includes both received and sent invitations. **Active** shows whose turn it is,
 and **Finished** shows the result from your perspective. Use **Refresh** to check
 for changes and **Load more** to browse older entries. If a creation response
-is lost, check **Invitations** for the new game before submitting again.
+is lost, use **Retry creation** to recover the same invitation. The web app
+remembers the attempt in that tab across reloads during the same login. Choose
+**Start a new invitation** if you want to make a separate attempt.
 
 Tabs in the same browser profile share a login. Switching accounts in another
 tab reloads the board and My games for the new player. Signing out clears both
@@ -44,7 +46,7 @@ game and a game belonging to other players both return `404 NotFound`.
 | Route | Request body | Successful response |
 | --- | --- | --- |
 | `GET /api/games?status=Pending&before={cursor}` | None | `200` with a page of your games in that status. Omit `before` for the first page. |
-| `POST /api/games` | `{"opponentId":"<user-id>"}` | `201` with a pending game at revision 0 and a `Location` header. |
+| `POST /api/games` | `{"opponentId":"<user-id>","requestId":"<optional-uuid>"}` | `201` with a pending game at revision 0 and a `Location` header. `200` with the current state of the same game on replay. |
 | `GET /api/games/{id}` | None | `200` with the current game. |
 | `GET /api/games/{id}/board?afterRevision={revision}` | None | `200` with the game, coordinate move history, legal moves, and `drawClaims` available on the current position for the caller's turn. `204` if the supplied revision is current. Omit the query parameter for a full board. |
 | `POST /api/games/{id}/accept` | `{"expectedRevision":0}` | `200` with the active game at revision 1. |
@@ -71,17 +73,22 @@ positions and move history.
 
 | Status | Meaning |
 | --- | --- |
-| `400` | Invalid request body, two identical or empty player IDs, or an unavailable opponent. |
+| `400` | Invalid request body, two identical or empty player IDs, an unavailable opponent, or an all-zero creation UUID (`InvalidRequestId`). |
 | `401` | Missing or invalid access token. |
 | `403 Forbidden` | White tried to accept the invitation or a player tried to respond to their own draw offer. |
 | `404 NotFound` | Game unknown or caller outside the game. |
-| `409` | Revisions conflict (`RevisionConflict`), the game is in the wrong state, it is the other player's turn, or the action requires a different draw offer state. |
+| `409` | Revisions conflict (`RevisionConflict`), the game is in the wrong state, it is the other player's turn, the action requires a different draw offer state, or the creator used the same request ID for another opponent (`CreationRequestConflict`). |
 | `422 IllegalMove` | Move notation or move legality was rejected by the chess rules. |
 | `422 DrawClaimUnavailable` | The current position or intended move does not qualify for the requested draw. |
 
 On `RevisionConflict`, read the latest game before sending a new command. A
-repeated move with the same revision cannot apply twice. New game requests
-create a new game each time.
+repeated move with the same revision cannot apply twice.
+
+Generate a new `requestId` for each intended game. Retry an unconfirmed creation
+with the same `requestId` and `opponentId`. The ID is unique per authenticated
+creator and stored with the game, so concurrent retries resolve to the same game
+ID. A replay returns the game's current state, including any progress since
+creation. Omitting `requestId` creates a new game for each successful request.
 
 Draw claims use `ThreefoldRepetition` or `FiftyMoveRule`. ChessRealms.Engine
 validates each claim. A valid intended move establishes eligibility and is

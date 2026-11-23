@@ -1,8 +1,9 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import { of, Subject, throwError } from 'rxjs';
 import { vi } from 'vitest';
-import { GameListItem, GameListPage } from './game.models';
+import { AuthSession } from '../identity/auth-session';
+import { gameIdPattern, GameListItem, GameListPage } from './game.models';
 import { GamesApi } from './games-api';
 import { GamesPage } from './games-page';
 
@@ -12,16 +13,33 @@ describe('My games', () => {
     isYourTurn: false, winner: null, endReason: null,
   };
   const outgoing: GameListItem = { ...incoming, id: 'a2', opponentName: 'Knight', color: 'White' };
+  const opponentId = '1ae1fd73-7d50-43e2-bc5c-f9ef232fcdad';
   let fixture: ComponentFixture<GamesPage>;
   let element: HTMLElement;
 
-  function open(list: ReturnType<typeof vi.fn>): void {
-    TestBed.configureTestingModule({ providers: [provideRouter([])] })
+  afterEach(() => sessionStorage.clear());
+
+  function open(list: ReturnType<typeof vi.fn>, create = vi.fn()): void {
+    TestBed.configureTestingModule({ providers: [
+      provideRouter([]),
+      { provide: AuthSession, useValue: { loginKey: () => 'current-login' } },
+    ] })
       .overrideComponent(GamesPage, { set: { providers: [
-        { provide: GamesApi, useValue: { list, me: () => of({ userId: 'p2' }) } },
+        { provide: GamesApi, useValue: { list, create, me: () => of({ userId: 'p2' }) } },
       ] } });
+    render();
+  }
+
+  function render(): void {
     fixture = TestBed.createComponent(GamesPage);
     element = fixture.nativeElement;
+    fixture.detectChanges();
+  }
+
+  function enterOpponent(): void {
+    const input = element.querySelector<HTMLInputElement>('#opponent-id')!;
+    input.value = opponentId;
+    input.dispatchEvent(new Event('input'));
     fixture.detectChanges();
   }
 
@@ -79,5 +97,46 @@ describe('My games', () => {
     click('Finished');
     expect(element.querySelector('.game-status')?.textContent)
       .toBe('Draw · Insufficient mating material after resignation');
+  });
+
+  it('reuses the creation request after a lost response and a reload', async () => {
+    const list = vi.fn().mockReturnValue(of({ items: [], nextCursor: null }));
+    const create = vi.fn().mockReturnValueOnce(throwError(() => ({ status: 0 })))
+      .mockReturnValueOnce(of({ id: 'saved-game' }));
+    open(list, create);
+    await fixture.whenStable();
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    enterOpponent();
+    click('Create private game');
+    const requestId: string = create.mock.calls[0][1];
+    expect(requestId).toMatch(gameIdPattern);
+    expect(element.textContent).toContain('Game creation hasn’t been confirmed');
+    expect(navigate).not.toHaveBeenCalled();
+
+    fixture.destroy();
+    render();
+    await fixture.whenStable();
+    expect(element.querySelector<HTMLInputElement>('#opponent-id')?.value).toBe(opponentId);
+    expect(element.querySelector<HTMLInputElement>('#opponent-id')?.readOnly).toBe(true);
+    click('Retry creation');
+
+    expect(create.mock.calls).toEqual([[opponentId, requestId], [opponentId, requestId]]);
+    expect(navigate).toHaveBeenCalledWith(['/games', 'saved-game']);
+    expect(sessionStorage.length).toBe(0);
+  });
+
+  it('uses a fresh request ID when the player chooses to start a new invitation', async () => {
+    const list = vi.fn().mockReturnValue(of({ items: [], nextCursor: null }));
+    const create = vi.fn().mockReturnValue(throwError(() => ({ status: 0 })));
+    open(list, create);
+    await fixture.whenStable();
+    enterOpponent();
+    click('Create private game');
+    click('Start a new invitation');
+    expect(create).toHaveBeenCalledTimes(1);
+    click('Create private game');
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create.mock.calls[1][0]).toBe(opponentId);
+    expect(create.mock.calls[1][1]).not.toBe(create.mock.calls[0][1]);
   });
 });

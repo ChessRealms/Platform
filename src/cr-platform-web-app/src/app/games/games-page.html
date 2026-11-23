@@ -56,14 +56,21 @@
     }
     @if (error(); as message) {
       <p class="form-errors" role="alert">{{ message }}</p>
+    } @else if (pendingCreation() && !busy()) {
+      <p role="status">Game creation hasn’t been confirmed. Retry to open the same invitation.</p>
     }
     <form (ngSubmit)="create()">
       <div class="form-field">
         <label for="opponent-id">Opponent’s player ID</label>
         <input id="opponent-id" name="opponentId" [(ngModel)]="opponentId" required maxlength="36"
-          autocomplete="off" spellcheck="false" />
+          [readOnly]="!!pendingCreation()" autocomplete="off" spellcheck="false" />
       </div>
-      <button type="submit" [disabled]="busy() || !userId()">Create private game</button>
+      <button type="submit" [disabled]="busy() || !userId()">
+        {{ busy() ? 'Creating game…' : pendingCreation() ? 'Retry creation' : 'Create private game' }}
+      </button>
+      @if (pendingCreation() && !busy()) {
+        <button type="button" (click)="startNewInvitation()">Start a new invitation</button>
+      }
     </form>
   </section>
 </section>

@@ -32,14 +32,14 @@ public sealed class GamesController(GameService games, IHubContext<GameHub> live
     [HttpPost]
     public async Task<IActionResult> Create(CreateGameRequest request, CancellationToken cancellationToken)
     {
-        GameOperationResult result = await games.CreateAsync(PlayerId(), request.OpponentId, cancellationToken);
+        CreateGameResult result = await games.CreateAsync(PlayerId(), request.OpponentId, request.RequestId, cancellationToken);
         if (result.Error != GameError.None)
         {
             return ErrorResponse(result.Error);
         }
 
         GameResponse response = GameResponse.From(result.Game!);
-        return CreatedAtAction(nameof(Get), new { id = response.Id }, response);
+        return result.Created ? CreatedAtAction(nameof(Get), new { id = response.Id }, response) : Ok(response);
     }
 
     [HttpGet("{id:guid}")]
@@ -143,9 +143,10 @@ public sealed class GamesController(GameService games, IHubContext<GameHub> live
         {
             GameError.NotFound => StatusCodes.Status404NotFound,
             GameError.Forbidden => StatusCodes.Status403Forbidden,
-            GameError.InvalidPlayers or GameError.OpponentUnavailable => StatusCodes.Status400BadRequest,
+            GameError.InvalidPlayers or GameError.OpponentUnavailable or GameError.InvalidRequestId
+                => StatusCodes.Status400BadRequest,
             GameError.RevisionConflict or GameError.GameNotPending or GameError.GameNotActive or GameError.NotYourTurn
-                or GameError.DrawOfferPending or GameError.NoDrawOffer
+                or GameError.DrawOfferPending or GameError.NoDrawOffer or GameError.CreationRequestConflict
                 => StatusCodes.Status409Conflict,
             GameError.IllegalMove or GameError.DrawClaimUnavailable => StatusCodes.Status422UnprocessableEntity,
             _ => throw new InvalidOperationException("Unexpected game operation result.")
