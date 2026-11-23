@@ -19,6 +19,9 @@ The session lifecycle tests also verify:
 - Sign-out ends the active session and updates another tab of the same browser
   context. A separate browser context signed in as the same user can still
   refresh successfully.
+- An open board and My games switch to the new player when another tab signs
+  in as the opponent. Signing out removes both private views, and signing in
+  from the board reopens the original invitation.
 - Sign-out everywhere causes the other context's next refresh to return HTTP
   401 and redirects it to sign-in. Already issued access tokens can still be
   valid until they expire.

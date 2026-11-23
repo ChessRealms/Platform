@@ -157,6 +157,54 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
     }
 
     [Fact]
+    public async Task OpenGameAndListFollowAccountChangesInTheSameBrowser()
+    {
+        await using IBrowser browser = await LaunchBrowserAsync();
+        await using IBrowserContext context = await NewContextAsync(browser);
+        (IPage account, string blackEmail) = await RegisterAndOpenSignInAsync(context);
+        await SignInAsync(account, blackEmail);
+        await account.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
+        ILocator playerId = account.GetByLabel("Your player ID");
+        await Expect(playerId).ToHaveValueAsync(new Regex(@"^[0-9a-f-]{36}$"));
+        string blackId = await playerId.InputValueAsync();
+
+        (IPage board, string whiteEmail) = await RegisterAndOpenSignInAsync(context);
+        await SignInAsync(board, whiteEmail);
+        await board.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
+        await board.GetByLabel("Opponent’s player ID").FillAsync(blackId);
+        await board.GetByRole(AriaRole.Button, new() { Name = "Create private game" }).ClickAsync();
+        await Expect(board.GetByLabel("Share this link with your opponent")).ToBeVisibleAsync();
+        string invite = board.Url;
+        string inviteLogin = $"/login?gameId={new Uri(invite).Segments[^1]}";
+        IPage list = await context.NewPageAsync();
+        await list.GotoAsync("/games");
+        await Expect(list.GetByText("Waiting for acceptance", new() { Exact = true })).ToBeVisibleAsync();
+
+        await account.BringToFrontAsync();
+        await account.GotoAsync("/login");
+        await SignInAsync(account, blackEmail);
+        await Expect(board.GetByText("You play Black.", new() { Exact = true })).ToBeVisibleAsync();
+        await Expect(board.GetByRole(AriaRole.Button, new() { Name = "Accept game" })).ToBeEnabledAsync();
+        await Expect(list.GetByLabel("Your player ID")).ToHaveValueAsync(blackId);
+        await Expect(list.GetByText("Invitation received", new() { Exact = true })).ToBeVisibleAsync();
+
+        await SignOutAsync(account, "Sign out", "logout");
+        ILocator boardSignIn = board.GetByRole(AriaRole.Main).GetByRole(AriaRole.Link, new() { Name = "Sign in" });
+        await Expect(boardSignIn).ToHaveAttributeAsync("href", inviteLogin);
+        await Expect(board.Locator(".board")).ToHaveCountAsync(0);
+        await Expect(list.GetByRole(AriaRole.Main).GetByRole(AriaRole.Link, new() { Name = "Sign in" })).ToBeVisibleAsync();
+        await Expect(list.GetByLabel("Your player ID")).ToHaveCountAsync(0);
+        await Expect(list.GetByText("Invitation received", new() { Exact = true })).ToHaveCountAsync(0);
+
+        await board.BringToFrontAsync();
+        await boardSignIn.ClickAsync();
+        await Expect(board).ToHaveURLAsync(new Uri(fixture.WebOrigin, inviteLogin).AbsoluteUri);
+        await SubmitSignInAsync(board, whiteEmail);
+        await Expect(board).ToHaveURLAsync(invite);
+        await Expect(board.GetByText("You play White.", new() { Exact = true })).ToBeVisibleAsync();
+    }
+
+    [Fact]
     public async Task PasswordResetThroughMailpitAllowsNewPasswordAndRevokesExistingSession()
     {
         const string newPassword = "Replacement-password8!";
@@ -490,11 +538,22 @@ public sealed class IdentityBrowserTests(IdentityAppFixture fixture) : IClassFix
 
     private async Task SubmitSignInAsync(IPage page, string email, string password = Password)
     {
-        await page.GetByLabel("Email", new() { Exact = true }).FillAsync(email);
-        await page.GetByLabel("Password", new() { Exact = true }).FillAsync(password);
+        ILocator form = page.GetByRole(AriaRole.Main).Locator("form");
+        await TypeSignInFieldAsync(form.GetByLabel("Email", new() { Exact = true }), email);
+        await TypeSignInFieldAsync(form.GetByLabel("Password", new() { Exact = true }), password);
+        // Verify that Angular received the input before waiting for the HTTP response.
+        await Expect(form).ToHaveClassAsync(new Regex(@"\bng-valid\b"));
         IResponse response = await ObserveWebPostAsync(page, "login",
-            () => page.GetByRole(AriaRole.Button, new() { Name = "Sign in", Exact = true }).ClickAsync());
+            () => form.GetByRole(AriaRole.Button, new() { Name = "Sign in", Exact = true }).ClickAsync());
         Assert.Equal(200, response.Status);
+    }
+
+    private static async Task TypeSignInFieldAsync(ILocator field, string value)
+    {
+        // Focus the control with a pointer action before typing in a recently activated tab.
+        await field.ClickAsync();
+        await field.PressAsync("ControlOrMeta+a");
+        await field.PressSequentiallyAsync(value);
     }
 
     private async Task<IPage> OpenSignedInTabAsync(IBrowserContext context)

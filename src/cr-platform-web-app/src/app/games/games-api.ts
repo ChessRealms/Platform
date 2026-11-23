@@ -1,15 +1,16 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
-import { defer, Observable, switchMap } from 'rxjs';
+import { defer, EMPTY, filter, Observable, switchMap } from 'rxjs';
 import { AuthSession } from '../identity/auth-session';
 import { IdentityApiClient } from '../identity/identity-api.client';
 import { CurrentUser } from '../identity/identity-api.models';
 import { Game, GameBoard, GameFinishingAction, GameListPage, GameStatus } from './game.models';
 
-@Injectable({ providedIn: 'root' })
+@Injectable()
 export class GamesApi {
   private readonly http = inject(HttpClient);
   private readonly session = inject(AuthSession);
+  private readonly login = this.session.loginKey();
   private readonly identity = inject(IdentityApiClient);
 
   me(): Observable<CurrentUser> {
@@ -55,11 +56,14 @@ export class GamesApi {
   }
 
   private authorized<T>(request: (token: string) => Observable<T>): Observable<T> {
-    return defer(() => this.session.getAccessToken()).pipe(switchMap(token => {
+    return defer(() => this.session.getAccessToken(this.login)).pipe(switchMap(token => {
+      if (this.login !== this.session.loginKey()) {
+        return EMPTY;
+      }
       if (!token) {
         throw new HttpErrorResponse({ status: 401 });
       }
-      return request(token);
+      return request(token).pipe(filter(() => this.login === this.session.loginKey()));
     }));
   }
 

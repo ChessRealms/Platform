@@ -13,6 +13,8 @@ import { GamesApi } from './games-api';
 const promotionNames: Record<string, string> = { q: 'Queen', r: 'Rook', b: 'Bishop', n: 'Knight' };
 
 @Component({
+  selector: 'cr-game-page',
+  providers: [GamesApi],
   imports: [ChessBoard, GameFinishingActions, RouterLink],
   templateUrl: './game-page.html',
   styleUrl: './game-page.css',

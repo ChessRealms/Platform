@@ -21,11 +21,12 @@ describe('GamePage', () => {
     TestBed.configureTestingModule({
       providers: [
         provideRouter([]),
-        { provide: GamesApi, useValue: { me: () => of({ userId: 'white' }), board, move } },
         { provide: GameLiveUpdates, useValue: { watch: () => updates } },
         { provide: ActivatedRoute, useValue: { paramMap: of(convertToParamMap({ id })) } },
       ],
-    });
+    }).overrideComponent(GamePage, { set: { providers: [
+      { provide: GamesApi, useValue: { me: () => of({ userId: 'white' }), board, move } },
+    ] } });
     return TestBed.createComponent(GamePage).componentInstance;
   }
 

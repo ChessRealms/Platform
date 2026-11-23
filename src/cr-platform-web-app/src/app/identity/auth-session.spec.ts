@@ -153,6 +153,28 @@ describe('AuthSession and protected routes', () => {
     expect(session.state()).toBe('anonymous');
   });
 
+  it('keeps the login key on rotation and denies an old view a replacement login’s token', async () => {
+    const session = openTab();
+    const initialize = session.ensureSession();
+    (await vi.waitFor(() => http.expectOne(refreshUrl))).flush(response);
+    await initialize;
+    const original = session.loginKey();
+    expect(original).toBeTruthy();
+
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 601000);
+    const rotated = session.getAccessToken(original);
+    (await vi.waitFor(() => http.expectOne(refreshUrl))).flush({ ...response, accessToken: 'rotated' });
+    expect(await rotated).toBe('rotated');
+    expect(session.loginKey()).toBe(original);
+
+    localStorage.setItem('chessrealms.web-session', 'active:replacement');
+    const stale = session.getAccessToken(original);
+    expect(session.loginKey()).toBeNull();
+    (await vi.waitFor(() => http.expectOne(refreshUrl))).flush({ ...response, accessToken: 'replacement' });
+    expect(await stale).toBeNull();
+    expect(await session.getAccessToken(session.loginKey())).toBe('replacement');
+  });
+
   it('signs other tabs out and drops refresh work queued behind logout-all', async () => {
     const first = openTab();
     const second = openTab();

@@ -16,6 +16,8 @@ const gameFilters = [
 type GameFilter = (typeof gameFilters)[number];
 
 @Component({
+  selector: 'cr-games-page',
+  providers: [GamesApi],
   imports: [DatePipe, FormsModule, RouterLink],
   templateUrl: './games-page.html',
   styleUrl: './games-page.css',
@@ -95,7 +97,7 @@ export class GamesPage {
   }
 
   create(): void {
-    if (this.busy()) {
+    if (this.busy() || !this.userId()) {
       return;
     }
     const id = this.opponentId.trim();
