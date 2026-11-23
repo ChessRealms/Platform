@@ -29,6 +29,12 @@ Tabs in the same browser profile share a login. Switching accounts in another
 tab reloads the board and My games for the new player. Signing out clears both
 views. The board's sign-in link keeps the game ID.
 
+If the connection drops during play, the board retains the last loaded position
+and checks for updates when the browser comes back online. If the access token
+expired while offline, use **Restore session** to return to the same game. If an
+interrupted refresh requires a new sign-in, the sign-in link also returns to that
+game. Reconnecting checks what the server saved before you try a move again.
+
 ## HTTP contract
 
 Every route requires a bearer access token. The API uses the JWT subject as the

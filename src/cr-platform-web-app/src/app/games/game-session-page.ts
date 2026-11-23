@@ -20,7 +20,11 @@ import { GamesPage } from './games-page';
       } @else if (session.state() === 'unavailable') {
         <a routerLink="/session-unavailable" [queryParams]="returnParams">Restore session</a>
       } @else {
-        <p role="status">Sign in to see your games.</p>
+        @if (session.state() === 'sign-in-required') {
+          <p role="status">We couldn’t verify your session after an interrupted request. Sign in again to continue.</p>
+        } @else {
+          <p role="status">Sign in to see your games.</p>
+        }
         <a routerLink="/login" [queryParams]="returnParams">Sign in</a>
       }
     }

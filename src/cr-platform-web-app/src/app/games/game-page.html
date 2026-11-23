@@ -4,7 +4,10 @@
     <h1>Private game</h1>
   </header>
 
-  @if (connectionError(); as message) {
+  @if (sessionUnavailable() && !unavailable()) {
+    <p class="form-errors" role="alert">We couldn’t restore your session. Check your connection and try again.</p>
+    <a routerLink="/session-unavailable" [queryParams]="{ gameId: currentId }">Restore session</a>
+  } @else if (connectionError(); as message) {
     <p class="form-errors" role="alert">{{ message }}</p>
     @if (signInRequired()) {
       <a routerLink="/login" [queryParams]="{ gameId: currentId }">Sign in</a>
@@ -12,7 +15,7 @@
       <button type="button" (click)="retry()">Refresh board</button>
     }
   }
-  @if (playerError()) {
+  @if (playerError() && !sessionUnavailable()) {
     <p class="form-errors" role="alert">Could not load your player ID.</p>
     <button type="button" (click)="retry()">Retry</button>
   }
@@ -67,9 +70,9 @@
         </div>
       </aside>
     </div>
-  } @else if (!unavailable()) {
+  } @else if (!unavailable() && !sessionUnavailable()) {
     <p role="status">Loading game…</p>
-  } @else if (!connectionError()) {
+  } @else if (unavailable() && !connectionError()) {
     <p role="alert">This game link is invalid.</p>
   }
 </section>

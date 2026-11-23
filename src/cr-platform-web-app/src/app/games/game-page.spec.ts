@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { NEVER, Observable, of, Subject, throwError } from 'rxjs';
 import { vi } from 'vitest';
+import { AuthSession } from '../identity/auth-session';
 import { GamePage } from './game-page';
 import { GameLiveUpdates } from './game-live-updates';
 import { Game, GameBoard } from './game.models';
@@ -21,6 +22,7 @@ describe('GamePage', () => {
     TestBed.configureTestingModule({
       providers: [
         provideRouter([]),
+        { provide: AuthSession, useValue: { state: () => 'authenticated' } },
         { provide: GameLiveUpdates, useValue: { watch: () => updates } },
         { provide: ActivatedRoute, useValue: { paramMap: of(convertToParamMap({ id })) } },
       ],

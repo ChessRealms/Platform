@@ -3,7 +3,8 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { catchError, distinctUntilChanged, EMPTY, filter, finalize, map, merge, Observable, of, Subject, switchMap, take, takeUntil, timer } from 'rxjs';
+import { catchError, distinctUntilChanged, EMPTY, filter, finalize, fromEvent, map, merge, Observable, of, Subject, switchMap, take, takeUntil, timer } from 'rxjs';
+import { AuthSession } from '../identity/auth-session';
 import { ChessBoard } from './chess-board';
 import { GameFinishingActions } from './game-finishing-actions';
 import { GameLiveUpdates } from './game-live-updates';
@@ -22,6 +23,7 @@ const promotionNames: Record<string, string> = { q: 'Queen', r: 'Rook', b: 'Bish
 export class GamePage {
   private readonly api = inject(GamesApi);
   private readonly liveUpdates = inject(GameLiveUpdates);
+  private readonly session = inject(AuthSession);
   private readonly document = inject(DOCUMENT);
   private readonly destroyRef = inject(DestroyRef);
   private readonly refresh = new Subject<void>();
@@ -43,7 +45,9 @@ export class GamePage {
 
   readonly game = computed(() => this.board()?.game);
   readonly color = computed(() => this.game()?.blackPlayerId === this.playerId() ? 'Black' : 'White');
-  readonly canAct = computed(() => !!this.playerId() && !this.busy() && !this.synchronizing() && !this.connectionError());
+  protected readonly sessionUnavailable = computed(() => this.session.state() === 'unavailable');
+  readonly canAct = computed(() => !!this.playerId() && !this.busy() && !this.synchronizing()
+    && !this.connectionError() && !this.sessionUnavailable());
   readonly targets = computed(() => new Set((this.board()?.legalMoves ?? [])
     .filter(move => move.slice(0, 2) === this.selected()).map(move => move.slice(2, 4))));
   readonly lastMove = computed(() => {
@@ -105,8 +109,9 @@ export class GamePage {
             return true;
           }),
         );
-        return merge(revisions, this.refresh, timer(15000, 15000), of(null)).pipe(
-          filter(() => !this.busy()),
+        const online = fromEvent(this.document.defaultView!, 'online');
+        return merge(revisions, this.refresh, timer(15000, 15000), online, of(null)).pipe(
+          filter(() => !this.busy() && !this.sessionUnavailable()),
           switchMap(() => this.readBoard(id, boardLoaded)),
           takeUntil(this.stopUpdates),
         );
@@ -183,7 +188,8 @@ export class GamePage {
         boardLoaded.next();
       }),
       catchError(error => {
-        if (version === this.commandVersion) {
+        // Without an access token, GamesApi returns 401 even when the session can still be restored.
+        if (version === this.commandVersion && !this.sessionUnavailable()) {
           if (error.status === 404 || error.status === 401) {
             this.unavailable.set(true);
             this.board.set(null);
