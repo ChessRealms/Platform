@@ -49,6 +49,9 @@ namespace ChessRealms.Platform.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<DateTimeOffset?>("InvitationExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<long>("Revision")
                         .IsConcurrencyToken()
                         .HasColumnType("bigint");
@@ -83,6 +86,8 @@ namespace ChessRealms.Platform.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("IX_Games_WhitePlayerId_CreationRequestId");
 
                     b.HasIndex("WhitePlayerId", "Status");
+
+                    b.HasIndex("WhitePlayerId", "BlackPlayerId", "CreatedAt");
 
                     b.ToTable("Games");
                 });

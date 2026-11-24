@@ -2,6 +2,8 @@ namespace ChessRealms.Platform.Domain.Games;
 
 public sealed class Game
 {
+    public static readonly TimeSpan InvitationLifetime = TimeSpan.FromMinutes(5);
+
     private Game()
     {
     }
@@ -20,6 +22,7 @@ public sealed class Game
         WhitePlayerId = whitePlayerId;
         BlackPlayerId = blackPlayerId;
         CreatedAt = createdAt;
+        InvitationExpiresAt = createdAt + InvitationLifetime;
         UpdatePosition(startingPosition);
     }
 
@@ -27,6 +30,7 @@ public sealed class Game
     public Guid WhitePlayerId { get; private set; }
     public Guid BlackPlayerId { get; private set; }
     public DateTimeOffset? CreatedAt { get; private set; }
+    public DateTimeOffset? InvitationExpiresAt { get; private set; }
     public GameStatus Status { get; private set; } = GameStatus.Pending;
     public long Revision { get; private set; }
     public string RulesRecord { get; private set; } = null!;
@@ -41,14 +45,16 @@ public sealed class Game
 
     public bool HasPlayer(Guid playerId) => playerId == WhitePlayerId || playerId == BlackPlayerId;
 
-    public GameError Accept(Guid playerId, long expectedRevision) =>
-        ChangeInvitation(playerId, expectedRevision, BlackPlayerId, GameStatus.Active);
+    public bool IsInvitationExpired(DateTimeOffset now) => Status == GameStatus.Pending && InvitationExpiresAt <= now;
 
-    public GameError Decline(Guid playerId, long expectedRevision) =>
-        ChangeInvitation(playerId, expectedRevision, BlackPlayerId, GameStatus.Declined);
+    public GameError Accept(Guid playerId, long expectedRevision, DateTimeOffset now) =>
+        ChangeInvitation(playerId, expectedRevision, now, BlackPlayerId, GameStatus.Active);
 
-    public GameError Cancel(Guid playerId, long expectedRevision) =>
-        ChangeInvitation(playerId, expectedRevision, WhitePlayerId, GameStatus.Cancelled);
+    public GameError Decline(Guid playerId, long expectedRevision, DateTimeOffset now) =>
+        ChangeInvitation(playerId, expectedRevision, now, BlackPlayerId, GameStatus.Declined);
+
+    public GameError Cancel(Guid playerId, long expectedRevision, DateTimeOffset now) =>
+        ChangeInvitation(playerId, expectedRevision, now, WhitePlayerId, GameStatus.Cancelled);
 
     public GameError Play(Guid playerId, long expectedRevision, Func<string, GamePosition?> applyRules)
     {
@@ -150,8 +156,13 @@ public sealed class Game
         return GameError.None;
     }
 
-    private GameError ChangeInvitation(Guid playerId, long expectedRevision, Guid allowedPlayerId, GameStatus nextStatus)
+    private GameError ChangeInvitation(Guid playerId, long expectedRevision, DateTimeOffset now,
+        Guid allowedPlayerId, GameStatus nextStatus)
     {
+        if (playerId == allowedPlayerId && IsInvitationExpired(now))
+        {
+            return GameError.InvitationExpired;
+        }
         GameError error = CheckRevision(playerId, expectedRevision);
         if (error != GameError.None)
         {

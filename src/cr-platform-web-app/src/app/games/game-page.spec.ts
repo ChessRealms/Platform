@@ -15,6 +15,7 @@ describe('GamePage', () => {
   const game: Game = {
     id, whitePlayerId: 'white', blackPlayerId: 'black', status: 'Active', revision: 22,
     fen: '7k/P7/8/8/8/8/8/7K w - - 0 12', sideToMove: 'White', winner: null, endReason: null, drawOfferedBy: null,
+    invitationExpiresAt: null,
   };
   const initial: GameBoard = { game, moves: [], legalMoves: ['a7a8q', 'a7a8r', 'a7a8b', 'a7a8n'], drawClaims: [] };
 
@@ -100,6 +101,30 @@ describe('GamePage', () => {
     expect(updates.observed).toBe(false);
 
     window.dispatchEvent(new Event('online'));
+    vi.advanceTimersByTime(45000);
+    expect(board).toHaveBeenCalledTimes(2);
+  });
+
+  it('reads the board at the invitation deadline and shows the server expiry', () => {
+    vi.useFakeTimers();
+    const pending: Game = {
+      ...game, status: 'Pending', revision: 0, sideToMove: null,
+      invitationExpiresAt: new Date(Date.now() + 5000).toISOString(),
+    };
+    const expired: Game = { ...pending, status: 'Expired', revision: 1 };
+    const board = vi.fn().mockReturnValueOnce(of({ ...initial, game: pending, legalMoves: [] }))
+      .mockReturnValueOnce(of({ ...initial, game: expired, legalMoves: [] }));
+    const { page, sync } = open(board);
+
+    vi.advanceTimersByTime(4999);
+    expect(board).toHaveBeenCalledTimes(1);
+    expect(sync.canAct()).toBe(true);
+
+    vi.advanceTimersByTime(1);
+    expect(board).toHaveBeenLastCalledWith(id, 0);
+    expect(page.status()).toBe('Invitation expired');
+    expect(sync.canAct()).toBe(false);
+
     vi.advanceTimersByTime(45000);
     expect(board).toHaveBeenCalledTimes(2);
   });

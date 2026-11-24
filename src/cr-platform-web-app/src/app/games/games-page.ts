@@ -7,6 +7,7 @@ import { catchError, EMPTY, finalize, Subject, switchMap } from 'rxjs';
 import { AuthSession } from '../identity/auth-session';
 import { finishReasons, gameIdPattern, GameListItem, invitationOutcome } from './game.models';
 import { GameCreation, GamesApi } from './games-api';
+import { InvitationCountdown } from './invitation-countdown';
 
 const gameFilters = [
   { status: 'Pending', label: 'Invitations', empty: 'No pending invitations.' },
@@ -23,7 +24,7 @@ const pendingCreationKey = 'chessrealms.pending-game-creation';
 @Component({
   selector: 'cr-games-page',
   providers: [GamesApi],
-  imports: [DatePipe, FormsModule, RouterLink],
+  imports: [DatePipe, FormsModule, InvitationCountdown, RouterLink],
   templateUrl: './games-page.html',
   styleUrl: './games-page.css',
 })
@@ -45,6 +46,7 @@ export class GamesPage {
   protected readonly usernameError = signal<string | null>(null);
   protected readonly maxUsernameLength = maxUsernameLength;
   readonly error = signal<string | null>(null);
+  protected readonly existingInvitationId = signal<string | null>(null);
   readonly busy = signal(false);
   protected readonly pendingCreation = signal(this.readPendingCreation());
   opponentUsername = this.pendingCreation()?.opponentUsername ?? '';
@@ -124,6 +126,7 @@ export class GamesPage {
     const attempt = pending ?? { opponentUsername, requestId: this.window.crypto.randomUUID() };
     this.rememberCreation(attempt);
     this.error.set(null);
+    this.existingInvitationId.set(null);
     this.busy.set(true);
     this.api.create(attempt).pipe(
       takeUntilDestroyed(this.destroyRef),
@@ -136,7 +139,20 @@ export class GamesPage {
       error: error => {
         if (error.status === 409) {
           this.rememberCreation(null);
-          this.error.set('This request ID has already been used for a different invitation. Start a new invitation.');
+          if (error.error?.code === 'InvitationAlreadyPending' && gameIdPattern.test(error.error.gameId)) {
+            this.existingInvitationId.set(error.error.gameId);
+            this.error.set('You already have a pending invitation for this player.');
+          } else if (error.error?.code === 'InvitationLimitReached') {
+            this.error.set('You have three pending invitations. Cancel one or wait for it to expire.');
+          } else {
+            this.error.set('This request ID has already been used for a different invitation. Start a new invitation.');
+          }
+        } else if (error.status === 429) {
+          this.rememberCreation(null);
+          const seconds = Number(error.headers?.get('Retry-After'));
+          this.error.set(seconds > 0
+            ? `You’ve sent too many invitations to this player. Try again in ${seconds} seconds.`
+            : 'You’ve sent too many invitations to this player. Try again shortly.');
         } else if (error.status === 400) {
           this.rememberCreation(null);
           if (attempt.opponentId) {
