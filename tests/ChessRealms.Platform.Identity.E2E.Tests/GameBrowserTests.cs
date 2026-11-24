@@ -15,6 +15,49 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
     private readonly BrowserTestSteps browserSteps = new(fixture);
 
     [Fact]
+    public async Task PlayersOpenACopiedLobbyLinkAcrossSignInAndPlayTheFirstMove()
+    {
+        await using IBrowser browser = await browserSteps.LaunchBrowserAsync();
+        await using IBrowserContext whiteContext = await browserSteps.NewContextAsync(browser);
+        await using IBrowserContext blackContext = await browserSteps.NewContextAsync(browser);
+        await whiteContext.GrantPermissionsAsync(["clipboard-read", "clipboard-write"]);
+        (IPage white, string whiteEmail) = await browserSteps.RegisterAndOpenSignInAsync(whiteContext);
+        (IPage black, string blackEmail) = await browserSteps.RegisterAndOpenSignInAsync(blackContext);
+        await browserSteps.SignInAsync(white, whiteEmail);
+
+        await white.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
+        string host = await ReadUsernameAsync(white);
+        await white.GetByRole(AriaRole.Button, new() { Name = "Create private link", Exact = true }).ClickAsync();
+        ILocator link = white.GetByLabel("Invitation link", new() { Exact = true });
+        await Expect(link).ToHaveValueAsync(new Regex(@"/lobbies/[0-9a-f-]{36}$"));
+        await white.GetByRole(AriaRole.Button, new() { Name = "Copy link", Exact = true }).ClickAsync();
+        await Expect(white.GetByText("Link copied.", new() { Exact = true })).ToBeVisibleAsync();
+        string copiedLink = await white.EvaluateAsync<string>("() => navigator.clipboard.readText()");
+        Assert.Equal(await link.InputValueAsync(), copiedLink);
+
+        await white.GetByRole(AriaRole.Main).GetByRole(AriaRole.Link, new() { Name = "Games", Exact = true }).ClickAsync();
+        await white.GetByRole(AriaRole.Region, new() { Name = "Your games" })
+            .GetByRole(AriaRole.Link).Filter(new() { HasText = "Waiting for a player" }).ClickAsync();
+        await Expect(white).ToHaveURLAsync(copiedLink);
+
+        await black.GotoAsync(copiedLink);
+        string lobbyId = new Uri(copiedLink).Segments[^1];
+        await Expect(black).ToHaveURLAsync(new Uri(fixture.WebOrigin, $"/login?lobbyId={lobbyId}").AbsoluteUri);
+        await browserSteps.SubmitSignInAsync(black, blackEmail);
+        await Expect(black).ToHaveURLAsync(copiedLink);
+        await Expect(black.GetByText($"Invitation from {host}", new() { Exact = true })).ToBeVisibleAsync();
+        await Expect(white.GetByText("Waiting for a player", new() { Exact = true })).ToBeVisibleAsync();
+        await black.GetByRole(AriaRole.Button, new() { Name = "Join game", Exact = true }).ClickAsync();
+
+        await Expect(white.GetByText("Your turn", new() { Exact = true })).ToBeVisibleAsync(new() { Timeout = 10000 });
+        await Expect(black).ToHaveURLAsync(white.Url);
+        await white.GetByRole(AriaRole.Button, new() { Name = "e2, White pawn", Exact = true }).ClickAsync();
+        await white.GetByRole(AriaRole.Button, new() { Name = "e4, empty", Exact = true }).ClickAsync();
+        await Expect(black.GetByRole(AriaRole.Button, new() { Name = "e4, White pawn", Exact = true })).ToBeVisibleAsync();
+        await Expect(black.GetByText("Your turn", new() { Exact = true })).ToBeVisibleAsync();
+    }
+
+    [Fact]
     public async Task PlayersSendAndAcceptAnInvitationByUsernameAndPlayTheFirstMove()
     {
         await using IBrowser browser = await browserSteps.LaunchBrowserAsync();

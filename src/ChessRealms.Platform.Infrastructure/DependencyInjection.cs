@@ -19,6 +19,7 @@ public static class DependencyInjection
         builder.AddPlatformIdentity();
         builder.Services.AddSingleton<IGameRules, EngineGameRules>();
         builder.Services.AddScoped<IGameStore, PostgresGameStore>();
+        builder.Services.AddScoped<ILobbyStore, PostgresLobbyStore>();
         builder.Services.AddScoped<IGamePlayerDirectory, IdentityGamePlayerDirectory>();
         return builder;
     }

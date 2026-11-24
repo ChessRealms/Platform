@@ -95,7 +95,12 @@ The Angular board uses SignalR revision notifications and reads the authoritativ
 HTTP snapshot on updates and reconnect. Periodic HTTP reads cover missed
 notifications. Realtime delivery stays in the API layer.
 
-Opponent discovery, richer invitations and lobbies, guests, and clocks are
+Private links let a confirmed account invite a player without knowing their
+username. The lobby and its first join are stored in PostgreSQL, and a
+successful join creates the active game in the same transaction. A sender's
+open links and username invitations share an outgoing cap.
+
+Opponent discovery, richer lobbies, guests, and clocks are
 follow-ups. Private lobbies may support incoming invitation opt-out,
 passwords, and spam protection. Guests would use a protected session and could
 play with guests or registered users. Clock and guest-to-account conversion

@@ -13,5 +13,6 @@ export const routes: Routes = [
   { path: 'home', canActivate: [authGuard], loadComponent: () => import('./home-page').then(module => module.HomePage) },
   { path: 'games', canActivate: [authGuard], loadComponent: () => import('./games/game-session-page').then(module => module.GameSessionPage) },
   { path: 'games/:id', canActivate: [authGuard], loadComponent: () => import('./games/game-session-page').then(module => module.GameSessionPage) },
+  { path: 'lobbies/:lobbyId', canActivate: [authGuard], loadComponent: () => import('./games/game-session-page').then(module => module.GameSessionPage) },
   { path: '**', redirectTo: 'home' },
 ];

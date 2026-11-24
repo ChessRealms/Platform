@@ -2,7 +2,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Component, inject, signal } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { gameIdPattern } from '../games/game.models';
+import { invitationReturn, invitationReturnPath } from '../games/invitation-return';
 import { AuthSession } from './auth-session';
 import { ConfirmationSession } from './confirmation-session';
 
@@ -46,8 +46,8 @@ export class LoginPage {
         return;
       }
       this.form.controls.password.reset();
-      const gameId = this.route.snapshot.queryParamMap.get('gameId');
-      void this.router.navigate(gameId && gameIdPattern.test(gameId) ? ['/games', gameId] : ['/home']);
+      const target = invitationReturn(this.route.snapshot.queryParamMap);
+      void this.router.navigate(invitationReturnPath(target), { replaceUrl: 'lobbyId' in (target ?? {}) });
     } catch (error) {
       if (error instanceof HttpErrorResponse && error.status === 403
         && error.error?.code === 'EmailNotConfirmed' && error.error.emailConfirmation?.sessionToken) {

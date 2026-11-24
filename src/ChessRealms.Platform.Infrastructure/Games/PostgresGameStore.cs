@@ -8,7 +8,6 @@ namespace ChessRealms.Platform.Infrastructure.Games;
 
 internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider clock) : IGameStore
 {
-    private const int MaxOpenInvitations = 3;
     private const int MaxPairInvitations = 5;
     private static readonly TimeSpan PairWindow = TimeSpan.FromMinutes(5);
 
@@ -48,6 +47,15 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
         DateTimeOffset now = clock.GetUtcNow();
         IQueryable<Game> participantGames = database.Games.AsNoTracking()
             .Where(game => game.WhitePlayerId == playerId || game.BlackPlayerId == playerId);
+        IQueryable<PrivateLobby> ownerLobbies = database.PrivateLobbies.AsNoTracking()
+            .Where(lobby => lobby.CreatorId == playerId);
+        IQueryable<PrivateLobby>? lobbies = filter switch
+        {
+            GameListFilter.Pending => ownerLobbies.Where(lobby => lobby.Status == LobbyStatus.Open && lobby.ExpiresAt > now),
+            GameListFilter.ClosedInvitations => ownerLobbies.Where(lobby => lobby.Status == LobbyStatus.Cancelled
+                || (lobby.Status == LobbyStatus.Open && lobby.ExpiresAt <= now)),
+            _ => null
+        };
         IQueryable<Game> games = filter switch
         {
             GameListFilter.Pending => participantGames.Where(game => game.Status == GameStatus.Pending
@@ -64,6 +72,12 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
             // Resolve the cursor even if that game moved to another status after the last read.
             var boundary = await participantGames.Where(game => game.Id == cursor)
                 .Select(game => new { game.CreatedAt }).SingleOrDefaultAsync(cancellationToken);
+            if (boundary is null && lobbies is not null)
+            {
+                boundary = await ownerLobbies.Where(lobby => lobby.Id == cursor)
+                    .Select(lobby => new { CreatedAt = (DateTimeOffset?)lobby.CreatedAt })
+                    .SingleOrDefaultAsync(cancellationToken);
+            }
             if (boundary is null)
             {
                 return [];
@@ -73,9 +87,16 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
                 ? games.Where(game => game.CreatedAt == null || game.CreatedAt < createdAt
                     || (game.CreatedAt == createdAt && game.Id.CompareTo(cursor) < 0))
                 : games.Where(game => game.CreatedAt == null && game.Id.CompareTo(cursor) < 0);
+            if (lobbies is not null)
+            {
+                lobbies = boundary.CreatedAt is DateTimeOffset lobbyBoundary
+                    ? lobbies.Where(lobby => lobby.CreatedAt < lobbyBoundary
+                        || (lobby.CreatedAt == lobbyBoundary && lobby.Id.CompareTo(cursor) < 0))
+                    : lobbies.Where(lobby => false);
+            }
         }
 
-        return await games.OrderBy(game => game.CreatedAt == null).ThenByDescending(game => game.CreatedAt)
+        List<GameListItem> gameItems = await games.OrderBy(game => game.CreatedAt == null).ThenByDescending(game => game.CreatedAt)
             .ThenByDescending(game => game.Id).Take(limit)
             .Select(game => new GameListItem(game.Id,
                 game.WhitePlayerId == playerId ? game.BlackPlayerId : game.WhitePlayerId,
@@ -85,15 +106,27 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
                 game.Status == GameStatus.Active && (game.SideToMove == PlayerColor.White
                     ? game.WhitePlayerId == playerId : game.BlackPlayerId == playerId), game.Winner, game.EndReason))
             .ToListAsync(cancellationToken);
+        if (lobbies is null)
+        {
+            return gameItems;
+        }
+
+        List<GameListItem> lobbyItems = await lobbies.OrderByDescending(lobby => lobby.CreatedAt)
+            .ThenByDescending(lobby => lobby.Id).Take(limit)
+            .Select(lobby => new GameListItem(lobby.Id, null, PlayerColor.White,
+                lobby.Status == LobbyStatus.Cancelled ? GameStatus.Cancelled
+                    : lobby.ExpiresAt <= now ? GameStatus.Expired : GameStatus.Pending,
+                lobby.CreatedAt, lobby.ExpiresAt, false, null, null, true))
+            .ToListAsync(cancellationToken);
+        return gameItems.Concat(lobbyItems).OrderByDescending(item => item.CreatedAt)
+            .ThenByDescending(item => item.Id).Take(limit).ToArray();
     }
 
     public async Task<CreateGameResult> CreateAsync(Guid creatorId, Guid opponentId, GamePosition startingPosition,
         Guid? requestId, CancellationToken cancellationToken)
     {
         await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
-        string lockKey = $"game-invitations:{creatorId:D}";
-        await database.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT pg_advisory_xact_lock(hashtextextended({lockKey}, 0))", cancellationToken);
+        await PostgresInvitationQuota.LockCreatorAsync(database, creatorId, cancellationToken);
 
         if (requestId is Guid key
             && await FindByCreationRequestAsync(creatorId, key, cancellationToken) is { } existing)
@@ -101,9 +134,7 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
             return CreateGameResult.Replay(existing, opponentId);
         }
 
-        // Match PostgreSQL timestamp precision so the creation response and subsequent reads agree.
-        DateTimeOffset utcNow = clock.GetUtcNow();
-        DateTimeOffset now = utcNow.AddTicks(-(utcNow.Ticks % TimeSpan.TicksPerMicrosecond));
+        DateTimeOffset now = PostgresInvitationQuota.GetCreationTime(clock);
         IQueryable<Game> sent = database.Games.AsNoTracking().Where(game => game.WhitePlayerId == creatorId);
         IQueryable<Game> pending = sent.Where(game => game.Status == GameStatus.Pending && game.InvitationExpiresAt > now);
         Game? duplicate = await pending.Where(game => game.BlackPlayerId == opponentId)
@@ -116,6 +147,7 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
 
         DateTimeOffset cutoff = now - PairWindow;
         DateTimeOffset? windowStart = await sent.Where(game => game.BlackPlayerId == opponentId && game.CreatedAt > cutoff)
+            .Where(game => !database.PrivateLobbies.Any(lobby => lobby.GameId == game.Id))
             .OrderByDescending(game => game.CreatedAt).Skip(MaxPairInvitations - 1)
             .Select(game => game.CreatedAt).FirstOrDefaultAsync(cancellationToken);
         if (windowStart is { } first)
@@ -123,7 +155,7 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
             return new(GameError.InvitationRateLimited, RetryAfter: first + PairWindow - now);
         }
 
-        if (await pending.CountAsync(cancellationToken) >= MaxOpenInvitations)
+        if (!await PostgresInvitationQuota.HasCapacityAsync(database, creatorId, now, cancellationToken))
         {
             return new(GameError.InvitationLimitReached);
         }

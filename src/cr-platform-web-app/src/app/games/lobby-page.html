@@ -1,0 +1,41 @@
+<section class="home-card" aria-labelledby="lobby-title">
+  <a routerLink="/games">Games</a>
+  <h1 id="lobby-title">Private invitation</h1>
+  @if (error(); as message) {
+    <p role="alert" class="form-errors">{{ message }}</p>
+  }
+  @if (lobby(); as current) {
+    @switch (current.status) {
+      @case ('Open') {
+        @if (current.isOwner) {
+          <p role="status">Waiting for a player</p>
+          <label for="lobby-link">Invitation link</label>
+          <input #linkInput id="lobby-link" readonly [value]="link" />
+          @if (copyStatus(); as message) {
+            <p role="status">{{ message }}</p>
+          }
+          <p><cr-invitation-countdown [expiresAt]="current.expiresAt" /></p>
+          <div class="auth-actions">
+            <button type="button" (click)="copy(linkInput)">Copy link</button>
+            <button type="button" [disabled]="busy()" (click)="change('cancel')">Cancel invitation</button>
+          </div>
+        } @else {
+          @if (current.hostName; as host) {
+            <p>Invitation from {{ host }}</p>
+          }
+          <p><cr-invitation-countdown [expiresAt]="current.expiresAt" /></p>
+          <button type="button" [disabled]="busy()" (click)="change('join')">Join game</button>
+        }
+      }
+      @case ('Cancelled') { <p role="status">Invitation cancelled</p> }
+      @case ('Expired') { <p role="status">Invitation expired</p> }
+      @case ('Joined') {
+        @if (current.gameId; as gameId) {
+          <a [routerLink]="['/games', gameId]">Open game</a>
+        }
+      }
+    }
+  } @else if (!error()) {
+    <p role="status">Loading invitation…</p>
+  }
+</section>

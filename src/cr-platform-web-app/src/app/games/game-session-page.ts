@@ -2,14 +2,19 @@ import { Component, computed, inject } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { AuthSession } from '../identity/auth-session';
 import { GamePage } from './game-page';
-import { gameIdPattern } from './game.models';
 import { GamesPage } from './games-page';
+import { InvitationReturn, invitationReturn } from './invitation-return';
+import { LobbyPage } from './lobby-page';
 
 @Component({
-  imports: [GamePage, GamesPage, RouterLink],
+  imports: [GamePage, GamesPage, LobbyPage, RouterLink],
   template: `
     @for (login of activeLogin(); track login) {
-      @if (gameId) {
+      @if (lobbyId; as lobby) {
+        @for (id of [lobby]; track id) {
+          <cr-lobby-page />
+        }
+      } @else if (gameId) {
         <cr-game-page />
       } @else {
         <cr-games-page />
@@ -43,8 +48,11 @@ export class GameSessionPage {
     return this.route.snapshot.paramMap.get('id');
   }
 
-  protected get returnParams(): { gameId: string } | null {
-    const gameId = this.gameId;
-    return gameId && gameIdPattern.test(gameId) ? { gameId } : null;
+  protected get lobbyId(): string | null {
+    return this.route.snapshot.paramMap.get('lobbyId');
+  }
+
+  protected get returnParams(): InvitationReturn | undefined {
+    return invitationReturn(this.route.snapshot.paramMap, 'id');
   }
 }

@@ -26,9 +26,9 @@
       <ul class="game-rows">
         @for (game of games(); track game.id) {
           <li>
-            <a class="game-row" [routerLink]="['/games', game.id]">
+            <a class="game-row" [routerLink]="[game.isLobby ? '/lobbies' : '/games', game.id]">
               <span class="game-details">
-                <strong>{{ game.opponentName ?? game.opponentId }}</strong>
+                <strong>{{ game.isLobby ? 'Link invitation' : game.opponentName ?? game.opponentId }}</strong>
                 <span class="game-meta">
                   {{ game.color }}
                   @if (game.createdAt; as createdAt) {
@@ -87,5 +87,12 @@
         <button type="button" (click)="startNewInvitation()">Start a new invitation</button>
       }
     </form>
+    <h3>Invite by link</h3>
+    @if (lobbyError(); as message) {
+      <p class="form-errors" role="alert">{{ message }}</p>
+    }
+    <button type="button" [disabled]="lobbyBusy()" (click)="createLobby()">
+      {{ lobbyBusy() ? 'Creating link…' : pendingLobby() ? 'Retry creating link' : 'Create private link' }}
+    </button>
   </section>
 </section>

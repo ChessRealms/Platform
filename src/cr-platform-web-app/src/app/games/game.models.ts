@@ -23,7 +23,7 @@ export interface Game {
 
 export interface GameListItem {
   id: string;
-  opponentId: string;
+  opponentId: string | null;
   opponentName: string | null;
   color: PlayerColor;
   status: GameStatus;
@@ -32,6 +32,7 @@ export interface GameListItem {
   isYourTurn: boolean;
   winner: PlayerColor | null;
   endReason: string | null;
+  isLobby: boolean;
 }
 
 export interface GameListPage {
@@ -44,6 +45,16 @@ export interface GameBoard {
   moves: string[];
   legalMoves: string[];
   drawClaims: DrawClaimReason[];
+}
+
+export interface PrivateLobby {
+  id: string;
+  status: 'Open' | 'Joined' | 'Cancelled' | 'Expired';
+  revision: number;
+  expiresAt: string;
+  isOwner: boolean;
+  hostName: string | null;
+  gameId: string | null;
 }
 
 export const gameIdPattern = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;

@@ -8,10 +8,10 @@ public sealed record GameListResponse(IReadOnlyList<GameListItemResponse> Items,
         new(page.Items.Select(GameListItemResponse.From).ToArray(), page.NextCursor);
 }
 
-public sealed record GameListItemResponse(Guid Id, Guid OpponentId, string? OpponentName, string Color, string Status,
-    DateTimeOffset? CreatedAt, DateTimeOffset? InvitationExpiresAt, bool IsYourTurn, string? Winner, string? EndReason)
+public sealed record GameListItemResponse(Guid Id, Guid? OpponentId, string? OpponentName, string Color, string Status,
+    DateTimeOffset? CreatedAt, DateTimeOffset? InvitationExpiresAt, bool IsYourTurn, string? Winner, string? EndReason, bool IsLobby)
 {
     internal static GameListItemResponse From(GameListItem item) => new(item.Id, item.OpponentId, item.OpponentName,
         item.Color.ToString(), item.Status.ToString(), item.CreatedAt, item.InvitationExpiresAt, item.IsYourTurn, item.Winner?.ToString(),
-        item.EndReason?.ToString());
+        item.EndReason?.ToString(), item.IsLobby);
 }
