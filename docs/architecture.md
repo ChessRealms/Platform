@@ -110,7 +110,10 @@ schema stores a hash of the browser credential. A guest keeps the same player
 ID for game actions, rematches, and replays. Game seats preserve the display
 name and distinguish guest IDs from account IDs.
 
-Opponent discovery and richer lobbies are follow-ups. Private lobbies
+Quick Play uses one unrated 5+0 queue for confirmed accounts. PostgreSQL
+serializes queue changes and commits the game with both tickets.
+
+Richer lobbies are follow-ups. Private lobbies
 may support incoming invitation opt-out, passwords, and spam protection.
 Guest-to-account conversion requirements remain open.
 

@@ -128,6 +128,47 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
     }
 
     [Fact]
+    public async Task QuickPlayMatchesTwoAccountsAndStartsBlitz()
+    {
+        await using IBrowser browser = await browserSteps.LaunchBrowserAsync();
+        await using IBrowserContext firstContext = await browserSteps.NewContextAsync(browser);
+        await using IBrowserContext secondContext = await browserSteps.NewContextAsync(browser);
+        (IPage first, string firstEmail) = await browserSteps.RegisterAndOpenSignInAsync(firstContext);
+        (IPage second, string secondEmail) = await browserSteps.RegisterAndOpenSignInAsync(secondContext);
+        await browserSteps.SignInAsync(first, firstEmail);
+        await browserSteps.SignInAsync(second, secondEmail);
+
+        foreach (IPage page in new[] { first, second })
+        {
+            await page.GetByRole(AriaRole.Link, new() { Name = "Play chess", Exact = true }).ClickAsync();
+        }
+        ILocator find = first.GetByRole(AriaRole.Button, new() { Name = "Find game · 5+0", Exact = true });
+        await find.ClickAsync();
+        await Expect(first.GetByText("Looking for an opponent…", new() { Exact = true })).ToBeVisibleAsync();
+        await first.GetByRole(AriaRole.Button, new() { Name = "Cancel search", Exact = true }).ClickAsync();
+        await Expect(find).ToBeEnabledAsync();
+        await find.ClickAsync();
+        await Expect(first.GetByText("Looking for an opponent…", new() { Exact = true })).ToBeVisibleAsync();
+        await first.ReloadAsync();
+        await Expect(first.GetByText("Looking for an opponent…", new() { Exact = true })).ToBeVisibleAsync();
+
+        await second.GetByRole(AriaRole.Button, new() { Name = "Find game · 5+0", Exact = true }).ClickAsync();
+        await Expect(first).ToHaveURLAsync(new Regex(@"/games/[0-9a-f-]{36}$"));
+        await Expect(second).ToHaveURLAsync(first.Url);
+        await Expect(first.GetByRole(AriaRole.Group, new() { Name = "5+0 chess clocks" })).ToBeVisibleAsync();
+        await Expect(second.GetByRole(AriaRole.Group, new() { Name = "5+0 chess clocks" })).ToBeVisibleAsync();
+        await Expect(second.GetByText(new Regex(@"^You play (White|Black)\.$"))).ToBeVisibleAsync();
+        bool secondIsWhite = await second.GetByText("You play White.", new() { Exact = true }).IsVisibleAsync();
+        IPage white = secondIsWhite ? second : first;
+        IPage black = secondIsWhite ? first : second;
+        await Expect(white.GetByText("You play White.", new() { Exact = true })).ToBeVisibleAsync();
+        await Expect(black.GetByText("You play Black.", new() { Exact = true })).ToBeVisibleAsync();
+        await white.GetByRole(AriaRole.Button, new() { Name = "e2, White pawn", Exact = true }).ClickAsync();
+        await white.GetByRole(AriaRole.Button, new() { Name = "e4, empty", Exact = true }).ClickAsync();
+        await Expect(black.GetByRole(AriaRole.Button, new() { Name = "e4, White pawn", Exact = true })).ToBeVisibleAsync();
+    }
+
+    [Fact]
     public async Task FinishedGameReplaysCastlingWithKeyboardAndAutoplay()
     {
         await using IBrowser browser = await browserSteps.LaunchBrowserAsync();

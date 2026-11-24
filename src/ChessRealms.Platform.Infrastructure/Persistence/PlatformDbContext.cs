@@ -14,6 +14,7 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
     public DbSet<GameMoveTiming> GameMoveTimings => Set<GameMoveTiming>();
     internal DbSet<GuestPlayer> GuestPlayers => Set<GuestPlayer>();
     public DbSet<PrivateLobby> PrivateLobbies => Set<PrivateLobby>();
+    public DbSet<QuickPlayTicket> QuickPlayTickets => Set<QuickPlayTicket>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -60,6 +61,18 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
             lobby.HasIndex(item => new { item.CreatorId, item.Status, item.ExpiresAt });
             lobby.HasIndex(item => item.GameId).IsUnique();
             lobby.HasOne<Game>().WithOne().HasForeignKey<PrivateLobby>(item => item.GameId).OnDelete(DeleteBehavior.Restrict);
+        });
+        builder.Entity<QuickPlayTicket>(ticket =>
+        {
+            const string waiting = "\"Status\" = 'Waiting'";
+            ticket.HasKey(item => new { item.PlayerId, item.Id });
+            ticket.Property(item => item.Sequence).UseIdentityAlwaysColumn();
+            ticket.Property(item => item.Status).HasConversion<string>().HasMaxLength(16);
+            ticket.HasIndex(item => item.PlayerId).IsUnique().HasFilter(waiting);
+            ticket.HasIndex(item => item.Sequence).HasFilter(waiting);
+            ticket.HasIndex(item => item.ExpiresAt).HasFilter(waiting);
+            ticket.HasIndex(item => new { item.PlayerId, item.Sequence });
+            ticket.HasOne<Game>().WithMany().HasForeignKey(item => item.GameId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

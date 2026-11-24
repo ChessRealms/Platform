@@ -20,6 +20,7 @@ public static class DependencyInjection
         builder.Services.AddSingleton<IGameRules, EngineGameRules>();
         builder.Services.AddScoped<IGameStore, PostgresGameStore>();
         builder.Services.AddScoped<ILobbyStore, PostgresLobbyStore>();
+        builder.Services.AddScoped<IQuickPlayStore, PostgresQuickPlayStore>();
         builder.Services.AddScoped<IGuestSessions, PostgresGuestSessions>();
         builder.Services.AddScoped<IGamePlayerDirectory, IdentityGamePlayerDirectory>();
         return builder;

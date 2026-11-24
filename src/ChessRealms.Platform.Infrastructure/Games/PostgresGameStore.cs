@@ -166,6 +166,7 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
         DateTimeOffset? windowStart = await sent.Where(game => game.BlackPlayerId == opponentId && game.CreatedAt > cutoff)
             .Where(game => !database.PrivateLobbies.Any(lobby => lobby.GameId == game.Id))
             .Where(game => !database.Games.Any(source => source.RematchGameId == game.Id))
+            .Where(game => !database.QuickPlayTickets.Any(ticket => ticket.GameId == game.Id))
             .OrderByDescending(game => game.CreatedAt).Skip(MaxPairInvitations - 1)
             .Select(game => game.CreatedAt).FirstOrDefaultAsync(cancellationToken);
         if (windowStart is { } first)

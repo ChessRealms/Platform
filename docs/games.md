@@ -56,6 +56,39 @@ Tabs in the same browser profile share a login. Switching accounts in another
 tab reloads the board and My games for the new player. Signing out clears both
 views. The board's sign-in link keeps the game ID.
 
+## Quick Play
+
+Choose **Find game · 5+0** from **My games** to look for an opponent. Quick Play
+uses one unrated queue for confirmed accounts. It selects the longest-waiting
+available opponent, assigns colors at random, and opens the same game for both
+players. At matching, White's clock starts with five minutes.
+
+Keep **My games** open while searching. **Cancel search** removes an unmatched
+ticket. Reloading **My games** resumes a current search or shows **Open last
+match** if the game was created while the page was away. A newer search can
+start from this state. Without a heartbeat the waiting ticket expires after
+45 seconds.
+
+The authenticated endpoints are scoped to the caller's own tickets:
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/quick-play` | Read the latest ticket. Returns `204` before the first search. |
+| `POST /api/quick-play` | Start or recover a search with `requestId` and the last observed `previousTicketId` (null before the first search). |
+| `GET /api/quick-play/{ticketId}` | Read a ticket without extending its lifetime. |
+| `POST /api/quick-play/{ticketId}/heartbeat` | Renew a waiting ticket for 45 seconds. |
+| `POST /api/quick-play/{ticketId}/cancel` | Cancel a waiting ticket or return the match that won the race. |
+
+Retry a search with the same request body. An existing ticket or a later
+ticket for the same account can be returned when another tab already advanced
+the search. Clients poll active searches every two seconds and renew presence
+approximately every 15 seconds.
+
+The queue lock serializes joins, heartbeats, and cancellations. A match creates
+two `Matched` tickets referring to the same active game in one transaction.
+Tickets use server order for matching. Match-created games are excluded from
+personal invitation quotas.
+
 ## Invite by link
 
 Choose **Create private link** in **My games** and use **Copy link** to share it.

@@ -38,6 +38,9 @@ browser context, returns to the invitation after sign-in, and plays the first mo
 The guest scenario joins a 5+0 game without signing in, verifies that the guest
 can subscribe to live updates, and plays both sides across a guest reload.
 A third browser sees the used invitation and cannot open the guest's board.
+The Quick Play scenario cancels an initial search, resumes a new search over
+a reload, and verifies that two accounts reach the same 5+0 board and play
+the first move.
 In the direct-link scenario, Black opens the invitation while signed out,
 signs in, returns to the same game, and accepts.
 The test reopens the game from Invitations, Active, and Finished in My games.
