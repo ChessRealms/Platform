@@ -20,6 +20,7 @@ import { GameBoard, gameIdPattern } from './game.models';
 const id = '1ae1fd73-7d50-43e2-bc5c-f9ef232fcdad';
 const position: GameBoard = {
   game: { id, whitePlayerId: 'white', blackPlayerId: 'black', status: 'Active', revision: 1,
+    whiteGuestName: null, blackGuestName: null,
     fen: '7k/P7/8/8/8/8/8/7K w - - 0 1', sideToMove: 'White', winner: null, endReason: null, drawOfferedBy: null,
     invitationExpiresAt: null, rematchExpiresAt: null, rematchOfferedBy: null, rematchGameId: null, clock: null },
   moves: [], legalMoves: ['a7a8q'], drawClaims: [],

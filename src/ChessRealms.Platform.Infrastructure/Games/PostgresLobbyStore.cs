@@ -36,11 +36,11 @@ internal sealed class PostgresLobbyStore(PlatformDbContext database, TimeProvide
         return new(GameError.None, lobby, Created: true);
     }
 
-    public Task<LobbyResult> JoinAsync(Guid id, Guid playerId, long expectedRevision, GamePosition position,
+    public Task<LobbyResult> JoinAsync(Guid id, GameParticipant player, string? guestName, long expectedRevision, GamePosition position,
         CancellationToken cancellationToken) =>
         ChangeAsync(id, (lobby, now) =>
         {
-            GameError error = lobby.Join(playerId, expectedRevision, now, position, out Game? game);
+            GameError error = lobby.Join(player, guestName, expectedRevision, now, position, out Game? game);
             if (game is not null)
             {
                 database.Games.Add(game);

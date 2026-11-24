@@ -42,6 +42,8 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
 
         await black.GotoAsync(copiedLink);
         string lobbyId = new Uri(copiedLink).Segments[^1];
+        await Expect(black.GetByRole(AriaRole.Button, new() { Name = "Play as guest" })).ToBeVisibleAsync();
+        await black.GetByRole(AriaRole.Main).GetByRole(AriaRole.Link, new() { Name = "Sign in", Exact = true }).ClickAsync();
         await Expect(black).ToHaveURLAsync(new Uri(fixture.WebOrigin, $"/login?lobbyId={lobbyId}").AbsoluteUri);
         await browserSteps.SubmitSignInAsync(black, blackEmail);
         await Expect(black).ToHaveURLAsync(copiedLink);
@@ -55,6 +57,74 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         await white.GetByRole(AriaRole.Button, new() { Name = "e4, empty", Exact = true }).ClickAsync();
         await Expect(black.GetByRole(AriaRole.Button, new() { Name = "e4, White pawn", Exact = true })).ToBeVisibleAsync();
         await Expect(black.GetByText("Your turn", new() { Exact = true })).ToBeVisibleAsync();
+    }
+
+    [Fact]
+    public async Task GuestJoinsBlitzAndKeepsTheirSeatAcrossReload()
+    {
+        await using IBrowser browser = await browserSteps.LaunchBrowserAsync();
+        await using IBrowserContext hostContext = await browserSteps.NewContextAsync(browser);
+        await using IBrowserContext guestContext = await browserSteps.NewContextAsync(browser);
+        await using IBrowserContext otherContext = await browserSteps.NewContextAsync(browser);
+        (IPage host, string email) = await browserSteps.RegisterAndOpenSignInAsync(hostContext);
+        await browserSteps.SignInAsync(host, email);
+        IPage guest = await guestContext.NewPageAsync();
+        IPage other = await otherContext.NewPageAsync();
+        await host.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
+        await host.GetByLabel("Link time control").SelectOptionAsync("Blitz5");
+        await host.GetByRole(AriaRole.Button, new() { Name = "Create private link", Exact = true }).ClickAsync();
+        ILocator link = host.GetByLabel("Invitation link");
+        await Expect(link).ToHaveValueAsync(new Regex(@"/lobbies/[0-9a-f-]{36}$"));
+        string invite = await link.InputValueAsync();
+
+        var subscribed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        guest.WebSocket += (page, socket) =>
+        {
+            if (new Uri(socket.Url).AbsolutePath != "/api/games/live")
+            {
+                return;
+            }
+            socket.FrameReceived += (connection, frame) =>
+            {
+                foreach (string payload in frame.Text?.Split('\u001e', StringSplitOptions.RemoveEmptyEntries) ?? [])
+                {
+                    using JsonDocument message = JsonDocument.Parse(payload);
+                    if (message.RootElement.TryGetProperty("type", out JsonElement type) && type.GetInt32() == 3
+                        && !message.RootElement.TryGetProperty("error", out _))
+                    {
+                        subscribed.TrySetResult();
+                    }
+                }
+            };
+        };
+
+        await guest.GotoAsync(invite);
+        await Expect(guest.GetByText("5+0 · 5 minutes per side", new() { Exact = true })).ToBeVisibleAsync();
+        await guest.GetByLabel("Display name").FillAsync("Guest Knight");
+        await guest.GetByRole(AriaRole.Button, new() { Name = "Play as guest" }).ClickAsync();
+        await Expect(guest).ToHaveURLAsync(new Regex(@"/guest/games/[0-9a-f-]{36}$"));
+        await Expect(host.GetByText("Guest Knight (guest) plays Black.", new() { Exact = true })).ToBeVisibleAsync();
+        await Expect(guest.GetByText("You play Black.", new() { Exact = true })).ToBeVisibleAsync();
+        await subscribed.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+
+        string guestUrl = guest.Url;
+        await other.GotoAsync(invite);
+        await Expect(other.GetByText("This invitation has already been used.", new() { Exact = true })).ToBeVisibleAsync();
+        await other.GotoAsync(guestUrl);
+        await Expect(other.GetByText("This guest session is unavailable.", new() { Exact = true })).ToBeVisibleAsync();
+
+        await host.GetByRole(AriaRole.Button, new() { Name = "e2, White pawn", Exact = true }).ClickAsync();
+        await host.GetByRole(AriaRole.Button, new() { Name = "e4, empty", Exact = true }).ClickAsync();
+        await Expect(guest.GetByText("Your turn", new() { Exact = true })).ToBeVisibleAsync();
+        await guest.ReloadAsync();
+        await Expect(guest.GetByRole(AriaRole.Button, new() { Name = "e4, White pawn", Exact = true })).ToBeVisibleAsync();
+        await guest.GetByRole(AriaRole.Button, new() { Name = "e7, Black pawn", Exact = true }).ClickAsync();
+        await guest.GetByRole(AriaRole.Button, new() { Name = "e5, empty", Exact = true }).ClickAsync();
+        await Expect(host.GetByRole(AriaRole.Button, new() { Name = "e5, Black pawn", Exact = true })).ToBeVisibleAsync();
+
+        await guest.GotoAsync(invite);
+        await Expect(guest).ToHaveURLAsync(guestUrl);
+        await Expect(guest.GetByRole(AriaRole.Button, new() { Name = "e5, Black pawn", Exact = true })).ToBeVisibleAsync();
     }
 
     [Fact]

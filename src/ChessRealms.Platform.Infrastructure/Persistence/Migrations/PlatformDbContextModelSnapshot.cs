@@ -28,6 +28,10 @@ namespace ChessRealms.Platform.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("BlackGuestName")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
                     b.Property<Guid>("BlackPlayerId")
                         .HasColumnType("uuid");
 
@@ -92,6 +96,10 @@ namespace ChessRealms.Platform.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTimeOffset?>("TurnDeadline")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("WhiteGuestName")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
 
                     b.Property<Guid>("WhitePlayerId")
                         .HasColumnType("uuid");
@@ -161,6 +169,9 @@ namespace ChessRealms.Platform.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("GameId")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("JoinedAsGuest")
+                        .HasColumnType("boolean");
+
                     b.Property<Guid?>("JoinedPlayerId")
                         .HasColumnType("uuid");
 
@@ -190,6 +201,31 @@ namespace ChessRealms.Platform.Infrastructure.Persistence.Migrations
                     b.HasIndex("CreatorId", "Status", "ExpiresAt");
 
                     b.ToTable("PrivateLobbies");
+                });
+
+            modelBuilder.Entity("ChessRealms.Platform.Infrastructure.Games.GuestPlayer", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SessionHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SessionHash")
+                        .IsUnique();
+
+                    b.ToTable("GuestPlayers", (string)null);
                 });
 
             modelBuilder.Entity("ChessRealms.Platform.Domain.Games.Game", b =>

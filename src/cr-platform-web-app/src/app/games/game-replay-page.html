@@ -1,6 +1,6 @@
 <section class="game-page">
   <header>
-    <a [routerLink]="['/games', gameId()]">Back to game</a>
+    <a [routerLink]="[guest ? '/guest/games' : '/games', gameId()]">Back to game</a>
     <h1>Game replay</h1>
   </header>
 
@@ -75,7 +75,11 @@
   } @else if (error() !== null) {
     @switch (error()) {
       @case (401) {
-        <a routerLink="/login" [queryParams]="{ replayId: gameId() }">Sign in to view the replay</a>
+        @if (guest) {
+          <p role="alert">This guest session is unavailable.</p>
+        } @else {
+          <a routerLink="/login" [queryParams]="{ replayId: gameId() }">Sign in to view the replay</a>
+        }
       }
       @case (404) { <p role="alert">This game is unavailable.</p> }
       @case (409) { <p role="alert">The replay is available when the game finishes.</p> }

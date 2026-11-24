@@ -80,7 +80,8 @@ available for a later attempt. The unconfigured adapter reports
 ## Game functionality
 
 The [games API](games.md) supports private games between two confirmed
-accounts. Domain owns participation and the game lifecycle. Application checks
+accounts or between a confirmed account and a guest. Domain owns participation
+and the game lifecycle. Application checks
 commands and Infrastructure applies chess rules through the ChessRealms.Engine
 adapter. PostgreSQL stores a versioned game record and commits each position,
 result, and revision together.
@@ -104,11 +105,14 @@ Private games support untimed play and 5+0. PostgreSQL stores both clock balance
 and the deadline for the running turn. The API resolves elapsed turns under the
 same row lock used for game commands.
 
-Opponent discovery, richer lobbies, and guests are follow-ups. Private lobbies
-may support incoming invitation opt-out,
-passwords, and spam protection. Guests would use a protected session and could
-play with guests or registered users. Guest-to-account conversion
-requirements remain open.
+Guest sessions let signed-out visitors join an open private lobby. The Platform
+schema stores a hash of the browser credential. A guest keeps the same player
+ID for game actions, rematches, and replays. Game seats preserve the display
+name and distinguish guest IDs from account IDs.
+
+Opponent discovery and richer lobbies are follow-ups. Private lobbies
+may support incoming invitation opt-out, passwords, and spam protection.
+Guest-to-account conversion requirements remain open.
 
 Branch protection and repository rules will be configured manually later.
 

@@ -1453,6 +1453,150 @@ public sealed class GameEndpointTests : IAsyncLifetime
         Assert.Null(game.Winner);
     }
 
+    [Fact]
+    public async Task GuestSessionOwnsTheSeatAndCanRecoverAfterTheLinkExpires()
+    {
+        (_, string hostToken) = await RegisterAndSignInAsync("host");
+        using HttpClient host = CreateClient(hostToken);
+        using HttpClient guest = CreateGuestClient();
+        using HttpClient stranger = CreateGuestClient();
+        LobbyResponse lobby = await CreateLobbyAsync(host, new(Guid.NewGuid(), "Blitz5"));
+        string link = $"/api/lobbies/{lobby.Id}";
+
+        LobbyResponse preview = Assert.IsType<LobbyResponse>(await guest.GetFromJsonAsync<LobbyResponse>($"{link}/guest", Cancellation));
+        Assert.Equal("host", preview.HostName);
+        Assert.Equal("Blitz5", preview.TimeControl);
+        Assert.Null(preview.GameId);
+        using HttpResponseMessage unauthenticatedJoin = await SendActionAsync(guest, link, "join", preview.Revision);
+        Assert.Equal(HttpStatusCode.Unauthorized, unauthenticatedJoin.StatusCode);
+        using HttpResponseMessage invalidName = await guest.PostAsJsonAsync("/api/guests/session",
+            new CreateGuestSessionRequest(lobby.Id, "  "), Cancellation);
+        await AssertErrorAsync(invalidName, HttpStatusCode.BadRequest, "InvalidGuestName");
+
+        GuestProfile profile = await StartGuestAsync(guest, lobby.Id, "  Guest Knight  ");
+        Assert.Equal("Guest Knight", profile.Username);
+        await StartGuestAsync(stranger, lobby.Id, profile.Username);
+        using HttpResponseMessage join = await SendActionAsync(guest, link, "join", preview.Revision);
+        Assert.Equal(HttpStatusCode.OK, join.StatusCode);
+        LobbyResponse joined = Assert.IsType<LobbyResponse>(await join.Content.ReadFromJsonAsync<LobbyResponse>(Cancellation));
+        Guid gameId = Assert.IsType<Guid>(joined.GameId);
+        string game = $"/api/games/{gameId}";
+        GameBoardResponse aboard = await ReadBoardAsync(guest, game);
+        Assert.Equal(profile.UserId, aboard.Game.BlackPlayerId);
+        Assert.Equal(profile.Username, aboard.Game.BlackGuestName);
+        Assert.Equal("Blitz5", aboard.Game.Clock?.TimeControl);
+        Assert.Equal(profile.Username, Assert.Single((await ListGamesAsync(host, "?status=Active")).Items).OpponentName);
+
+        JsonElement liveGrant = await guest.GetFromJsonAsync<JsonElement>("/api/guests/session/live", Cancellation);
+        string proof = liveGrant.GetProperty("accessToken").GetString()!;
+        using (ClientWebSocket otherSocket = new())
+        {
+            otherSocket.Options.SetRequestHeader("Cookie", stranger.DefaultRequestHeaders.GetValues("Cookie").Single());
+            await Assert.ThrowsAsync<WebSocketException>(() => otherSocket.ConnectAsync(LiveUri(proof), Cancellation));
+        }
+        using (ClientWebSocket guestSocket = new())
+        {
+            guestSocket.Options.SetRequestHeader("Cookie", guest.DefaultRequestHeaders.GetValues("Cookie").Single());
+            await ConnectLiveAsync(guestSocket, proof);
+            JsonElement subscribed = await SubscribeAsync(guestSocket, gameId);
+            Assert.False(subscribed.TryGetProperty("error", out _));
+        }
+
+        using HttpResponseMessage otherPreview = await stranger.GetAsync($"{link}/guest", Cancellation);
+        await AssertErrorAsync(otherPreview, HttpStatusCode.Conflict, "LobbyAlreadyJoined");
+        using HttpResponseMessage otherBoard = await stranger.GetAsync($"{game}/board", Cancellation);
+        await AssertErrorAsync(otherBoard, HttpStatusCode.NotFound, "NotFound");
+        using HttpResponseMessage otherMove = await PlayAsync(stranger, game, "e7e5", 1);
+        await AssertErrorAsync(otherMove, HttpStatusCode.NotFound, "NotFound");
+        using HttpResponseMessage createLink = await guest.PostAsJsonAsync("/api/lobbies", new CreateLobbyRequest(Guid.NewGuid()), Cancellation);
+        Assert.Equal(HttpStatusCode.Unauthorized, createLink.StatusCode);
+        using HttpResponseMessage guestList = await guest.GetAsync("/api/games?status=Active", Cancellation);
+        Assert.Equal(HttpStatusCode.Unauthorized, guestList.StatusCode);
+
+        GameResponse whiteMove = await MakeMoveAsync(host, game, "e2e4", aboard.Game.Revision);
+        using (HttpRequestMessage crossOrigin = new(HttpMethod.Post, $"{game}/moves")
+        {
+            Content = JsonContent.Create(new PlayGameMoveRequest(whiteMove.Revision, "e7e5"))
+        })
+        {
+            crossOrigin.Headers.Add("Sec-Fetch-Site", "same-site");
+            using HttpResponseMessage denied = await guest.SendAsync(crossOrigin, Cancellation);
+            Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
+        }
+        GameResponse blackMove = await MakeMoveAsync(guest, game, "e7e5", whiteMove.Revision);
+        GameResponse finished = await ApplyActionAsync(guest, game, "resign", blackMove.Revision);
+        GameReplayResponse replay = await ReadReplayAsync(guest, game);
+        Assert.Equal("Black", replay.ViewerColor);
+        Assert.Equal(["e2e4", "e7e5"], replay.Moves.Select(move => move.Move));
+        GameResponse offer = await ApplyActionAsync(host, game, "rematch/offer", finished.Revision);
+        GameResponse rematched = await ApplyActionAsync(guest, game, "rematch/accept", offer.Revision);
+        GameResponse rematch = (await ReadBoardAsync(guest, $"/api/games/{rematched.RematchGameId}")).Game;
+        Assert.Equal(profile.UserId, rematch.WhitePlayerId);
+        Assert.Equal(profile.Username, rematch.WhiteGuestName);
+
+        clock.Advance(TimeSpan.FromMinutes(6));
+        using HttpResponseMessage repeated = await SendActionAsync(guest, link, "join", preview.Revision);
+        Assert.Equal(HttpStatusCode.OK, repeated.StatusCode);
+        Assert.Equal(gameId, (await repeated.Content.ReadFromJsonAsync<LobbyResponse>(Cancellation))?.GameId);
+
+        clock.Advance(TimeSpan.FromDays(29));
+        using HttpResponseMessage renewed = await guest.GetAsync("/api/guests/session", Cancellation);
+        Assert.Equal(HttpStatusCode.OK, renewed.StatusCode);
+        Assert.True(renewed.Headers.Contains("Set-Cookie"));
+        Assert.Equal(profile, await renewed.Content.ReadFromJsonAsync<GuestProfile>(Cancellation));
+        clock.Advance(TimeSpan.FromDays(1));
+        using HttpResponseMessage expired = await stranger.GetAsync("/api/guests/session", Cancellation);
+        Assert.Equal(HttpStatusCode.Unauthorized, expired.StatusCode);
+
+        using HttpResponseMessage revoke = await guest.DeleteAsync("/api/guests/session", Cancellation);
+        Assert.Equal(HttpStatusCode.NoContent, revoke.StatusCode);
+        using HttpResponseMessage revokedBoard = await guest.GetAsync($"{game}/board", Cancellation);
+        Assert.Equal(HttpStatusCode.Unauthorized, revokedBoard.StatusCode);
+    }
+
+    [Fact]
+    public async Task GuestAndAccountJoiningTogetherCanCreateOnlyOneGame()
+    {
+        (_, string hostToken) = await RegisterAndSignInAsync("host");
+        (_, string memberToken) = await RegisterAndSignInAsync("member");
+        using HttpClient host = CreateClient(hostToken);
+        using HttpClient member = CreateClient(memberToken);
+        using HttpClient guest = CreateGuestClient();
+        LobbyResponse lobby = await CreateLobbyAsync(host);
+        await StartGuestAsync(guest, lobby.Id, "Guest");
+        string url = $"/api/lobbies/{lobby.Id}";
+
+        HttpResponseMessage[] responses = await Task.WhenAll(
+            SendActionAsync(guest, url, "join", lobby.Revision),
+            SendActionAsync(member, url, "join", lobby.Revision));
+        using HttpResponseMessage winner = Assert.Single(responses, response => response.StatusCode == HttpStatusCode.OK);
+        using HttpResponseMessage loser = Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Conflict);
+        await AssertErrorAsync(loser, HttpStatusCode.Conflict, "LobbyAlreadyJoined");
+        LobbyResponse joined = Assert.IsType<LobbyResponse>(await winner.Content.ReadFromJsonAsync<LobbyResponse>(Cancellation));
+        Assert.Equal(joined.GameId, Assert.Single((await ListGamesAsync(host, "?status=Active")).Items).Id);
+    }
+
+    private HttpClient CreateGuestClient()
+    {
+        HttpClient client = CreateClient();
+        client.DefaultRequestHeaders.Add("X-ChessRealms-Web", "1");
+        return client;
+    }
+
+    private async Task<GuestProfile> StartGuestAsync(HttpClient client, Guid lobbyId, string name)
+    {
+        using HttpResponseMessage response = await client.PostAsJsonAsync("/api/guests/session",
+            new CreateGuestSessionRequest(lobbyId, name), Cancellation);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        string cookie = Assert.Single(response.Headers.GetValues("Set-Cookie"));
+        Assert.Equal("__Host-ChessRealms.Guest", cookie.Split('=', 2)[0]);
+        Assert.True(cookie.Contains("httponly", StringComparison.OrdinalIgnoreCase));
+        Assert.True(cookie.Contains("secure", StringComparison.OrdinalIgnoreCase));
+        Assert.True(cookie.Contains("samesite=strict", StringComparison.OrdinalIgnoreCase));
+        client.DefaultRequestHeaders.TryAddWithoutValidation("Cookie", cookie.Split(';')[0]);
+        return Assert.IsType<GuestProfile>(await response.Content.ReadFromJsonAsync<GuestProfile>(Cancellation));
+    }
+
     private WebApplication BuildApp()
     {
         WebApplicationBuilder builder = WebApplication.CreateBuilder(new WebApplicationOptions
@@ -1479,6 +1623,7 @@ public sealed class GameEndpointTests : IAsyncLifetime
         builder.Services.AddProblemDetails();
         WebApplication server = builder.Build();
         server.UseExceptionHandler();
+        server.UseRateLimiter();
         server.UseWebSockets();
         server.UseAuthentication();
         server.UseAuthorization();

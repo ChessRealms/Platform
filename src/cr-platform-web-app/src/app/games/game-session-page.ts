@@ -4,11 +4,12 @@ import { AuthSession } from '../identity/auth-session';
 import { GamePage } from './game-page';
 import { GameReplayPage } from './game-replay-page';
 import { GamesPage } from './games-page';
+import { GuestGameSessionPage } from './guest-game-session-page';
 import { InvitationReturn, invitationReturn } from './invitation-return';
 import { LobbyPage } from './lobby-page';
 
 @Component({
-  imports: [GamePage, GameReplayPage, GamesPage, LobbyPage, RouterLink],
+  imports: [GamePage, GameReplayPage, GamesPage, GuestGameSessionPage, LobbyPage, RouterLink],
   template: `
     @for (login of activeLogin(); track login) {
       @if (lobbyId; as lobby) {
@@ -27,6 +28,8 @@ import { LobbyPage } from './lobby-page';
     } @empty {
       @if (session.state() === 'checking') {
         <p role="status">Checking your session…</p>
+      } @else if (lobbyId) {
+        <cr-guest-game-session-page />
       } @else if (session.state() === 'unavailable') {
         <a routerLink="/session-unavailable" [queryParams]="returnParams">Restore session</a>
       } @else {

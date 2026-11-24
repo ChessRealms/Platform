@@ -1,5 +1,9 @@
 <section class="home-card" aria-labelledby="lobby-title">
-  <a routerLink="/games">Games</a>
+  @if (guest) {
+    <a routerLink="/login" [queryParams]="{ lobbyId: id }">Sign in</a>
+  } @else {
+    <a routerLink="/games">Games</a>
+  }
   <h1 id="lobby-title">Private invitation</h1>
   @if (error(); as message) {
     <p role="alert" class="form-errors">{{ message }}</p>
@@ -25,14 +29,29 @@
             <p>Invitation from {{ host }}</p>
           }
           <p><cr-invitation-countdown [expiresAt]="current.expiresAt" /></p>
-          <button type="button" [disabled]="busy()" (click)="change('join')">Join game</button>
+          @if (guest) {
+            <form (ngSubmit)="change('join')">
+              @if (current.guestName; as name) {
+                <p>Playing as {{ name }} (guest)</p>
+              } @else {
+                <div class="form-field">
+                  <label for="guest-name">Display name</label>
+                  <input id="guest-name" name="displayName" [(ngModel)]="displayName" maxlength="32"
+                    autocomplete="nickname" [readOnly]="busy()" required />
+                </div>
+              }
+              <button type="submit" [disabled]="busy() || (!current.guestName && !displayName.trim())">Play as guest</button>
+            </form>
+          } @else {
+            <button type="button" [disabled]="busy()" (click)="change('join')">Join game</button>
+          }
         }
       }
       @case ('Cancelled') { <p role="status">Invitation cancelled</p> }
       @case ('Expired') { <p role="status">Invitation expired</p> }
       @case ('Joined') {
         @if (current.gameId; as gameId) {
-          <a [routerLink]="['/games', gameId]">Open game</a>
+          <a [routerLink]="[guest ? '/guest/games' : '/games', gameId]">Open game</a>
         }
       }
     }
