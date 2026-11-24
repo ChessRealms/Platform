@@ -203,6 +203,53 @@ namespace ChessRealms.Platform.Infrastructure.Persistence.Migrations
                     b.ToTable("PrivateLobbies");
                 });
 
+            modelBuilder.Entity("ChessRealms.Platform.Domain.Games.QuickPlayTicket", b =>
+                {
+                    b.Property<Guid>("PlayerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("EnqueuedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("GameId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Sequence")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Sequence"));
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.HasKey("PlayerId", "Id");
+
+                    b.HasIndex("ExpiresAt")
+                        .HasFilter("\"Status\" = 'Waiting'");
+
+                    b.HasIndex("GameId");
+
+                    b.HasIndex("PlayerId")
+                        .IsUnique()
+                        .HasFilter("\"Status\" = 'Waiting'");
+
+                    b.HasIndex("Sequence")
+                        .HasFilter("\"Status\" = 'Waiting'");
+
+                    b.HasIndex("PlayerId", "Sequence");
+
+                    b.ToTable("QuickPlayTickets");
+                });
+
             modelBuilder.Entity("ChessRealms.Platform.Infrastructure.Games.GuestPlayer", b =>
                 {
                     b.Property<Guid>("Id")
@@ -250,6 +297,14 @@ namespace ChessRealms.Platform.Infrastructure.Persistence.Migrations
                     b.HasOne("ChessRealms.Platform.Domain.Games.Game", null)
                         .WithOne()
                         .HasForeignKey("ChessRealms.Platform.Domain.Games.PrivateLobby", "GameId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("ChessRealms.Platform.Domain.Games.QuickPlayTicket", b =>
+                {
+                    b.HasOne("ChessRealms.Platform.Domain.Games.Game", null)
+                        .WithMany()
+                        .HasForeignKey("GameId")
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 #pragma warning restore 612, 618

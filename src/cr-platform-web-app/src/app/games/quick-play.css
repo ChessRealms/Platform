@@ -1,0 +1,30 @@
+:host {
+  display: block;
+  grid-column: 1 / -1;
+}
+
+.quick-play {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  width: 100%;
+  gap: 0.8rem;
+  padding: clamp(1rem, 3vw, 1.5rem);
+}
+
+.quick-play h2 {
+  margin: 0 0 0.3rem;
+  font-size: 1.2rem;
+}
+
+.quick-play p {
+  margin: 0.3rem 0 0;
+}
+
+.quick-play-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}

@@ -87,6 +87,7 @@ describe('games across browser logins', () => {
   it('discards the old list, pending creation and form data when the login changes', async () => {
     const { loginKey, http, request } = setup();
     const harness = await RouterTestingHarness.create('/games');
+    (await request('/api/quick-play')).flush(null, { status: 204, statusText: 'No Content' });
     const lateIdentity = await request('/api/identity/me');
     const lateList = await request('/api/games?status=Pending');
     harness.detectChanges();
@@ -106,6 +107,7 @@ describe('games across browser logins', () => {
     expect(lateList.cancelled).toBe(true);
     expect(lateIdentity.cancelled).toBe(true);
     (await request('/api/identity/me')).flush({ userId: 'black', username: 'BlackKnight' });
+    (await request('/api/quick-play')).flush(null, { status: 204, statusText: 'No Content' });
     (await request('/api/games?status=Pending')).flush({ items: [], nextCursor: null });
     harness.detectChanges();
     expect(page.querySelector<HTMLInputElement>('#opponent-username')!.value).toBe('');

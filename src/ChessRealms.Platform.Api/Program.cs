@@ -15,6 +15,7 @@ builder.AddServiceDefaults();
 builder.AddInfrastructure();
 builder.Services.AddScoped<GameService>();
 builder.Services.AddScoped<LobbyService>();
+builder.Services.AddScoped<QuickPlayService>();
 builder.Services.AddIdentityAuthentication(builder.Configuration);
 builder.Services.AddIdentityEmailWorker();
 builder.Services.AddHostedService<LoginSessionCleanupWorker>();

@@ -8,6 +8,7 @@ import { AuthSession } from '../identity/auth-session';
 import { finishReasons, gameIdPattern, GameListItem, GameTimeControl, invitationOutcome } from './game.models';
 import { GameCreation, GameCreationOptions, GamesApi } from './games-api';
 import { InvitationCountdown } from './invitation-countdown';
+import { QuickPlay } from './quick-play';
 
 const gameFilters = [
   { status: 'Pending', label: 'Invitations', empty: 'No pending invitations.' },
@@ -25,7 +26,7 @@ const pendingLobbyKey = 'chessrealms.pending-lobby-creation';
 @Component({
   selector: 'cr-games-page',
   providers: [GamesApi],
-  imports: [DatePipe, FormsModule, InvitationCountdown, RouterLink],
+  imports: [DatePipe, FormsModule, InvitationCountdown, QuickPlay, RouterLink],
   templateUrl: './games-page.html',
   styleUrl: './games-page.css',
 })

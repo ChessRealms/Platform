@@ -28,7 +28,10 @@ describe('My games', () => {
       { provide: AuthSession, useValue: { loginKey: () => 'current-login' } },
     ] })
       .overrideComponent(GamesPage, { set: { providers: [
-        { provide: GamesApi, useValue: { list, create, createLobby, me: () => of({ userId: 'p2', username: 'WhiteKnight' }) } },
+        { provide: GamesApi, useValue: {
+          list, create, createLobby, currentQuickPlayTicket: () => of(null),
+          me: () => of({ userId: 'p2', username: 'WhiteKnight' }),
+        } },
       ] } });
     render();
   }

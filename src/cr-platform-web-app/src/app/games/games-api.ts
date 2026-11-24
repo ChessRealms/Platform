@@ -11,6 +11,7 @@ import {
   Game, GameBoard, GameFinishingAction, GameInvitationAction, GameListFilter, GameListPage, GameRematchAction,
   GameTimeControl, PrivateLobby,
 } from './game.models';
+import { QuickPlaySearch, QuickPlayTicket } from './quick-play.models';
 
 export type GameCreationOptions = { requestId: string; timeControl?: GameTimeControl };
 type PlayerProfile = Pick<CurrentUser, 'userId' | 'username'>;
@@ -50,6 +51,23 @@ export class GamesApi {
   create(attempt: GameCreation): Observable<Game> {
     return this.authorized(token =>
       this.http.post<Game>('/api/games', attempt, this.options(token)));
+  }
+
+  currentQuickPlayTicket(): Observable<QuickPlayTicket | null> {
+    return this.authorized(token => this.http.get<QuickPlayTicket | null>('/api/quick-play', this.options(token)));
+  }
+
+  joinQuickPlay(search: QuickPlaySearch): Observable<QuickPlayTicket> {
+    return this.authorized(token => this.http.post<QuickPlayTicket>('/api/quick-play', search, this.options(token)));
+  }
+
+  quickPlayTicket(id: string): Observable<QuickPlayTicket> {
+    return this.authorized(token => this.http.get<QuickPlayTicket>(`/api/quick-play/${encodeURIComponent(id)}`, this.options(token)));
+  }
+
+  updateQuickPlay(id: string, action: 'heartbeat' | 'cancel'): Observable<QuickPlayTicket> {
+    return this.authorized(token => this.http.post<QuickPlayTicket>(`/api/quick-play/${encodeURIComponent(id)}/${action}`,
+      null, this.options(token)));
   }
 
   list(status: GameListFilter, before: string | null): Observable<GameListPage> {

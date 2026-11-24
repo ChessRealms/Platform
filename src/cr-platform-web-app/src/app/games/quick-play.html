@@ -1,0 +1,29 @@
+<section class="home-card quick-play" aria-labelledby="quick-play-title">
+  <div>
+    <h2 id="quick-play-title">Quick Play</h2>
+    @if (waiting()) {
+      <p role="status">Looking for an opponent…</p>
+    } @else if (ticket()?.status === 'Expired') {
+      <p role="status">Search expired. Start a new search to play.</p>
+    } @else {
+      <p>Unrated games · 5 minutes per side</p>
+    }
+    @if (error(); as message) {
+      <p class="form-errors" role="alert">{{ message }}</p>
+    }
+  </div>
+  <div class="quick-play-actions">
+    @if (waiting()) {
+      <button type="button" [disabled]="busy()" (click)="cancel()">Cancel search</button>
+    } @else if (loaded()) {
+      @if (ticket()?.gameId; as gameId) {
+        <a [routerLink]="['/games', gameId]">Open last match</a>
+      }
+      <button type="button" [disabled]="busy()" (click)="join()">{{ pendingJoin() ? 'Retry search' : 'Find game · 5+0' }}</button>
+    } @else if (error()) {
+      <button type="button" [disabled]="busy()" (click)="load()">Try again</button>
+    } @else {
+      <p role="status">Loading Quick Play…</p>
+    }
+  </div>
+</section>
