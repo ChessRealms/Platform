@@ -62,7 +62,8 @@ The email provider remains unimplemented: the placeholder reports
 response. See [registration and confirmation](registration.md).
 
 `GET /api/identity/me` requires `Authorization: Bearer <accessToken>` and returns the
-authenticated `userId`. It reads the validated JWT subject, not a database profile.
+authenticated `userId` from the validated JWT subject and the account's `username`
+from Identity. `username` is `null` if Identity has no name for that subject.
 Confirmation session tokens cannot authorize this endpoint. Conversely, a login JWT
 does not grant access to status/resend: those endpoints validate their opaque session.
 All identity controller responses disable caching.

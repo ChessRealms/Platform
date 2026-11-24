@@ -32,7 +32,8 @@ public sealed class GamesController(GameService games, IHubContext<GameHub> live
     [HttpPost]
     public async Task<IActionResult> Create(CreateGameRequest request, CancellationToken cancellationToken)
     {
-        CreateGameResult result = await games.CreateAsync(PlayerId(), request.OpponentId, request.RequestId, cancellationToken);
+        CreateGameResult result = await games.CreateAsync(PlayerId(), request.OpponentId, request.OpponentUsername,
+            request.RequestId, cancellationToken);
         if (result.Error != GameError.None)
         {
             return ErrorResponse(result.Error);
@@ -142,7 +143,7 @@ public sealed class GamesController(GameService games, IHubContext<GameHub> live
         {
             GameError.NotFound => StatusCodes.Status404NotFound,
             GameError.Forbidden => StatusCodes.Status403Forbidden,
-            GameError.InvalidPlayers or GameError.OpponentUnavailable or GameError.InvalidRequestId
+            GameError.InvalidPlayers or GameError.InvalidOpponentUsername or GameError.OpponentUnavailable or GameError.InvalidRequestId
                 => StatusCodes.Status400BadRequest,
             GameError.RevisionConflict or GameError.GameNotPending or GameError.GameNotActive or GameError.NotYourTurn
                 or GameError.DrawOfferPending or GameError.NoDrawOffer or GameError.CreationRequestConflict

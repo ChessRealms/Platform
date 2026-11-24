@@ -1,17 +1,19 @@
 # Private standard-chess games
 
 The API starts an untimed game from the standard position. The authenticated creator
-plays White and invites a distinct confirmed account by its user ID. The invited
+plays White and invites a distinct confirmed account by username. The invited
 player plays Black and explicitly accepts. White can play the first move once the
 game is active.
 
 ## Play from the web app
 
-Choose **Play chess** on the home page. Ask your opponent for the player ID shown
-there and create a private game. Share the game link with that player. The link
-returns them to the game after sign-in or session recovery, where they can accept
-the invitation. The board shows legal destinations for the selected piece and
-asks for a piece when promoting.
+Choose **Play chess** on the home page to open **My games**. Share the name shown
+under **Your username**, or enter your opponent’s full username and choose
+**Send invitation**. Your opponent can open **Invitations** in **My games** and
+accept from the board. If that list is already open, choose **Refresh** to see
+the new invitation. Either player can also reopen the game from its direct link
+after sign-in or session recovery. The board shows legal destinations for the
+selected piece and asks for a piece when promoting.
 Arrow keys move between squares. Enter or Space selects the focused square.
 The board updates when the other player acts and restores the saved game on reload.
 Either player can resign or offer a draw during an active game. The recipient
@@ -46,7 +48,7 @@ game and a game belonging to other players both return `404 NotFound`.
 | Route | Request body | Successful response |
 | --- | --- | --- |
 | `GET /api/games?status=Pending&before={cursor}` | None | `200` with a page of your games in that status. Omit `before` for the first page. |
-| `POST /api/games` | `{"opponentId":"<user-id>","requestId":"<optional-uuid>"}` | `201` with a pending game at revision 0 and a `Location` header. `200` with the current state of the same game on replay. |
+| `POST /api/games` | `{"opponentUsername":"<username>","requestId":"<optional-uuid>"}`. Existing clients can provide `opponentId` in place of `opponentUsername`. | `201` with a pending game at revision 0 and a `Location` header. `200` with the current state of the same game on replay. |
 | `GET /api/games/{id}` | None | `200` with the current game. |
 | `GET /api/games/{id}/board?afterRevision={revision}` | None | `200` with the game, coordinate move history, legal moves, and `drawClaims` available on the current position for the caller's turn. `204` if the supplied revision is current. Omit the query parameter for a full board. |
 | `POST /api/games/{id}/accept` | `{"expectedRevision":0}` | `200` with the active game at revision 1. |
@@ -73,7 +75,7 @@ positions and move history.
 
 | Status | Meaning |
 | --- | --- |
-| `400` | Invalid request body, two identical or empty player IDs, an unavailable opponent, or an all-zero creation UUID (`InvalidRequestId`). |
+| `400` | Invalid request body, invalid opponent selection or a self-invitation (`InvalidPlayers`), an empty or overlong username (`InvalidOpponentUsername`), an unknown or unconfirmed opponent (`OpponentUnavailable`), or an all-zero creation UUID (`InvalidRequestId`). |
 | `401` | Missing or invalid access token. |
 | `403 Forbidden` | White tried to accept the invitation or a player tried to respond to their own draw offer. |
 | `404 NotFound` | Game unknown or caller outside the game. |
@@ -84,8 +86,13 @@ positions and move history.
 On `RevisionConflict`, read the latest game before sending a new command. A
 repeated move with the same revision cannot apply twice.
 
+Supply exactly one of `opponentUsername` and `opponentId`. Username lookup trims
+leading and trailing whitespace, accepts up to 256 characters, and matches the
+full name using Identity's case-insensitive normalization.
+
 Generate a new `requestId` for each intended game. Retry an unconfirmed creation
-with the same `requestId` and `opponentId`. The ID is unique per authenticated
+with the same `requestId` and opponent. A username and an ID that resolve to the
+same account identify the same opponent. The request ID is unique per authenticated
 creator and stored with the game, so concurrent retries resolve to the same game
 ID. A replay returns the game's current state, including any progress since
 creation. Omitting `requestId` creates a new game for each successful request.
@@ -151,6 +158,3 @@ record and restores the playable game in one replay through `FromRecordJson`.
 Read requests use the persisted FEN and outcome directly. Automatic
 endings follow the engine's documented behavior, including its limited
 dead-position detection.
-
-Private games use known opponent IDs and explicit acceptance. Opponent discovery
-is a subsequent feature.

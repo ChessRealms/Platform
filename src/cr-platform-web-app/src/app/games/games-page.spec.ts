@@ -14,6 +14,7 @@ describe('My games', () => {
   };
   const outgoing: GameListItem = { ...incoming, id: 'a2', opponentName: 'Knight', color: 'White' };
   const opponentId = '1ae1fd73-7d50-43e2-bc5c-f9ef232fcdad';
+  const opponentUsername = 'BlackKnight';
   let fixture: ComponentFixture<GamesPage>;
   let element: HTMLElement;
 
@@ -25,7 +26,7 @@ describe('My games', () => {
       { provide: AuthSession, useValue: { loginKey: () => 'current-login' } },
     ] })
       .overrideComponent(GamesPage, { set: { providers: [
-        { provide: GamesApi, useValue: { list, create, me: () => of({ userId: 'p2' }) } },
+        { provide: GamesApi, useValue: { list, create, me: () => of({ userId: 'p2', username: 'WhiteKnight' }) } },
       ] } });
     render();
   }
@@ -37,8 +38,8 @@ describe('My games', () => {
   }
 
   function enterOpponent(): void {
-    const input = element.querySelector<HTMLInputElement>('#opponent-id')!;
-    input.value = opponentId;
+    const input = element.querySelector<HTMLInputElement>('#opponent-username')!;
+    input.value = ` ${opponentUsername} `;
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();
   }
@@ -107,8 +108,8 @@ describe('My games', () => {
     await fixture.whenStable();
     const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
     enterOpponent();
-    click('Create private game');
-    const requestId: string = create.mock.calls[0][1];
+    click('Send invitation');
+    const { requestId } = create.mock.calls[0][0];
     expect(requestId).toMatch(gameIdPattern);
     expect(element.textContent).toContain('Game creation hasn’t been confirmed');
     expect(navigate).not.toHaveBeenCalled();
@@ -116,13 +117,30 @@ describe('My games', () => {
     fixture.destroy();
     render();
     await fixture.whenStable();
-    expect(element.querySelector<HTMLInputElement>('#opponent-id')?.value).toBe(opponentId);
-    expect(element.querySelector<HTMLInputElement>('#opponent-id')?.readOnly).toBe(true);
+    expect(element.querySelector<HTMLInputElement>('#opponent-username')?.value).toBe(opponentUsername);
+    expect(element.querySelector<HTMLInputElement>('#opponent-username')?.readOnly).toBe(true);
     click('Retry creation');
 
-    expect(create.mock.calls).toEqual([[opponentId, requestId], [opponentId, requestId]]);
+    expect(create.mock.calls).toEqual([[{ opponentUsername, requestId }], [{ opponentUsername, requestId }]]);
     expect(navigate).toHaveBeenCalledWith(['/games', 'saved-game']);
     expect(sessionStorage.length).toBe(0);
+  });
+
+  it('retries a pending UUID invitation saved by an earlier version', () => {
+    const requestId = 'a2f01c6d-b5f2-4dda-99f1-80c91c009c81';
+    sessionStorage.setItem('chessrealms.pending-game-creation', JSON.stringify({
+      login: 'current-login', opponentId, requestId,
+    }));
+    const list = vi.fn().mockReturnValue(of({ items: [], nextCursor: null }));
+    const create = vi.fn().mockReturnValue(throwError(() => ({ status: 0 })));
+    open(list, create);
+
+    expect(element.querySelector<HTMLInputElement>('#opponent-id')?.value).toBe(opponentId);
+    click('Retry creation');
+    expect(create).toHaveBeenCalledExactlyOnceWith({ opponentId, requestId });
+
+    click('Start a new invitation');
+    expect(element.querySelector<HTMLInputElement>('#opponent-username')?.value).toBe('');
   });
 
   it('uses a fresh request ID when the player chooses to start a new invitation', async () => {
@@ -131,12 +149,12 @@ describe('My games', () => {
     open(list, create);
     await fixture.whenStable();
     enterOpponent();
-    click('Create private game');
+    click('Send invitation');
     click('Start a new invitation');
     expect(create).toHaveBeenCalledTimes(1);
-    click('Create private game');
+    click('Send invitation');
     expect(create).toHaveBeenCalledTimes(2);
-    expect(create.mock.calls[1][0]).toBe(opponentId);
-    expect(create.mock.calls[1][1]).not.toBe(create.mock.calls[0][1]);
+    expect(create.mock.calls[1][0].opponentUsername).toBe(opponentUsername);
+    expect(create.mock.calls[1][0].requestId).not.toBe(create.mock.calls[0][0].requestId);
   });
 });

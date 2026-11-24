@@ -59,6 +59,7 @@ public static class DependencyInjection
             .ValidateOnStart();
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddScoped<IRegistrationService, RegistrationService>();
+        builder.Services.AddScoped<IUsernameDirectory, IdentityUsernameDirectory>();
         builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
         builder.Services.AddScoped<PasswordResetEmailDispatcher>();
         builder.Services.AddScoped<EmailConfirmationService>();

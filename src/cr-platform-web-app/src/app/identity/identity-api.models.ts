@@ -48,6 +48,7 @@ export interface WebSessionResult {
 
 export interface CurrentUser {
   userId: string;
+  username: string | null;
 }
 
 export interface LoginSession {

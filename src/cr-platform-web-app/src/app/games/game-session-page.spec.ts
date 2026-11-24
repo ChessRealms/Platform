@@ -85,28 +85,30 @@ describe('games across browser logins', () => {
   it('discards the old list, pending creation and form data when the login changes', async () => {
     const { loginKey, http, request } = setup();
     const harness = await RouterTestingHarness.create('/games');
-    (await request('/api/identity/me')).flush({ userId: 'white' });
+    const lateIdentity = await request('/api/identity/me');
     const lateList = await request('/api/games?status=Pending');
     harness.detectChanges();
     const page = harness.routeNativeElement!;
-    const input = page.querySelector<HTMLInputElement>('#opponent-id')!;
-    input.value = id;
+    const input = page.querySelector<HTMLInputElement>('#opponent-username')!;
+    input.value = 'BlackKnight';
     input.dispatchEvent(new Event('input'));
     page.querySelector('form')!.dispatchEvent(new Event('submit'));
     const lateCreation = await request('/api/games');
-    expect(lateCreation.request.body.opponentId).toBe(id);
+    expect(lateCreation.request.body.opponentUsername).toBe('BlackKnight');
+    expect(lateCreation.request.body.opponentId).toBeUndefined();
     expect(lateCreation.request.body.requestId).toMatch(gameIdPattern);
     loginKey.set('black');
     // The response can arrive before Angular has destroyed the previous view.
     lateCreation.flush(position.game);
     harness.detectChanges();
     expect(lateList.cancelled).toBe(true);
-    (await request('/api/identity/me')).flush({ userId: 'black' });
+    expect(lateIdentity.cancelled).toBe(true);
+    (await request('/api/identity/me')).flush({ userId: 'black', username: 'BlackKnight' });
     (await request('/api/games?status=Pending')).flush({ items: [], nextCursor: null });
     harness.detectChanges();
-    expect(page.querySelector<HTMLInputElement>('#opponent-id')!.value).toBe('');
+    expect(page.querySelector<HTMLInputElement>('#opponent-username')!.value).toBe('');
     expect(page.textContent).not.toContain('Retry creation');
-    expect(page.querySelector<HTMLInputElement>('#player-id')!.value).toBe('black');
+    expect(page.querySelector<HTMLInputElement>('#your-username')!.value).toBe('BlackKnight');
     http.verify();
   });
 });
