@@ -78,6 +78,9 @@ namespace ChessRealms.Platform.Infrastructure.Persistence.Migrations
                         .HasMaxLength(8)
                         .HasColumnType("character varying(8)");
 
+                    b.Property<DateTimeOffset?>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -116,6 +119,28 @@ namespace ChessRealms.Platform.Infrastructure.Persistence.Migrations
                     b.HasIndex("WhitePlayerId", "BlackPlayerId", "CreatedAt");
 
                     b.ToTable("Games");
+                });
+
+            modelBuilder.Entity("ChessRealms.Platform.Domain.Games.GameMoveTiming", b =>
+                {
+                    b.Property<Guid>("GameId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Ply")
+                        .HasColumnType("integer");
+
+                    b.Property<TimeSpan?>("BlackTimeRemaining")
+                        .HasColumnType("interval");
+
+                    b.Property<DateTimeOffset>("PlayedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<TimeSpan?>("WhiteTimeRemaining")
+                        .HasColumnType("interval");
+
+                    b.HasKey("GameId", "Ply");
+
+                    b.ToTable("GameMoveTimings");
                 });
 
             modelBuilder.Entity("ChessRealms.Platform.Domain.Games.PrivateLobby", b =>
@@ -173,6 +198,15 @@ namespace ChessRealms.Platform.Infrastructure.Persistence.Migrations
                         .WithOne()
                         .HasForeignKey("ChessRealms.Platform.Domain.Games.Game", "RematchGameId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("ChessRealms.Platform.Domain.Games.GameMoveTiming", b =>
+                {
+                    b.HasOne("ChessRealms.Platform.Domain.Games.Game", null)
+                        .WithMany()
+                        .HasForeignKey("GameId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("ChessRealms.Platform.Domain.Games.PrivateLobby", b =>

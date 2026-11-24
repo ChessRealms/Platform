@@ -9,4 +9,5 @@ public interface IGameRules
     bool HasInsufficientMatingMaterial(string fen, PlayerColor attacker);
     GamePosition? ClaimDraw(string rulesRecord, DrawClaimReason reason, string? intendedMove);
     GameMoveList ReadMoves(string rulesRecord, bool includeLegalMoves);
+    GameReplayLine ReadReplay(string rulesRecord);
 }

@@ -4,6 +4,7 @@ import { defer, EMPTY, filter, Observable, switchMap } from 'rxjs';
 import { AuthSession } from '../identity/auth-session';
 import { IdentityApiClient } from '../identity/identity-api.client';
 import { CurrentUser } from '../identity/identity-api.models';
+import { GameReplay } from './game-replay.models';
 import {
   Game, GameBoard, GameFinishingAction, GameInvitationAction, GameListFilter, GameListPage, GameRematchAction,
   GameTimeControl, PrivateLobby,
@@ -55,6 +56,11 @@ export class GamesApi {
       ...this.options(token),
       params: revision === undefined ? {} : { afterRevision: revision },
     }));
+  }
+
+  replay(id: string): Observable<GameReplay> {
+    return this.authorized(token => this.http.get<GameReplay>(`/api/games/${encodeURIComponent(id)}/replay`,
+      this.options(token)));
   }
 
   updateInvitation(game: Game, action: GameInvitationAction): Observable<Game> {

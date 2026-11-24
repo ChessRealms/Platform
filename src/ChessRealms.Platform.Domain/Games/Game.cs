@@ -26,12 +26,7 @@ public sealed class Game
         CreatedAt = createdAt;
         InvitationExpiresAt = createdAt + InvitationLifetime;
         TimeControl = timeControl;
-        WhiteTimeRemaining = BlackTimeRemaining = timeControl switch
-        {
-            GameTimeControl.Blitz5 => TimeSpan.FromMinutes(5),
-            null => null,
-            _ => throw new ArgumentOutOfRangeException(nameof(timeControl))
-        };
+        WhiteTimeRemaining = BlackTimeRemaining = InitialTime(timeControl);
         UpdatePosition(startingPosition);
     }
 
@@ -39,6 +34,7 @@ public sealed class Game
     public Guid WhitePlayerId { get; private set; }
     public Guid BlackPlayerId { get; private set; }
     public DateTimeOffset? CreatedAt { get; private set; }
+    public DateTimeOffset? StartedAt { get; private set; }
     public DateTimeOffset? InvitationExpiresAt { get; private set; }
     public GameStatus Status { get; private set; } = GameStatus.Pending;
     public long Revision { get; private set; }
@@ -59,15 +55,21 @@ public sealed class Game
     public static bool CanPair(Guid whitePlayerId, Guid blackPlayerId) =>
         whitePlayerId != Guid.Empty && blackPlayerId != Guid.Empty && whitePlayerId != blackPlayerId;
 
+    public static TimeSpan? InitialTime(GameTimeControl? timeControl) => timeControl switch
+    {
+        GameTimeControl.Blitz5 => TimeSpan.FromMinutes(5),
+        null => null,
+        _ => throw new ArgumentOutOfRangeException(nameof(timeControl))
+    };
+
     internal static Game StartActive(Guid whitePlayerId, Guid blackPlayerId, GamePosition position, DateTimeOffset now,
         GameTimeControl? timeControl)
     {
         Game game = new(whitePlayerId, blackPlayerId, position, now, timeControl)
         {
-            Status = GameStatus.Active,
             InvitationExpiresAt = null
         };
-        game.StartTurnClock(now);
+        game.Start(now);
         return game;
     }
 
@@ -142,8 +144,10 @@ public sealed class Game
         return (GameError.None, rematch);
     }
 
-    public GameError Play(Guid playerId, long expectedRevision, DateTimeOffset now, Func<string, GamePosition?> applyRules)
+    public GameError Play(Guid playerId, long expectedRevision, DateTimeOffset now, Func<string, GamePosition?> applyRules,
+        out GameMoveTiming? timing)
     {
+        timing = null;
         GameError error = CheckTurn(playerId, expectedRevision);
         if (error != GameError.None)
         {
@@ -165,6 +169,10 @@ public sealed class Game
         if (Status == GameStatus.Active)
         {
             StartTurnClock(now);
+        }
+        if (StartedAt is not null)
+        {
+            timing = new(Id, position.PlyCount, now, WhiteTimeRemaining, BlackTimeRemaining);
         }
         return GameError.None;
     }
@@ -287,7 +295,7 @@ public sealed class Game
         Status = nextStatus;
         if (Status == GameStatus.Active)
         {
-            StartTurnClock(now);
+            Start(now);
         }
         Revision++;
         return GameError.None;
@@ -330,6 +338,13 @@ public sealed class Game
 
     private void StartTurnClock(DateTimeOffset now) =>
         TurnDeadline = now + (SideToMove == PlayerColor.White ? WhiteTimeRemaining : BlackTimeRemaining);
+
+    private void Start(DateTimeOffset now)
+    {
+        Status = GameStatus.Active;
+        StartedAt = now;
+        StartTurnClock(now);
+    }
 
     private void StopTurnClock(DateTimeOffset now)
     {

@@ -23,6 +23,14 @@ can accept, decline, or play a move to decline. On their turn, a player can clai
 a draw on the current position or select an intended move to support the claim.
 The board shows the final result and reason to both players.
 
+Open a finished game from **My games** and choose **Review game** to replay it.
+Select a move or use the playback controls to step through the game. In the
+replay panel, the left and right arrow keys go to the previous and next step.
+**Play** advances at a fixed pace by default, with speeds of 1×, 2× and 4×.
+Games with a complete timeline also offer **Original timing**. That mode
+includes the pause before the first move and any time between the last move
+and the result. In timed games the recorded clock balances follow the replay.
+
 Choose **Untimed** or **5+0** when creating a username invitation or private link.
 In 5+0, each player starts with five minutes and moves add no time. White's clock
 starts when the invitation is accepted or the guest joins. Only the player to
@@ -109,6 +117,7 @@ game and a game belonging to other players both return `404 NotFound`.
 | `POST /api/games` | `{"opponentUsername":"<username>","requestId":"<optional-uuid>"}`. Existing clients can provide `opponentId` in place of `opponentUsername`. | `201` with a pending game at revision 0 and a `Location` header. `200` with the current state of the same game on replay. |
 | `GET /api/games/{id}` | None | `200` with the current game. |
 | `GET /api/games/{id}/board?afterRevision={revision}` | None | `200` with the game, coordinate move history, legal moves, and `drawClaims` available on the current position for the caller's turn. `204` if the supplied revision is current. Omit the query parameter for a full board. |
+| `GET /api/games/{id}/replay` | None | `200` with the initial position, replay frames, and result. Only a participant in a finished game can retrieve it. |
 | `POST /api/games/{id}/accept` | `{"expectedRevision":0}` | `200` with the active game at revision 1. |
 | `POST /api/games/{id}/decline` | `{"expectedRevision":0}` | `200` with the invitation `Declined` at revision 1. Only the recipient can decline. |
 | `POST /api/games/{id}/cancel` | `{"expectedRevision":0}` | `200` with the invitation `Cancelled` at revision 1. Only the sender can cancel. |
@@ -251,6 +260,25 @@ time is the deadline even if both players were offline and opened the game
 later.
 
 ## Persistence and rules
+
+Replay reads return `initialFen`, `viewerColor`, `timeControl`, `timingMode`,
+an optional `initialClock`, a single ordered `moves` array, and `finish`.
+Each move contains the coordinate move, SAN, full move number as a string,
+color, FEN after the move, and optional elapsed milliseconds and clock balances.
+The finish contains the winner, reason, elapsed milliseconds, and final balances.
+An unfinished game returns `409 GameNotFinished` to a participant. Unknown games
+and games owned by other players return `404`. The browser loads the replay once
+and steps through the positions locally.
+
+`Games.StartedAt` records activation. `GameMoveTimings` stores one row per
+committed half-move with its server timestamp and optional clock balances,
+keyed by game ID and one-based ply. The move and its timing commit in the same
+transaction. The existing engine record supplies the initial position and
+move order. `FinishedAt` supplies the result time, including the exact clock
+deadline for a flag fall. A declared intended move in a draw claim contributes
+no extra frame. Original timing requires all move timestamps and both
+endpoints of the timeline in chronological order. Games that started before
+the timings migration still support stepping and fixed-pace playback.
 
 MigrationWorker applies the Platform migrations, including the nullable draw
 offer field, before the API starts. Each row stores the participants, revision, current FEN

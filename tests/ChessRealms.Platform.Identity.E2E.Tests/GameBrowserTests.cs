@@ -57,6 +57,82 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         await Expect(black.GetByText("Your turn", new() { Exact = true })).ToBeVisibleAsync();
     }
 
+    [Fact]
+    public async Task FinishedGameReplaysCastlingWithKeyboardAndAutoplay()
+    {
+        await using IBrowser browser = await browserSteps.LaunchBrowserAsync();
+        await using IBrowserContext whiteContext = await browserSteps.NewContextAsync(browser);
+        await using IBrowserContext blackContext = await browserSteps.NewContextAsync(browser);
+        (IPage white, string whiteEmail) = await browserSteps.RegisterAndOpenSignInAsync(whiteContext);
+        (IPage black, string blackEmail) = await browserSteps.RegisterAndOpenSignInAsync(blackContext);
+        await browserSteps.SignInAsync(white, whiteEmail);
+        await browserSteps.SignInAsync(black, blackEmail);
+        await black.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
+        string blackUsername = await ReadUsernameAsync(black);
+        await white.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
+        await SendInvitationAsync(white, blackUsername);
+        ILocator invite = white.GetByLabel("Game link", new() { Exact = true });
+        await Expect(invite).ToBeVisibleAsync();
+        string gameUrl = await invite.InputValueAsync();
+        await black.GotoAsync(gameUrl);
+        await black.GetByRole(AriaRole.Button, new() { Name = "Accept game", Exact = true }).ClickAsync();
+
+        string[] moves = ["e2e4", "e7e5", "g1f3", "b8c6", "f1b5", "a7a6", "b5a4", "g8f6", "e1g1"];
+        for (int ply = 0; ply < moves.Length; ply++)
+        {
+            IPage player = ply % 2 == 0 ? white : black;
+            await Expect(player.GetByText("Your turn", new() { Exact = true })).ToBeVisibleAsync();
+            await player.Locator($"[data-square='{moves[ply][..2]}']").ClickAsync();
+            await player.Locator($"[data-square='{moves[ply][2..]}']").ClickAsync();
+        }
+
+        await Expect(black.GetByRole(AriaRole.Button, new() { Name = "g1, White king", Exact = true })).ToBeVisibleAsync();
+        await black.GetByRole(AriaRole.Button, new() { Name = "Resign", Exact = true }).ClickAsync();
+        await black.GetByRole(AriaRole.Button, new() { Name = "Confirm resignation", Exact = true }).ClickAsync();
+        await Expect(white.GetByRole(AriaRole.Link, new() { Name = "Review game" })).ToBeVisibleAsync();
+        await white.GetByRole(AriaRole.Main).GetByRole(AriaRole.Link, new() { Name = "Games", Exact = true }).ClickAsync();
+        ILocator gameList = white.GetByRole(AriaRole.Region, new() { Name = "Your games" });
+        await gameList.GetByRole(AriaRole.Button, new() { Name = "Finished", Exact = true }).ClickAsync();
+        await gameList.GetByRole(AriaRole.Link).Filter(new() { HasText = blackUsername }).ClickAsync();
+        int replayRequests = 0;
+        white.Request += (_, request) =>
+        {
+            string path = new Uri(request.Url).AbsolutePath;
+            if (path.StartsWith("/api/games/", StringComparison.Ordinal) && path.EndsWith("/replay", StringComparison.Ordinal))
+            {
+                Interlocked.Increment(ref replayRequests);
+            }
+        };
+
+        await white.GetByRole(AriaRole.Link, new() { Name = "Review game" }).ClickAsync();
+        await Expect(white).ToHaveURLAsync(gameUrl + "/replay");
+        await Expect(white.GetByText("Starting position", new() { Exact = true })).ToBeVisibleAsync();
+        Assert.Equal(1, Volatile.Read(ref replayRequests));
+        int laterGameRequests = 0;
+        white.Request += (_, request) =>
+        {
+            if (new Uri(request.Url).AbsolutePath.StartsWith("/api/games/", StringComparison.Ordinal))
+            {
+                Interlocked.Increment(ref laterGameRequests);
+            }
+        };
+        ILocator beforeCastle = white.GetByRole(AriaRole.Button, new() { Name = "4… Nf6", Exact = true });
+        await beforeCastle.ClickAsync();
+        await Expect(white.GetByRole(AriaRole.Button, new() { Name = "e1, White king", Exact = true })).ToBeVisibleAsync();
+        await Expect(white.GetByRole(AriaRole.Button, new() { Name = "h1, White rook", Exact = true })).ToBeVisibleAsync();
+        await beforeCastle.PressAsync("ArrowRight");
+        await Expect(white.GetByRole(AriaRole.Button, new() { Name = "g1, White king", Exact = true })).ToBeVisibleAsync();
+        await Expect(white.GetByRole(AriaRole.Button, new() { Name = "f1, White rook", Exact = true })).ToBeVisibleAsync();
+        await beforeCastle.PressAsync("ArrowLeft");
+        await Expect(white.GetByRole(AriaRole.Button, new() { Name = "h1, White rook", Exact = true })).ToBeVisibleAsync();
+        await white.GetByRole(AriaRole.Button, new() { Name = "Play", Exact = true }).ClickAsync();
+        await Expect(white.GetByRole(AriaRole.Button, new() { Name = "g1, White king", Exact = true })).ToBeVisibleAsync();
+        await white.GetByRole(AriaRole.Button, new() { Name = "Pause", Exact = true }).ClickAsync();
+        await white.GetByRole(AriaRole.Button, new() { Name = "End", Exact = true }).ClickAsync();
+        await Expect(white.GetByText("White wins · Resignation", new() { Exact = true })).ToBeVisibleAsync();
+        Assert.Equal(0, Volatile.Read(ref laterGameRequests));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

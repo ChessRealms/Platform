@@ -5,6 +5,7 @@ namespace ChessRealms.Platform.Application.Games;
 public interface IGameStore
 {
     Task<Game?> FindAsync(Guid id, CancellationToken cancellationToken);
+    Task<IReadOnlyList<GameMoveTiming>> ReadMoveTimingsAsync(Guid gameId, CancellationToken cancellationToken);
     Task<GameBoardSnapshot?> ReadBoardAsync(Guid id, Guid playerId, long? afterRevision, CancellationToken cancellationToken);
     Task<IReadOnlyList<Guid>> ListDueAsync(Guid playerId, DateTimeOffset now, CancellationToken cancellationToken);
     Task<Game?> FindByCreationRequestAsync(Guid creatorId, Guid requestId, CancellationToken cancellationToken);
@@ -13,6 +14,8 @@ public interface IGameStore
     Task<CreateGameResult> CreateAsync(Guid creatorId, Guid opponentId, GamePosition startingPosition, Guid? requestId,
         CancellationToken cancellationToken, GameTimeControl? timeControl = null);
     Task<GameOperationResult> ChangeLockedAsync(Guid gameId, Guid playerId, Func<Game, DateTimeOffset, GameError> change,
+        CancellationToken cancellationToken);
+    Task<GameOperationResult> PlayAsync(Guid gameId, Guid playerId, Func<Game, DateTimeOffset, (GameError Error, GameMoveTiming? Timing)> play,
         CancellationToken cancellationToken);
     Task<GameOperationResult> AcceptRematchAsync(Guid gameId, Guid playerId, long expectedRevision, Func<GamePosition> startingPosition,
         CancellationToken cancellationToken);
