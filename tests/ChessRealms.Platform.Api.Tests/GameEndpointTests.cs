@@ -316,6 +316,88 @@ public sealed class GameEndpointTests : IAsyncLifetime
         Assert.All(all.Skip(21), game => Assert.Null(game.CreatedAt));
     }
 
+    [Theory]
+    [InlineData("decline", "Declined")]
+    [InlineData("cancel", "Cancelled")]
+    public async Task OnlyTheAllowedParticipantCanCloseAPendingInvitation(string action, string status)
+    {
+        (_, string whiteToken) = await RegisterAndSignInAsync("white");
+        (Guid blackId, string blackToken) = await RegisterAndSignInAsync("black");
+        (_, string outsiderToken) = await RegisterAndSignInAsync("outsider");
+        using HttpClient white = CreateClient(whiteToken);
+        using HttpClient black = CreateClient(blackToken);
+        using HttpClient outsider = CreateClient(outsiderToken);
+        GameResponse pending = await CreateGameAsync(white, blackId);
+        string gameUrl = $"/api/games/{pending.Id}";
+        string actionUrl = $"{gameUrl}/{action}";
+        GameRevisionRequest revision = new(pending.Revision);
+        HttpClient allowed = action == "decline" ? black : white;
+        HttpClient wrongRole = action == "decline" ? white : black;
+
+        using HttpResponseMessage unauthorizedRole = await wrongRole.PostAsJsonAsync(actionUrl, revision, Cancellation);
+        await AssertErrorAsync(unauthorizedRole, HttpStatusCode.Forbidden, "Forbidden");
+        using HttpResponseMessage unavailable = await outsider.PostAsJsonAsync(actionUrl, revision, Cancellation);
+        await AssertErrorAsync(unavailable, HttpStatusCode.NotFound, "NotFound");
+        Assert.Equal(pending, await allowed.GetFromJsonAsync<GameResponse>(gameUrl, Cancellation));
+
+        using HttpResponseMessage response = await allowed.PostAsJsonAsync(actionUrl, revision, Cancellation);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        GameResponse closed = Assert.IsType<GameResponse>(await response.Content.ReadFromJsonAsync<GameResponse>(Cancellation));
+        Assert.Equal(pending with { Status = status, Revision = pending.Revision + 1 }, closed);
+        foreach (HttpClient participant in new[] { white, black })
+        {
+            GameBoardResponse board = await ReadBoardAsync(participant, gameUrl);
+            Assert.Equal(closed, board.Game);
+            Assert.Empty(board.Moves);
+            Assert.Empty(board.LegalMoves);
+            Assert.Empty((await ListGamesAsync(participant)).Items);
+            Assert.Empty((await ListGamesAsync(participant, "?status=Finished")).Items);
+            GameListItemResponse item = Assert.Single((await ListGamesAsync(participant, "?status=ClosedInvitations")).Items);
+            Assert.Equal((closed.Id, status), (item.Id, item.Status));
+        }
+        Assert.Empty((await ListGamesAsync(outsider, "?status=ClosedInvitations")).Items);
+
+        using HttpResponseMessage stale = await allowed.PostAsJsonAsync(actionUrl, revision, Cancellation);
+        await AssertErrorAsync(stale, HttpStatusCode.Conflict, "RevisionConflict");
+        using HttpResponseMessage accept = await black.PostAsJsonAsync($"{gameUrl}/accept", new GameRevisionRequest(closed.Revision), Cancellation);
+        await AssertErrorAsync(accept, HttpStatusCode.Conflict, "GameNotPending");
+        using HttpResponseMessage play = await PlayAsync(white, gameUrl, "e2e4", closed.Revision);
+        await AssertErrorAsync(play, HttpStatusCode.Conflict, "GameNotActive");
+
+        GameResponse another = await CreateGameAsync(white, blackId);
+        string anotherUrl = $"/api/games/{another.Id}";
+        GameResponse active = await AcceptGameAsync(black, anotherUrl);
+        using HttpResponseMessage afterAcceptance = await allowed.PostAsJsonAsync($"{anotherUrl}/{action}",
+            new GameRevisionRequest(active.Revision), Cancellation);
+        await AssertErrorAsync(afterAcceptance, HttpStatusCode.Conflict, "GameNotPending");
+    }
+
+    [Fact]
+    public async Task ConcurrentAcceptanceAndCancellationCommitOneInvitationOutcome()
+    {
+        (_, string whiteToken) = await RegisterAndSignInAsync("white");
+        (Guid blackId, string blackToken) = await RegisterAndSignInAsync("black");
+        using HttpClient white = CreateClient(whiteToken);
+        using HttpClient black = CreateClient(blackToken);
+        GameResponse pending = await CreateGameAsync(white, blackId);
+        string gameUrl = $"/api/games/{pending.Id}";
+        GameRevisionRequest revision = new(pending.Revision);
+
+        Task<HttpResponseMessage> accept = black.PostAsJsonAsync($"{gameUrl}/accept", revision, Cancellation);
+        Task<HttpResponseMessage> cancel = white.PostAsJsonAsync($"{gameUrl}/cancel", revision, Cancellation);
+        using HttpResponseMessage accepted = await accept;
+        using HttpResponseMessage cancelled = await cancel;
+        HttpResponseMessage[] responses = [accepted, cancelled];
+        HttpResponseMessage winner = Assert.Single(responses, response => response.StatusCode == HttpStatusCode.OK);
+        HttpResponseMessage loser = Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Conflict);
+        await AssertErrorAsync(loser, HttpStatusCode.Conflict, "RevisionConflict");
+        GameResponse committed = Assert.IsType<GameResponse>(await winner.Content.ReadFromJsonAsync<GameResponse>(Cancellation));
+        Assert.Equal(pending.Revision + 1, committed.Revision);
+        Assert.Equal(winner == accepted ? "Active" : "Cancelled", committed.Status);
+        Assert.Equal(committed, (await ReadBoardAsync(white, gameUrl)).Game);
+        Assert.Equal(committed, (await ReadBoardAsync(black, gameUrl)).Game);
+    }
+
     [Fact]
     public async Task LiveUpdatesRequireMembershipAndReportOnlyCommittedRevisions()
     {

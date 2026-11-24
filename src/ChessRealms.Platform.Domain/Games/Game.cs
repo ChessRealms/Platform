@@ -41,26 +41,14 @@ public sealed class Game
 
     public bool HasPlayer(Guid playerId) => playerId == WhitePlayerId || playerId == BlackPlayerId;
 
-    public GameError Accept(Guid playerId, long expectedRevision)
-    {
-        GameError error = CheckRevision(playerId, expectedRevision);
-        if (error != GameError.None)
-        {
-            return error;
-        }
-        if (playerId != BlackPlayerId)
-        {
-            return GameError.Forbidden;
-        }
-        if (Status != GameStatus.Pending)
-        {
-            return GameError.GameNotPending;
-        }
+    public GameError Accept(Guid playerId, long expectedRevision) =>
+        ChangeInvitation(playerId, expectedRevision, BlackPlayerId, GameStatus.Active);
 
-        Status = GameStatus.Active;
-        Revision++;
-        return GameError.None;
-    }
+    public GameError Decline(Guid playerId, long expectedRevision) =>
+        ChangeInvitation(playerId, expectedRevision, BlackPlayerId, GameStatus.Declined);
+
+    public GameError Cancel(Guid playerId, long expectedRevision) =>
+        ChangeInvitation(playerId, expectedRevision, WhitePlayerId, GameStatus.Cancelled);
 
     public GameError Play(Guid playerId, long expectedRevision, Func<string, GamePosition?> applyRules)
     {
@@ -159,6 +147,27 @@ public sealed class Game
         }
 
         ApplyPosition(position);
+        return GameError.None;
+    }
+
+    private GameError ChangeInvitation(Guid playerId, long expectedRevision, Guid allowedPlayerId, GameStatus nextStatus)
+    {
+        GameError error = CheckRevision(playerId, expectedRevision);
+        if (error != GameError.None)
+        {
+            return error;
+        }
+        if (playerId != allowedPlayerId)
+        {
+            return GameError.Forbidden;
+        }
+        if (Status != GameStatus.Pending)
+        {
+            return GameError.GameNotPending;
+        }
+
+        Status = nextStatus;
+        Revision++;
         return GameError.None;
     }
 

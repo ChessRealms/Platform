@@ -30,12 +30,20 @@ internal sealed class PostgresGameStore(PlatformDbContext database) : IGameStore
         database.Games.AsNoTracking().SingleOrDefaultAsync(game => game.WhitePlayerId == creatorId
             && EF.Property<Guid?>(game, PlatformDbContext.GameCreationRequestId) == requestId, cancellationToken);
 
-    public async Task<IReadOnlyList<GameListItem>> ListAsync(Guid playerId, GameStatus status, Guid? before, int limit,
+    public async Task<IReadOnlyList<GameListItem>> ListAsync(Guid playerId, GameListFilter filter, Guid? before, int limit,
         CancellationToken cancellationToken)
     {
         IQueryable<Game> participantGames = database.Games.AsNoTracking()
             .Where(game => game.WhitePlayerId == playerId || game.BlackPlayerId == playerId);
-        IQueryable<Game> games = participantGames.Where(game => game.Status == status);
+        IQueryable<Game> games = filter switch
+        {
+            GameListFilter.Pending => participantGames.Where(game => game.Status == GameStatus.Pending),
+            GameListFilter.Active => participantGames.Where(game => game.Status == GameStatus.Active),
+            GameListFilter.Finished => participantGames.Where(game => game.Status == GameStatus.Finished),
+            GameListFilter.ClosedInvitations => participantGames.Where(game =>
+                game.Status == GameStatus.Declined || game.Status == GameStatus.Cancelled),
+            _ => throw new ArgumentOutOfRangeException(nameof(filter))
+        };
         if (before is Guid cursor)
         {
             // Resolve the cursor even if that game moved to another status after the last read.

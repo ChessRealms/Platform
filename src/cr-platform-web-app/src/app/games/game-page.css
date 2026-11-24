@@ -6,6 +6,7 @@ aside { display: grid; align-content: start; gap: 0.8rem; min-width: 0; }
 .play-state, .move-list { background: #22262c; border: 1px solid #3b414b; border-radius: 8px; padding: 0.9rem 1rem; }
 .play-state p, .move-list p { margin: 0.25rem 0 0.65rem; }
 .status { font-weight: 700; font-size: 1.25rem; }
+.invitation-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.65rem; }
 .move-list h2 { margin: 0 0 0.5rem; font-size: 1rem; }
 .move-list ol { margin: 0; padding-inline-start: 1.9rem; max-height: 16rem; overflow: auto; }
 .move-list li { padding: 0.3rem 0.35rem; }

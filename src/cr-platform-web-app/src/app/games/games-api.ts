@@ -4,7 +4,7 @@ import { defer, EMPTY, filter, Observable, switchMap } from 'rxjs';
 import { AuthSession } from '../identity/auth-session';
 import { IdentityApiClient } from '../identity/identity-api.client';
 import { CurrentUser } from '../identity/identity-api.models';
-import { Game, GameBoard, GameFinishingAction, GameListPage, GameStatus } from './game.models';
+import { Game, GameBoard, GameFinishingAction, GameInvitationAction, GameListFilter, GameListPage } from './game.models';
 
 export type GameCreation = { requestId: string } & (
   { opponentUsername: string; opponentId?: never } | { opponentId: string; opponentUsername?: never }
@@ -26,7 +26,7 @@ export class GamesApi {
       this.http.post<Game>('/api/games', attempt, this.options(token)));
   }
 
-  list(status: GameStatus, before: string | null): Observable<GameListPage> {
+  list(status: GameListFilter, before: string | null): Observable<GameListPage> {
     return this.authorized(token => this.http.get<GameListPage>('/api/games', {
       ...this.options(token),
       params: before ? { status, before } : { status },
@@ -40,8 +40,8 @@ export class GamesApi {
     }));
   }
 
-  accept(game: Game): Observable<Game> {
-    return this.authorized(token => this.http.post<Game>(`/api/games/${encodeURIComponent(game.id)}/accept`,
+  updateInvitation(game: Game, action: GameInvitationAction): Observable<Game> {
+    return this.authorized(token => this.http.post<Game>(`/api/games/${encodeURIComponent(game.id)}/${action}`,
       { expectedRevision: game.revision }, this.options(token)));
   }
 

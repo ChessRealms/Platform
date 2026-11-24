@@ -10,8 +10,9 @@ game is active.
 Choose **Play chess** on the home page to open **My games**. Share the name shown
 under **Your username**, or enter your opponent’s full username and choose
 **Send invitation**. Your opponent can open **Invitations** in **My games** and
-accept from the board. If that list is already open, choose **Refresh** to see
-the new invitation. Either player can also reopen the game from its direct link
+accept or decline from the board. While the invitation is pending, the sender
+can choose **Cancel invitation**. If the list is already open, choose **Refresh**
+to see the new invitation. Either player can also reopen it from its direct link
 after sign-in or session recovery. The board shows legal destinations for the
 selected piece and asks for a piece when promoting.
 Arrow keys move between squares. Enter or Space selects the focused square.
@@ -23,7 +24,8 @@ The board shows the final result and reason to both players.
 
 Use **My games** to reopen a game without keeping its link. **Invitations**
 includes both received and sent invitations. **Active** shows whose turn it is,
-and **Finished** shows the result from your perspective. Use **Refresh** to check
+and **Finished** shows the result from your perspective. Both players can reopen
+declined or cancelled invitations from **Closed invitations**. Use **Refresh** to check
 for changes and **Load more** to browse older entries. If a creation response
 is lost, use **Retry creation** to recover the same invitation. The web app
 remembers the attempt in that tab across reloads during the same login. Choose
@@ -52,6 +54,8 @@ game and a game belonging to other players both return `404 NotFound`.
 | `GET /api/games/{id}` | None | `200` with the current game. |
 | `GET /api/games/{id}/board?afterRevision={revision}` | None | `200` with the game, coordinate move history, legal moves, and `drawClaims` available on the current position for the caller's turn. `204` if the supplied revision is current. Omit the query parameter for a full board. |
 | `POST /api/games/{id}/accept` | `{"expectedRevision":0}` | `200` with the active game at revision 1. |
+| `POST /api/games/{id}/decline` | `{"expectedRevision":0}` | `200` with the invitation `Declined` at revision 1. Only the recipient can decline. |
+| `POST /api/games/{id}/cancel` | `{"expectedRevision":0}` | `200` with the invitation `Cancelled` at revision 1. Only the sender can cancel. |
 | `POST /api/games/{id}/moves` | `{"move":"e2e4","expectedRevision":1}` | `200` with the next position and incremented revision. |
 | `POST /api/games/{id}/resign` | `{"expectedRevision":1}` | `200` with the game finished as a win for the opponent or a draw for insufficient mating material. |
 | `POST /api/games/{id}/draw/offer` | `{"expectedRevision":1}` | `200` with the offerer's color. |
@@ -59,13 +63,15 @@ game and a game belonging to other players both return `404 NotFound`.
 | `POST /api/games/{id}/draw/claim` | `{"expectedRevision":9,"reason":"ThreefoldRepetition"}`, optionally with `intendedMove` | `200` with the game finished as a draw. |
 
 The response includes `id`, `whitePlayerId`, `blackPlayerId`, `status` (`Pending`,
-`Active` or `Finished`), `revision`, `fen`, `sideToMove`, `winner`, `endReason`
+`Active`, `Finished`, `Declined`, or `Cancelled`), `revision`, `fen`, `sideToMove`, `winner`, `endReason`
 and `drawOfferedBy`. The latter is `White`, `Black`, or `null`.
-The side to move is present for active games. A finished draw has a reason and
-no winner. Coordinate moves use lowercase squares and an explicit promotion
+The side to move is present for active games. Declined and cancelled invitations
+have no winner or chess end reason. A finished draw has a reason and no winner.
+Coordinate moves use lowercase squares and an explicit promotion
 piece when required, for example `a7a8q`.
 
-The list endpoint defaults to `Pending` and also accepts `Active` or `Finished`.
+The list endpoint defaults to `Pending` and also accepts `Active`, `Finished`, or
+`ClosedInvitations`. `ClosedInvitations` includes both `Declined` and `Cancelled`.
 It returns up to 20 `items` and a `nextCursor` to pass as `before`, or `null` on
 the last page. Items include the game ID, opponent ID and username, the
 caller's color, status, creation time, turn indicator and result. Games with a
@@ -77,14 +83,16 @@ positions and move history.
 | --- | --- |
 | `400` | Invalid request body, invalid opponent selection or a self-invitation (`InvalidPlayers`), an empty or overlong username (`InvalidOpponentUsername`), an unknown or unconfirmed opponent (`OpponentUnavailable`), or an all-zero creation UUID (`InvalidRequestId`). |
 | `401` | Missing or invalid access token. |
-| `403 Forbidden` | White tried to accept the invitation or a player tried to respond to their own draw offer. |
+| `403 Forbidden` | The sender tried to accept or decline an invitation, the recipient tried to cancel it, or a player tried to respond to their own draw offer. |
 | `404 NotFound` | Game unknown or caller outside the game. |
 | `409` | Revisions conflict (`RevisionConflict`), the game is in the wrong state, it is the other player's turn, the action requires a different draw offer state, or the creator used the same request ID for another opponent (`CreationRequestConflict`). |
 | `422 IllegalMove` | Move notation or move legality was rejected by the chess rules. |
 | `422 DrawClaimUnavailable` | The current position or intended move does not qualify for the requested draw. |
 
 On `RevisionConflict`, read the latest game before sending a new command. A
-repeated move with the same revision cannot apply twice.
+repeated move with the same revision cannot apply twice. If acceptance and
+cancellation race at revision 0, one commits at revision 1 and the other
+returns `409 RevisionConflict`. All invitation actions require `Pending`.
 
 Supply exactly one of `opponentUsername` and `opponentId`. Username lookup trims
 leading and trailing whitespace, accepts up to 256 characters, and matches the
@@ -127,8 +135,8 @@ group. The board requests a snapshot using `afterRevision` and ignores
 duplicate and older notifications. After each join or reconnect, it reads the
 latest board to recover updates that could have been missed. An HTTP read every
 15 seconds also covers interrupted connections and dropped notifications.
-After receiving the final position, the board closes the live subscription and
-stops background reads. Reopening a finished game loads its saved position once.
+After detecting a finished game or a closed invitation, the board closes the live
+subscription and stops background reads. Reopening either loads its saved state once.
 Commands and snapshots continue to use the HTTP contract above.
 
 The deployment proxy must forward WebSocket upgrades and use HTTPS. The

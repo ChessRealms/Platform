@@ -4,5 +4,7 @@ public enum GameStatus
 {
     Pending,
     Active,
-    Finished
+    Finished,
+    Declined,
+    Cancelled
 }

@@ -29,6 +29,8 @@ The session lifecycle tests also verify:
 
 `GameBrowserTests` verifies that two players can share a username, send and accept
 an invitation through My games, and see White's first move in both browser contexts.
+It also verifies that both players see declined and cancelled invitations on an
+open board and can reopen them from **Closed invitations** in My games.
 In the direct-link scenario, Black opens the invitation while signed out,
 signs in, returns to the same game, and accepts.
 The test reopens the game from Invitations, Active, and Finished in My games.

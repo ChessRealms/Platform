@@ -9,12 +9,14 @@ import {
 } from 'rxjs';
 import { AuthSession } from '../identity/auth-session';
 import { GameLiveUpdates } from './game-live-updates';
-import { Game, GameBoard, GameFinishingAction, gameIdPattern } from './game.models';
+import { Game, GameBoard, GameFinishingAction, gameIdPattern, GameInvitationAction } from './game.models';
 import { GamesApi } from './games-api';
 
 type BoardError = 'invalid-link' | 'sign-in-required' | 'not-found' | 'connection';
 type BoardActivity = 'idle' | 'sending' | 'refreshing';
-export type GameBoardCommand = { kind: 'move'; move: string } | { kind: 'accept-invite' } | GameFinishingAction;
+export type GameBoardCommand = { kind: 'move'; move: string }
+  | { kind: 'invitation'; action: GameInvitationAction }
+  | GameFinishingAction;
 
 @Injectable()
 export class GameBoardSync {
@@ -44,8 +46,12 @@ export class GameBoardSync {
   readonly playerError = this.playerLoadFailed.asReadonly();
   readonly sessionUnavailable = computed(() => this.session.state() === 'unavailable');
   readonly updating = computed(() => this.activity() !== 'idle');
-  readonly canAct = computed(() => !!this.player() && !this.updating()
-    && !this.readError() && !this.sessionUnavailable() && this.game()?.status !== 'Finished');
+  private readonly isOpen = computed(() => {
+    const status = this.game()?.status;
+    return status === 'Pending' || status === 'Active';
+  });
+  readonly canAct = computed(() => this.isOpen() && !!this.player() && !this.updating()
+    && !this.readError() && !this.sessionUnavailable());
 
   constructor() {
     this.loadPlayer();
@@ -84,8 +90,10 @@ export class GameBoardSync {
     ).subscribe({
       error: (error: HttpErrorResponse) => {
         if (version === this.requestVersion) {
+          const changed = command.kind === 'invitation'
+            ? 'The invitation changed. Check its current status.' : 'The game changed. Check the current position.';
           this.actionError.set(error.error?.code === 'DrawClaimUnavailable' ? 'That draw claim is unavailable.'
-            : error.status === 409 ? 'The game changed. Check the current position.'
+            : error.status === 409 ? changed
             : error.status === 422 ? 'That move is illegal in the current position.'
             : 'Could not confirm the action. Check the updated board before trying again.');
         }
@@ -145,7 +153,7 @@ export class GameBoardSync {
         }
         this.readError.set(null);
         this.activity.set('idle');
-        if (this.game()?.status === 'Finished') {
+        if (this.game() && !this.isOpen()) {
           this.stopUpdates.next();
         } else {
           firstRead.next();
@@ -169,7 +177,7 @@ export class GameBoardSync {
   private send(game: Game, command: GameBoardCommand): Observable<Game> {
     switch (command.kind) {
       case 'move': return this.api.move(game, command.move);
-      case 'accept-invite': return this.api.accept(game);
+      case 'invitation': return this.api.updateInvitation(game, command.action);
       default: return this.api.finish(game, command);
     }
   }
