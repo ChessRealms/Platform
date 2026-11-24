@@ -4,7 +4,9 @@ import { defer, EMPTY, filter, Observable, switchMap } from 'rxjs';
 import { AuthSession } from '../identity/auth-session';
 import { IdentityApiClient } from '../identity/identity-api.client';
 import { CurrentUser } from '../identity/identity-api.models';
-import { Game, GameBoard, GameFinishingAction, GameInvitationAction, GameListFilter, GameListPage, PrivateLobby } from './game.models';
+import {
+  Game, GameBoard, GameFinishingAction, GameInvitationAction, GameListFilter, GameListPage, GameRematchAction, PrivateLobby,
+} from './game.models';
 
 export type GameCreation = { requestId: string } & (
   { opponentUsername: string; opponentId?: never } | { opponentId: string; opponentUsername?: never }
@@ -55,6 +57,11 @@ export class GamesApi {
 
   updateInvitation(game: Game, action: GameInvitationAction): Observable<Game> {
     return this.authorized(token => this.http.post<Game>(`/api/games/${encodeURIComponent(game.id)}/${action}`,
+      { expectedRevision: game.revision }, this.options(token)));
+  }
+
+  updateRematch(game: Game, action: GameRematchAction): Observable<Game> {
+    return this.authorized(token => this.http.post<Game>(`/api/games/${encodeURIComponent(game.id)}/rematch/${action}`,
       { expectedRevision: game.revision }, this.options(token)));
   }
 

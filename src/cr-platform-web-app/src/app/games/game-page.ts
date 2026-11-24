@@ -1,10 +1,12 @@
 import { DOCUMENT } from '@angular/common';
-import { Component, computed, inject, linkedSignal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Component, computed, effect, inject, linkedSignal } from '@angular/core';
+import { Router, RouterLink } from '@angular/router';
 import { ChessBoard } from './chess-board';
 import { GameBoardCommand, GameBoardSync } from './game-board-sync';
 import { GameFinishingActions } from './game-finishing-actions';
-import { finishReasons, Game, GameBoard, GameFinishingAction, GameInvitationAction, invitationOutcome } from './game.models';
+import {
+  finishReasons, Game, GameBoard, GameFinishingAction, GameInvitationAction, GameRematchAction, invitationOutcome,
+} from './game.models';
 import { GamesApi } from './games-api';
 import { InvitationCountdown } from './invitation-countdown';
 
@@ -20,6 +22,7 @@ const promotionNames: Record<string, string> = { q: 'Queen', r: 'Rook', b: 'Bish
 export class GamePage {
   protected readonly sync = inject(GameBoardSync);
   private readonly document = inject(DOCUMENT);
+  private readonly router = inject(Router);
 
   readonly game = this.sync.game;
   readonly selected = linkedSignal<GameBoard | null, string | null>({
@@ -63,6 +66,15 @@ export class GamePage {
     return this.closedInvitation() ?? (game.sideToMove === this.color() ? 'Your turn' : `${game.sideToMove} to move`);
   });
 
+  constructor() {
+    effect(() => {
+      const rematchId = this.sync.startedRematch();
+      if (rematchId) {
+        void this.router.navigate(['/games', rematchId]);
+      }
+    });
+  }
+
   gameLink(game: Game): string {
     return new URL('/games/' + game.id, this.document.baseURI).href;
   }
@@ -94,6 +106,10 @@ export class GamePage {
 
   protected updateInvitation(action: GameInvitationAction): void {
     this.submit({ kind: 'invitation', action });
+  }
+
+  protected updateRematch(action: GameRematchAction): void {
+    this.submit({ kind: 'rematch', action });
   }
 
   finish(action: GameFinishingAction): void {

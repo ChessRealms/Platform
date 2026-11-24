@@ -14,24 +14,29 @@ public sealed record GameResponse(
     string? Winner,
     string? EndReason,
     string? DrawOfferedBy,
-    DateTimeOffset? InvitationExpiresAt)
+    DateTimeOffset? InvitationExpiresAt,
+    DateTimeOffset? RematchExpiresAt,
+    string? RematchOfferedBy,
+    Guid? RematchGameId)
 {
     internal static GameResponse From(Game game, DateTimeOffset now)
     {
         bool expired = game.IsInvitationExpired(now);
         return From(game.Id, game.WhitePlayerId, game.BlackPlayerId, expired ? GameStatus.Expired : game.Status,
             expired ? game.Revision + 1 : game.Revision, game.Fen, game.SideToMove, game.Winner, game.EndReason,
-            game.DrawOfferedBy, game.InvitationExpiresAt);
+            game.DrawOfferedBy, game.InvitationExpiresAt, game.FinishedAt, game.RematchOfferedBy, game.RematchGameId);
     }
 
     internal static GameResponse From(GameBoardSnapshot board) =>
         From(board.Id, board.WhitePlayerId, board.BlackPlayerId, board.Status, board.Revision, board.Fen, board.SideToMove,
-            board.Winner, board.EndReason, board.DrawOfferedBy, board.InvitationExpiresAt);
+            board.Winner, board.EndReason, board.DrawOfferedBy, board.InvitationExpiresAt,
+            board.FinishedAt, board.RematchOfferedBy, board.RematchGameId);
 
     private static GameResponse From(Guid id, Guid whitePlayerId, Guid blackPlayerId, GameStatus status, long revision,
         string fen, PlayerColor sideToMove, PlayerColor? winner, GameEndReason? endReason, PlayerColor? drawOfferedBy,
-        DateTimeOffset? invitationExpiresAt) =>
+        DateTimeOffset? invitationExpiresAt, DateTimeOffset? finishedAt, PlayerColor? rematchOfferedBy, Guid? rematchGameId) =>
         new(id, whitePlayerId, blackPlayerId, status.ToString(), revision, fen,
             status == GameStatus.Active ? sideToMove.ToString() : null, winner?.ToString(), endReason?.ToString(),
-            drawOfferedBy?.ToString(), invitationExpiresAt);
+            drawOfferedBy?.ToString(), invitationExpiresAt, finishedAt + Game.RematchWindow,
+            rematchOfferedBy?.ToString(), rematchGameId);
 }

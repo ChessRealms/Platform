@@ -94,6 +94,50 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         await Expect(black.GetByText("Your turn", new() { Exact = true })).ToBeVisibleAsync();
     }
 
+    [Fact]
+    public async Task PlayersAcceptARematchWithSwappedColorsAndPlayTheFirstMove()
+    {
+        await using IBrowser browser = await browserSteps.LaunchBrowserAsync();
+        await using IBrowserContext whiteContext = await browserSteps.NewContextAsync(browser);
+        await using IBrowserContext blackContext = await browserSteps.NewContextAsync(browser);
+        (IPage white, string whiteEmail) = await browserSteps.RegisterAndOpenSignInAsync(whiteContext);
+        (IPage black, string blackEmail) = await browserSteps.RegisterAndOpenSignInAsync(blackContext);
+        await browserSteps.SignInAsync(white, whiteEmail);
+        await browserSteps.SignInAsync(black, blackEmail);
+        await black.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
+        string blackUsername = await ReadUsernameAsync(black);
+        await white.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
+        await SendInvitationAsync(white, blackUsername);
+        ILocator gameLink = white.GetByLabel("Game link", new() { Exact = true });
+        await Expect(gameLink).ToBeVisibleAsync();
+        string originalUrl = await gameLink.InputValueAsync();
+        await black.GotoAsync(originalUrl);
+        await black.GetByRole(AriaRole.Button, new() { Name = "Accept game", Exact = true }).ClickAsync();
+
+        await white.GetByRole(AriaRole.Button, new() { Name = "Resign", Exact = true }).ClickAsync();
+        await white.GetByRole(AriaRole.Button, new() { Name = "Confirm resignation", Exact = true }).ClickAsync();
+        await Expect(black.GetByText("Black wins · Resignation", new() { Exact = true })).ToBeVisibleAsync();
+        await white.GetByRole(AriaRole.Button, new() { Name = "Rematch", Exact = true }).ClickAsync();
+        await Expect(white.GetByText("Rematch offered.", new() { Exact = true })).ToBeVisibleAsync();
+        await white.ReloadAsync();
+        await Expect(white.GetByText("Rematch offered.", new() { Exact = true })).ToBeVisibleAsync();
+        await Expect(black.GetByText(new Regex(@"^Expires in [0-5]:[0-5][0-9]$"))).ToBeVisibleAsync();
+        await black.GetByRole(AriaRole.Button, new() { Name = "Accept rematch", Exact = true }).ClickAsync();
+
+        await Expect(black.GetByText("You play White.", new() { Exact = true })).ToBeVisibleAsync();
+        await Expect(white.GetByText("You play Black.", new() { Exact = true })).ToBeVisibleAsync();
+        Assert.NotEqual(originalUrl, black.Url);
+        await Expect(white).ToHaveURLAsync(black.Url);
+        await black.GetByRole(AriaRole.Button, new() { Name = "e2, White pawn", Exact = true }).ClickAsync();
+        await black.GetByRole(AriaRole.Button, new() { Name = "e4, empty", Exact = true }).ClickAsync();
+        await Expect(white.GetByRole(AriaRole.Button, new() { Name = "e4, White pawn", Exact = true })).ToBeVisibleAsync();
+
+        await white.GotoAsync(originalUrl);
+        await Expect(white.GetByText("Black wins · Resignation", new() { Exact = true })).ToBeVisibleAsync();
+        await Expect(white.GetByRole(AriaRole.Link, new() { Name = "Open rematch" }))
+            .ToHaveAttributeAsync("href", new Uri(black.Url).AbsolutePath);
+    }
+
     [Theory]
     [InlineData(true, "Decline", "Invitation declined")]
     [InlineData(false, "Cancel invitation", "Invitation cancelled")]

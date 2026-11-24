@@ -88,38 +88,48 @@ public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerD
 
     public Task<GameOperationResult> AcceptAsync(Guid gameId, Guid playerId, long expectedRevision,
         CancellationToken cancellationToken) =>
-        store.ChangeInvitationAsync(gameId, playerId, (game, now) => game.Accept(playerId, expectedRevision, now), cancellationToken);
+        store.ChangeLockedAsync(gameId, playerId, (game, now) => game.Accept(playerId, expectedRevision, now), cancellationToken);
 
     public Task<GameOperationResult> DeclineAsync(Guid gameId, Guid playerId, long expectedRevision,
         CancellationToken cancellationToken) =>
-        store.ChangeInvitationAsync(gameId, playerId, (game, now) => game.Decline(playerId, expectedRevision, now), cancellationToken);
+        store.ChangeLockedAsync(gameId, playerId, (game, now) => game.Decline(playerId, expectedRevision, now), cancellationToken);
 
     public Task<GameOperationResult> CancelAsync(Guid gameId, Guid playerId, long expectedRevision,
         CancellationToken cancellationToken) =>
-        store.ChangeInvitationAsync(gameId, playerId, (game, now) => game.Cancel(playerId, expectedRevision, now), cancellationToken);
+        store.ChangeLockedAsync(gameId, playerId, (game, now) => game.Cancel(playerId, expectedRevision, now), cancellationToken);
+
+    public Task<GameOperationResult> OfferRematchAsync(Guid gameId, Guid playerId, long expectedRevision,
+        CancellationToken cancellationToken) =>
+        store.ChangeLockedAsync(gameId, playerId, (game, now) => game.OfferRematch(playerId, expectedRevision, now), cancellationToken);
+
+    public Task<GameOperationResult> AcceptRematchAsync(Guid gameId, Guid playerId, long expectedRevision,
+        CancellationToken cancellationToken) =>
+        store.AcceptRematchAsync(gameId, playerId, expectedRevision, rules.StartingPosition, cancellationToken);
 
     public Task<GameOperationResult> PlayAsync(Guid gameId, Guid playerId, long expectedRevision, string move,
         CancellationToken cancellationToken) =>
-        ChangeAsync(gameId, playerId, game => game.Play(playerId, expectedRevision, record => rules.Play(record, move)), cancellationToken);
+        ChangeAsync(gameId, playerId, (game, now) => game.Play(playerId, expectedRevision, now, record => rules.Play(record, move)),
+            cancellationToken);
 
     public Task<GameOperationResult> ResignAsync(Guid gameId, Guid playerId, long expectedRevision,
         CancellationToken cancellationToken) =>
-        ChangeAsync(gameId, playerId, game => game.Resign(playerId, expectedRevision, rules.HasInsufficientMatingMaterial), cancellationToken);
+        ChangeAsync(gameId, playerId, (game, now) => game.Resign(playerId, expectedRevision, now, rules.HasInsufficientMatingMaterial),
+            cancellationToken);
 
     public Task<GameOperationResult> OfferDrawAsync(Guid gameId, Guid playerId, long expectedRevision,
         CancellationToken cancellationToken) =>
-        ChangeAsync(gameId, playerId, game => game.OfferDraw(playerId, expectedRevision), cancellationToken);
+        ChangeAsync(gameId, playerId, (game, _) => game.OfferDraw(playerId, expectedRevision), cancellationToken);
 
     public Task<GameOperationResult> ReplyToDrawOfferAsync(Guid gameId, Guid playerId, long expectedRevision,
         bool accept, CancellationToken cancellationToken) =>
-        ChangeAsync(gameId, playerId, game => game.ReplyToDrawOffer(playerId, expectedRevision, accept), cancellationToken);
+        ChangeAsync(gameId, playerId, (game, now) => game.ReplyToDrawOffer(playerId, expectedRevision, accept, now), cancellationToken);
 
     public Task<GameOperationResult> ClaimDrawAsync(Guid gameId, Guid playerId, long expectedRevision,
         DrawClaimReason reason, string? intendedMove, CancellationToken cancellationToken) =>
-        ChangeAsync(gameId, playerId, game => game.ClaimDraw(playerId, expectedRevision,
+        ChangeAsync(gameId, playerId, (game, now) => game.ClaimDraw(playerId, expectedRevision, now,
             record => rules.ClaimDraw(record, reason, intendedMove)), cancellationToken);
 
-    private async Task<GameOperationResult> ChangeAsync(Guid gameId, Guid playerId, Func<Game, GameError> change,
+    private async Task<GameOperationResult> ChangeAsync(Guid gameId, Guid playerId, Func<Game, DateTimeOffset, GameError> change,
         CancellationToken cancellationToken)
     {
         Game? game = await store.FindAsync(gameId, cancellationToken);
@@ -127,12 +137,13 @@ public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerD
         {
             return new(GameError.NotFound);
         }
-        if (game.IsInvitationExpired(clock.GetUtcNow()))
+        DateTimeOffset now = clock.GetUtcNow();
+        if (game.IsInvitationExpired(now))
         {
             return new(GameError.GameNotActive);
         }
 
-        GameError error = change(game);
+        GameError error = change(game, now);
         if (error != GameError.None)
         {
             return new(error);

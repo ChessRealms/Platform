@@ -99,6 +99,14 @@ public sealed class GamesController(GameService games, IHubContext<GameHub> live
     public async Task<IActionResult> Resign(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
         await ChangeResponseAsync(await games.ResignAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken));
 
+    [HttpPost("{id:guid}/rematch/offer")]
+    public async Task<IActionResult> OfferRematch(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
+        await ChangeResponseAsync(await games.OfferRematchAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken));
+
+    [HttpPost("{id:guid}/rematch/accept")]
+    public async Task<IActionResult> AcceptRematch(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
+        await ChangeResponseAsync(await games.AcceptRematchAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken));
+
     [HttpPost("{id:guid}/draw/offer")]
     public async Task<IActionResult> OfferDraw(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
         await ChangeResponseAsync(await games.OfferDrawAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken));
@@ -165,9 +173,9 @@ public sealed class GamesController(GameService games, IHubContext<GameHub> live
                 => StatusCodes.Status400BadRequest,
             GameError.RevisionConflict or GameError.GameNotPending or GameError.GameNotActive or GameError.NotYourTurn
                 or GameError.DrawOfferPending or GameError.NoDrawOffer or GameError.CreationRequestConflict
-                or GameError.InvitationLimitReached
+                or GameError.InvitationLimitReached or GameError.RematchUnavailable or GameError.RematchOfferPending or GameError.NoRematchOffer
                 => StatusCodes.Status409Conflict,
-            GameError.InvitationExpired => StatusCodes.Status410Gone,
+            GameError.InvitationExpired or GameError.RematchExpired => StatusCodes.Status410Gone,
             GameError.InvitationRateLimited => StatusCodes.Status429TooManyRequests,
             GameError.IllegalMove or GameError.DrawClaimUnavailable => StatusCodes.Status422UnprocessableEntity,
             _ => throw new InvalidOperationException("Unexpected game operation result.")

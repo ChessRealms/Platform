@@ -23,6 +23,12 @@ can accept, decline, or play a move to decline. On their turn, a player can clai
 a draw on the current position or select an intended move to support the claim.
 The board shows the final result and reason to both players.
 
+Either player can choose **Rematch** on the finished board. The other player
+can choose **Accept rematch** within five minutes of the original result. The
+countdown is shared and starts when the game ends. Accepting starts a new
+standard game with the same players and reversed colors. Both open boards
+follow the new game. Reopening the original result later shows **Open rematch**.
+
 Use **My games** to reopen a game without keeping its link. **Invitations**
 includes both received and sent invitations. **Active** shows whose turn it is,
 and **Finished** shows the result from your perspective. Both players can reopen
@@ -105,6 +111,8 @@ game and a game belonging to other players both return `404 NotFound`.
 | `POST /api/games/{id}/draw/offer` | `{"expectedRevision":1}` | `200` with the offerer's color. |
 | `POST /api/games/{id}/draw/accept` or `/draw/decline` | `{"expectedRevision":2}` | `200` with the offer cleared. Acceptance finishes the game as a draw. |
 | `POST /api/games/{id}/draw/claim` | `{"expectedRevision":9,"reason":"ThreefoldRepetition"}`, optionally with `intendedMove` | `200` with the game finished as a draw. |
+| `POST /api/games/{id}/rematch/offer` | `{"expectedRevision":8}` | `200` with the finished game and the offerer's color. |
+| `POST /api/games/{id}/rematch/accept` | `{"expectedRevision":9}` | `200` with the finished game and the new active game's ID in `rematchGameId`. |
 
 The response includes `id`, `whitePlayerId`, `blackPlayerId`, `status` (`Pending`,
 `Active`, `Finished`, `Declined`, `Cancelled`, or `Expired`), `revision`,
@@ -113,6 +121,14 @@ The side to move is present for active games. Closed invitations have no winner
 or chess end reason. A finished draw has a reason and no winner.
 Coordinate moves use lowercase squares and an explicit promotion
 piece when required, for example `a7a8q`.
+
+Game and board responses also include `rematchExpiresAt`, `rematchOfferedBy`,
+and `rematchGameId`. Only the opponent can accept an offer. The server locks
+the original row before checking the deadline. At the deadline, a new offer or
+an attempt to accept a pending offer returns `410 RematchExpired`. Acceptance
+creates and links the new game in one transaction. A retry by the recipient returns the
+same game ID even after expiry. Finished games recorded before the feature have
+no recorded finish time and no rematch window.
 
 The list endpoint defaults to `Pending` and also accepts `Active`, `Finished`, or
 `ClosedInvitations`. `ClosedInvitations` includes `Declined`, `Cancelled`, and `Expired`.
@@ -196,8 +212,9 @@ group. The board requests a snapshot using `afterRevision` and ignores
 duplicate and older notifications. After each join or reconnect, it reads the
 latest board to recover updates that could have been missed. An HTTP read every
 15 seconds also covers interrupted connections and dropped notifications.
-After detecting a finished game or a closed invitation, the board closes the live
-subscription and stops background reads. Reopening either loads its saved state once.
+Finished boards keep their subscription and background reads while a rematch
+can still start. Closed invitations and older finished boards load their saved
+state and stop background reads.
 Commands and snapshots continue to use the HTTP contract above.
 
 The deployment proxy must forward WebSocket upgrades and use HTTPS. The

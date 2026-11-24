@@ -42,6 +42,9 @@ notification, drops a move notification, and verifies that the browser
 resubscribes and recovers the missed move after disconnect. Reloading restores
 the saved board and move list. The two players can then agree to a draw and
 both browsers show the persisted result.
+The rematch scenario starts with a resignation, reloads the pending offer, and
+accepts in a separate session. Both browsers open the new game with reversed
+colors and see its first move. The original result still links to the rematch.
 
 The game tests also verify that an open board and My games switch to the new
 player when another tab signs in as the opponent. Signing out removes both

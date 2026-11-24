@@ -14,4 +14,7 @@ public sealed record GameBoardSnapshot(
     GameEndReason? EndReason,
     PlayerColor? DrawOfferedBy,
     DateTimeOffset? InvitationExpiresAt,
+    DateTimeOffset? FinishedAt,
+    PlayerColor? RematchOfferedBy,
+    Guid? RematchGameId,
     string? RulesRecord);
