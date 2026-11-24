@@ -6,13 +6,14 @@ import { GameBoardCommand, GameBoardSync } from './game-board-sync';
 import { GameFinishingActions } from './game-finishing-actions';
 import { finishReasons, Game, GameBoard, GameFinishingAction, GameInvitationAction, invitationOutcome } from './game.models';
 import { GamesApi } from './games-api';
+import { InvitationCountdown } from './invitation-countdown';
 
 const promotionNames: Record<string, string> = { q: 'Queen', r: 'Rook', b: 'Bishop', n: 'Knight' };
 
 @Component({
   selector: 'cr-game-page',
   providers: [GamesApi, GameBoardSync],
-  imports: [ChessBoard, GameFinishingActions, RouterLink],
+  imports: [ChessBoard, GameFinishingActions, InvitationCountdown, RouterLink],
   templateUrl: './game-page.html',
   styleUrl: './game-page.css',
 })

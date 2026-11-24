@@ -1,6 +1,6 @@
 export type PlayerColor = 'White' | 'Black';
 export type GameListFilter = 'Pending' | 'Active' | 'Finished' | 'ClosedInvitations';
-export type GameStatus = Exclude<GameListFilter, 'ClosedInvitations'> | 'Declined' | 'Cancelled';
+export type GameStatus = Exclude<GameListFilter, 'ClosedInvitations'> | 'Declined' | 'Cancelled' | 'Expired';
 export type GameInvitationAction = 'accept' | 'decline' | 'cancel';
 export type DrawClaimReason = 'ThreefoldRepetition' | 'FiftyMoveRule';
 export type GameFinishingAction =
@@ -18,6 +18,7 @@ export interface Game {
   winner: PlayerColor | null;
   endReason: string | null;
   drawOfferedBy: PlayerColor | null;
+  invitationExpiresAt: string | null;
 }
 
 export interface GameListItem {
@@ -27,6 +28,7 @@ export interface GameListItem {
   color: PlayerColor;
   status: GameStatus;
   createdAt: string | null;
+  invitationExpiresAt: string | null;
   isYourTurn: boolean;
   winner: PlayerColor | null;
   endReason: string | null;
@@ -50,6 +52,7 @@ export function invitationOutcome(status: GameStatus | undefined): string | unde
   switch (status) {
     case 'Declined': return 'Invitation declined';
     case 'Cancelled': return 'Invitation cancelled';
+    case 'Expired': return 'Invitation expired';
     default: return undefined;
   }
 }

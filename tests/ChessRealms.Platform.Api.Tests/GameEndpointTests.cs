@@ -36,6 +36,7 @@ public sealed class GameEndpointTests : IAsyncLifetime
     private const string Password = "Synthetic-player-password9!";
     private readonly PostgreSqlContainer postgres = new PostgreSqlBuilder("postgres:18.3").Build();
     private readonly RSA signingKey = RSA.Create(2048);
+    private readonly TestClock clock = new();
     private WebApplication? app;
     private CancellationToken Cancellation => TestContext.Current.CancellationToken;
 
@@ -106,7 +107,9 @@ public sealed class GameEndpointTests : IAsyncLifetime
         Assert.Equal(otherId, independent.WhitePlayerId);
         Assert.NotEqual(pending.Id, independent.Id);
 
+        await AcceptGameAsync(black, $"/api/games/{another.Id}");
         GameResponse legacyFirst = await CreateGameAsync(white, blackId);
+        await AcceptGameAsync(black, $"/api/games/{legacyFirst.Id}");
         GameResponse legacySecond = await CreateGameAsync(white, blackId);
         Assert.NotEqual(legacyFirst.Id, legacySecond.Id);
         Assert.Equal(whiteId, legacySecond.WhitePlayerId);
@@ -202,16 +205,14 @@ public sealed class GameEndpointTests : IAsyncLifetime
         await using AsyncServiceScope first = app!.Services.CreateAsyncScope();
         await using AsyncServiceScope second = app.Services.CreateAsyncScope();
         GamePosition position = first.ServiceProvider.GetRequiredService<IGameRules>().StartingPosition();
-        Game firstGame = new(creator, opponent, position, DateTimeOffset.UtcNow);
-        Game secondGame = new(creator, opponent, position, DateTimeOffset.UtcNow);
         IGameStore firstStore = first.ServiceProvider.GetRequiredService<IGameStore>();
         IGameStore secondStore = second.ServiceProvider.GetRequiredService<IGameStore>();
 
-        Game[] saved = await Task.WhenAll(firstStore.CreateOrGetAsync(firstGame, requestId, Cancellation),
-            secondStore.CreateOrGetAsync(secondGame, requestId, Cancellation));
+        CreateGameResult[] saved = await Task.WhenAll(firstStore.CreateAsync(creator, opponent, position, requestId, Cancellation),
+            secondStore.CreateAsync(creator, opponent, position, requestId, Cancellation));
 
-        Assert.Equal(saved[0].Id, saved[1].Id);
-        Assert.Contains(saved[0].Id, new[] { firstGame.Id, secondGame.Id });
+        Assert.Single(saved, result => result.Created);
+        Assert.Equal(Assert.IsType<Game>(saved[0].Game).Id, Assert.IsType<Game>(saved[1].Game).Id);
         PlatformDbContext database = first.ServiceProvider.GetRequiredService<PlatformDbContext>();
         Assert.Equal(1, await database.Games.CountAsync(game => game.WhitePlayerId == creator, Cancellation));
     }
@@ -279,7 +280,7 @@ public sealed class GameEndpointTests : IAsyncLifetime
         (Guid blackId, string blackToken) = await RegisterAndSignInAsync("listing-black");
         using HttpClient white = CreateClient(whiteToken);
         using HttpClient black = CreateClient(blackToken);
-        DateTimeOffset createdAt = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        DateTimeOffset createdAt = clock.GetUtcNow();
         Game[] dated;
         Game[] legacy;
         await using (AsyncServiceScope scope = app!.Services.CreateAsyncScope())
@@ -314,6 +315,174 @@ public sealed class GameEndpointTests : IAsyncLifetime
             .Concat(legacy.OrderByDescending(game => game.Id).Select(game => game.Id)), all.Select(game => game.Id));
         Assert.All(all.Take(21), game => Assert.Equal(createdAt, game.CreatedAt));
         Assert.All(all.Skip(21), game => Assert.Null(game.CreatedAt));
+    }
+
+    [Fact]
+    public async Task InvitationExpiryMigrationBackfillsPendingRows()
+    {
+        await using AsyncServiceScope scope = app!.Services.CreateAsyncScope();
+        PlatformDbContext database = scope.ServiceProvider.GetRequiredService<PlatformDbContext>();
+        GamePosition position = scope.ServiceProvider.GetRequiredService<IGameRules>().StartingPosition();
+        DateTimeOffset now = clock.GetUtcNow();
+        Game dated = new(Guid.NewGuid(), Guid.NewGuid(), position, now.AddMinutes(-20));
+        Game undated = new(Guid.NewGuid(), Guid.NewGuid(), position, now);
+        Game active = new(Guid.NewGuid(), Guid.NewGuid(), position, now);
+        Assert.Equal(GameError.None, active.Accept(active.BlackPlayerId, 0, now));
+        database.Games.AddRange(dated, undated, active);
+        database.Entry(undated).Property(game => game.CreatedAt).CurrentValue = null;
+        await database.SaveChangesAsync(Cancellation);
+
+        await database.Database.MigrateAsync("20261123105735_IdempotentGameCreation", Cancellation);
+        DateTimeOffset before = await database.Database.SqlQueryRaw<DateTimeOffset>(
+            """SELECT statement_timestamp() AS "Value" """).SingleAsync(Cancellation);
+        await database.Database.MigrateAsync(Cancellation);
+        DateTimeOffset after = await database.Database.SqlQueryRaw<DateTimeOffset>(
+            """SELECT statement_timestamp() AS "Value" """).SingleAsync(Cancellation);
+        Dictionary<Guid, Game> migrated = await database.Games.AsNoTracking().ToDictionaryAsync(game => game.Id, Cancellation);
+
+        Assert.Equal(dated.CreatedAt?.AddMinutes(5), migrated[dated.Id].InvitationExpiresAt);
+        Assert.Null(migrated[undated.Id].CreatedAt);
+        Assert.InRange(Assert.IsType<DateTimeOffset>(migrated[undated.Id].InvitationExpiresAt),
+            before.AddMinutes(5), after.AddMinutes(5));
+        Assert.Equal(GameStatus.Active, migrated[active.Id].Status);
+        Assert.Null(migrated[active.Id].InvitationExpiresAt);
+    }
+
+    [Fact]
+    public async Task InvitationExpiresAtTheDeadlineInEveryReadAndAction()
+    {
+        (_, string whiteToken) = await RegisterAndSignInAsync("white");
+        (Guid blackId, string blackToken) = await RegisterAndSignInAsync("black");
+        using HttpClient white = CreateClient(whiteToken);
+        using HttpClient black = CreateClient(blackToken);
+        CreateGameRequest request = new(blackId, Guid.NewGuid());
+        using HttpResponseMessage created = await white.PostAsJsonAsync("/api/games", request, Cancellation);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        GameResponse pending = Assert.IsType<GameResponse>(await created.Content.ReadFromJsonAsync<GameResponse>(Cancellation));
+        Assert.Equal(clock.GetUtcNow().AddMinutes(5), pending.InvitationExpiresAt);
+        string url = $"/api/games/{pending.Id}";
+        string boardUrl = $"{url}/board?afterRevision={pending.Revision}";
+
+        clock.Advance(TimeSpan.FromMilliseconds(299999));
+        using HttpResponseMessage unchanged = await black.GetAsync(boardUrl, Cancellation);
+        Assert.Equal(HttpStatusCode.NoContent, unchanged.StatusCode);
+        Assert.Single((await ListGamesAsync(black)).Items);
+        Assert.Empty((await ListGamesAsync(black, "?status=ClosedInvitations")).Items);
+
+        clock.Advance(TimeSpan.FromMilliseconds(1));
+        using HttpResponseMessage changed = await black.GetAsync(boardUrl, Cancellation);
+        Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
+        GameBoardResponse board = Assert.IsType<GameBoardResponse>(await changed.Content.ReadFromJsonAsync<GameBoardResponse>(Cancellation));
+        GameResponse expired = pending with { Status = "Expired", Revision = pending.Revision + 1 };
+        Assert.Equal(expired, board.Game);
+        Assert.Empty(board.LegalMoves);
+        using HttpResponseMessage upToDate = await black.GetAsync($"{url}/board?afterRevision={expired.Revision}", Cancellation);
+        Assert.Equal(HttpStatusCode.NoContent, upToDate.StatusCode);
+
+        foreach (HttpClient participant in new[] { white, black })
+        {
+            Assert.Empty((await ListGamesAsync(participant)).Items);
+            GameListItemResponse item = Assert.Single((await ListGamesAsync(participant, "?status=ClosedInvitations")).Items);
+            Assert.Equal((expired.Id, expired.Status, expired.InvitationExpiresAt), (item.Id, item.Status, item.InvitationExpiresAt));
+            Assert.Equal(expired, await participant.GetFromJsonAsync<GameResponse>(url, Cancellation));
+        }
+
+        foreach ((HttpClient actor, string action) in new[] { (black, "accept"), (black, "decline"), (white, "cancel") })
+        {
+            using HttpResponseMessage late = await actor.PostAsJsonAsync($"{url}/{action}", new GameRevisionRequest(pending.Revision), Cancellation);
+            await AssertErrorAsync(late, HttpStatusCode.Gone, "InvitationExpired");
+        }
+
+        using HttpResponseMessage replay = await white.PostAsJsonAsync("/api/games", request, Cancellation);
+        Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        Assert.Equal(expired, await replay.Content.ReadFromJsonAsync<GameResponse>(Cancellation));
+        GameResponse fresh = await CreateGameAsync(white, blackId);
+        Assert.NotEqual(expired.Id, fresh.Id);
+
+        clock.Advance(TimeSpan.FromMilliseconds(299999));
+        GameResponse accepted = await AcceptGameAsync(black, $"/api/games/{fresh.Id}");
+        clock.Advance(TimeSpan.FromMilliseconds(1));
+        Assert.Equal(accepted, await black.GetFromJsonAsync<GameResponse>($"/api/games/{fresh.Id}", Cancellation));
+    }
+
+    [Fact]
+    public async Task ConcurrentCreationCannotExceedTheOpenLimitAndExpiryFreesCapacity()
+    {
+        (Guid whiteId, string whiteToken) = await RegisterAndSignInAsync("white");
+        (Guid blackId, string blackToken) = await RegisterAndSignInAsync("black");
+        (Guid secondId, _) = await RegisterAndSignInAsync("second");
+        (Guid thirdId, _) = await RegisterAndSignInAsync("third");
+        (Guid fourthId, _) = await RegisterAndSignInAsync("fourth");
+        using HttpClient white = CreateClient(whiteToken);
+        using HttpClient black = CreateClient(blackToken);
+        await CreateGameAsync(black, whiteId);
+
+        Guid[] opponents = [blackId, secondId, thirdId, fourthId];
+        HttpResponseMessage[] responses = await Task.WhenAll(opponents.Select(opponent =>
+            white.PostAsJsonAsync("/api/games", new CreateGameRequest(opponent), Cancellation)));
+        try
+        {
+            Assert.Equal(3, responses.Count(response => response.StatusCode == HttpStatusCode.Created));
+            HttpResponseMessage limited = Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Conflict);
+            await AssertErrorAsync(limited, HttpStatusCode.Conflict, "InvitationLimitReached");
+            Assert.Equal(3, (await ListGamesAsync(white)).Items.Count(item => item.Color == "White"));
+
+            clock.Advance(TimeSpan.FromMinutes(5));
+            Guid rejectedOpponent = opponents[Array.IndexOf(responses, limited)];
+            GameResponse fresh = await CreateGameAsync(white, rejectedOpponent);
+            Assert.Equal(fresh.Id, Assert.Single((await ListGamesAsync(white)).Items).Id);
+        }
+        finally
+        {
+            foreach (HttpResponseMessage response in responses)
+            {
+                response.Dispose();
+            }
+        }
+    }
+
+    [Fact]
+    public async Task PairLimitsUseResolvedAccountsAndCountClosedInvitationsInASlidingWindow()
+    {
+        (_, string whiteToken) = await RegisterAndSignInAsync("white");
+        (Guid blackId, string blackToken) = await RegisterAndSignInAsync("BlackKnight");
+        using HttpClient white = CreateClient(whiteToken);
+        using HttpClient black = CreateClient(blackToken);
+        CreateGameRequest byId = new(blackId);
+        CreateGameRequest byName = new(OpponentUsername: " BLACKKNIGHT ");
+        HttpResponseMessage[] concurrent = await Task.WhenAll(white.PostAsJsonAsync("/api/games", byId, Cancellation),
+            white.PostAsJsonAsync("/api/games", byName, Cancellation));
+        using HttpResponseMessage firstResponse = concurrent[0];
+        using HttpResponseMessage secondResponse = concurrent[1];
+        HttpResponseMessage created = Assert.Single(concurrent, response => response.StatusCode == HttpStatusCode.Created);
+        HttpResponseMessage duplicate = Assert.Single(concurrent, response => response.StatusCode == HttpStatusCode.Conflict);
+        GameResponse first = Assert.IsType<GameResponse>(await created.Content.ReadFromJsonAsync<GameResponse>(Cancellation));
+        JsonElement conflict = await duplicate.Content.ReadFromJsonAsync<JsonElement>(Cancellation);
+        Assert.Equal("InvitationAlreadyPending", conflict.GetProperty("code").GetString());
+        Assert.Equal(first.Id, conflict.GetProperty("gameId").GetGuid());
+        await ApplyActionAsync(black, $"/api/games/{first.Id}", "decline", first.Revision);
+
+        clock.Advance(TimeSpan.FromMinutes(1));
+        CreateGameRequest keyed = byId with { RequestId = Guid.NewGuid() };
+        using HttpResponseMessage second = await white.PostAsJsonAsync("/api/games", keyed, Cancellation);
+        Assert.Equal(HttpStatusCode.Created, second.StatusCode);
+        GameResponse secondGame = Assert.IsType<GameResponse>(await second.Content.ReadFromJsonAsync<GameResponse>(Cancellation));
+        GameResponse cancelled = await ApplyActionAsync(white, $"/api/games/{secondGame.Id}", "cancel", secondGame.Revision);
+        for (int i = 0; i < 3; i++)
+        {
+            GameResponse pending = await CreateGameAsync(white, blackId);
+            await ApplyActionAsync(white, $"/api/games/{pending.Id}", "cancel", pending.Revision);
+        }
+
+        using HttpResponseMessage limited = await white.PostAsJsonAsync("/api/games", byName, Cancellation);
+        await AssertErrorAsync(limited, HttpStatusCode.TooManyRequests, "InvitationRateLimited");
+        Assert.Equal(TimeSpan.FromMinutes(4), limited.Headers.RetryAfter?.Delta);
+        using HttpResponseMessage replay = await white.PostAsJsonAsync("/api/games", keyed, Cancellation);
+        Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        Assert.Equal(cancelled, await replay.Content.ReadFromJsonAsync<GameResponse>(Cancellation));
+
+        clock.Advance(TimeSpan.FromMinutes(4));
+        await CreateGameAsync(white, blackId);
     }
 
     [Theory]
@@ -656,7 +825,7 @@ public sealed class GameEndpointTests : IAsyncLifetime
         using HttpClient white = CreateClient(whiteToken);
         using HttpClient black = CreateClient(blackToken);
         await using AsyncServiceScope scope = app!.Services.CreateAsyncScope();
-        IGameStore store = scope.ServiceProvider.GetRequiredService<IGameStore>();
+        PlatformDbContext database = scope.ServiceProvider.GetRequiredService<PlatformDbContext>();
         IGameRules rules = scope.ServiceProvider.GetRequiredService<IGameRules>();
 
         (string Fen, HttpClient Resigning, string? Winner)[] positions =
@@ -676,7 +845,8 @@ public sealed class GameEndpointTests : IAsyncLifetime
         foreach ((string fen, HttpClient resigning, string? winner) in positions)
         {
             Game game = new(whiteId, blackId, new(PositionRecord(fen), fen, PlayerColor.White), DateTimeOffset.UtcNow);
-            await store.CreateOrGetAsync(game, null, Cancellation);
+            database.Games.Add(game);
+            await database.SaveChangesAsync(Cancellation);
             string url = $"/api/games/{game.Id}";
             GameResponse active = await AcceptGameAsync(black, url);
             GameResponse offered = await ApplyActionAsync(resigning, url, "draw/offer", active.Revision);
@@ -766,7 +936,9 @@ public sealed class GameEndpointTests : IAsyncLifetime
         Game game = new(whiteId, blackId, new(record, fen, PlayerColor.White), DateTimeOffset.UtcNow);
         await using (AsyncServiceScope scope = app!.Services.CreateAsyncScope())
         {
-            await scope.ServiceProvider.GetRequiredService<IGameStore>().CreateOrGetAsync(game, null, Cancellation);
+            PlatformDbContext database = scope.ServiceProvider.GetRequiredService<PlatformDbContext>();
+            database.Games.Add(game);
+            await database.SaveChangesAsync(Cancellation);
         }
         string url = $"/api/games/{game.Id}";
         GameResponse active = await AcceptGameAsync(black, url);
@@ -824,6 +996,7 @@ public sealed class GameEndpointTests : IAsyncLifetime
             ["Identity:Jwt:PrivateKeyPem"] = signingKey.ExportPkcs8PrivateKeyPem()
         });
         builder.AddInfrastructure();
+        builder.Services.AddSingleton<TimeProvider>(clock);
         builder.Services.AddScoped<GameService>();
         builder.Services.AddIdentityAuthentication(builder.Configuration);
         builder.Services.AddControllers().AddApplicationPart(typeof(GamesController).Assembly);
@@ -837,6 +1010,15 @@ public sealed class GameEndpointTests : IAsyncLifetime
         server.MapControllers();
         server.MapHub<GameHub>(GameHub.Path, options => options.Transports = HttpTransportType.WebSockets);
         return server;
+    }
+
+    private sealed class TestClock : TimeProvider
+    {
+        private long ticks = DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()).UtcTicks;
+
+        public override DateTimeOffset GetUtcNow() => new(Interlocked.Read(ref ticks), TimeSpan.Zero);
+
+        public void Advance(TimeSpan elapsed) => Interlocked.Add(ref ticks, elapsed.Ticks);
     }
 
     private Uri LiveUri(string? token = null) => new UriBuilder(Assert.Single(app!.Urls))

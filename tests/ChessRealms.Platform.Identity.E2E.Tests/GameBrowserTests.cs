@@ -33,6 +33,7 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         string whiteUsername = await ReadUsernameAsync(white);
         await SendInvitationAsync(white, blackUsername);
         await Expect(white.GetByLabel("Game link")).ToBeVisibleAsync();
+        await Expect(white.GetByText(new Regex(@"^Expires in [0-5]:[0-5][0-9]$"))).ToBeVisibleAsync();
 
         ILocator gamesList = black.GetByRole(AriaRole.Region, new() { Name = "Your games", Exact = true });
         await gamesList.GetByRole(AriaRole.Button, new() { Name = "Refresh", Exact = true }).ClickAsync();

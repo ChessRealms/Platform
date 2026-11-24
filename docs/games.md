@@ -11,7 +11,8 @@ Choose **Play chess** on the home page to open **My games**. Share the name show
 under **Your username**, or enter your opponent’s full username and choose
 **Send invitation**. Your opponent can open **Invitations** in **My games** and
 accept or decline from the board. While the invitation is pending, the sender
-can choose **Cancel invitation**. If the list is already open, choose **Refresh**
+can choose **Cancel invitation**. Both views show how much remains of the
+invitation's five minutes. If the list is already open, choose **Refresh**
 to see the new invitation. Either player can also reopen it from its direct link
 after sign-in or session recovery. The board shows legal destinations for the
 selected piece and asks for a piece when promoting.
@@ -25,7 +26,7 @@ The board shows the final result and reason to both players.
 Use **My games** to reopen a game without keeping its link. **Invitations**
 includes both received and sent invitations. **Active** shows whose turn it is,
 and **Finished** shows the result from your perspective. Both players can reopen
-declined or cancelled invitations from **Closed invitations**. Use **Refresh** to check
+declined, cancelled, or expired invitations from **Closed invitations**. Use **Refresh** to check
 for changes and **Load more** to browse older entries. If a creation response
 is lost, use **Retry creation** to recover the same invitation. The web app
 remembers the attempt in that tab across reloads during the same login. Choose
@@ -63,18 +64,18 @@ game and a game belonging to other players both return `404 NotFound`.
 | `POST /api/games/{id}/draw/claim` | `{"expectedRevision":9,"reason":"ThreefoldRepetition"}`, optionally with `intendedMove` | `200` with the game finished as a draw. |
 
 The response includes `id`, `whitePlayerId`, `blackPlayerId`, `status` (`Pending`,
-`Active`, `Finished`, `Declined`, or `Cancelled`), `revision`, `fen`, `sideToMove`, `winner`, `endReason`
-and `drawOfferedBy`. The latter is `White`, `Black`, or `null`.
-The side to move is present for active games. Declined and cancelled invitations
-have no winner or chess end reason. A finished draw has a reason and no winner.
+`Active`, `Finished`, `Declined`, `Cancelled`, or `Expired`), `revision`,
+`invitationExpiresAt`, `fen`, `sideToMove`, `winner`, `endReason`, and `drawOfferedBy`.
+The side to move is present for active games. Closed invitations have no winner
+or chess end reason. A finished draw has a reason and no winner.
 Coordinate moves use lowercase squares and an explicit promotion
 piece when required, for example `a7a8q`.
 
 The list endpoint defaults to `Pending` and also accepts `Active`, `Finished`, or
-`ClosedInvitations`. `ClosedInvitations` includes both `Declined` and `Cancelled`.
+`ClosedInvitations`. `ClosedInvitations` includes `Declined`, `Cancelled`, and `Expired`.
 It returns up to 20 `items` and a `nextCursor` to pass as `before`, or `null` on
 the last page. Items include the game ID, opponent ID and username, the
-caller's color, status, creation time, turn indicator and result. Games with a
+caller's color, status, creation time, invitation deadline, turn indicator and result. Games with a
 creation time appear newest first. Games created before the listing migration
 have `createdAt: null` and follow the dated games. Use the board endpoint for
 positions and move history.
@@ -86,13 +87,26 @@ positions and move history.
 | `403 Forbidden` | The sender tried to accept or decline an invitation, the recipient tried to cancel it, or a player tried to respond to their own draw offer. |
 | `404 NotFound` | Game unknown or caller outside the game. |
 | `409` | Revisions conflict (`RevisionConflict`), the game is in the wrong state, it is the other player's turn, the action requires a different draw offer state, or the creator used the same request ID for another opponent (`CreationRequestConflict`). |
+| `409 InvitationAlreadyPending` | The sender already has an open invitation for the opponent. The response includes its `gameId`. |
+| `409 InvitationLimitReached` | The sender has three open outgoing invitations. |
+| `410 InvitationExpired` | The caller's invitation action reached an open invitation at or after its deadline. |
 | `422 IllegalMove` | Move notation or move legality was rejected by the chess rules. |
 | `422 DrawClaimUnavailable` | The current position or intended move does not qualify for the requested draw. |
+| `429 InvitationRateLimited` | Five invitations to the same opponent were created in the last five minutes. `Retry-After` gives the wait in seconds. |
 
 On `RevisionConflict`, read the latest game before sending a new command. A
-repeated move with the same revision cannot apply twice. If acceptance and
-cancellation race at revision 0, one commits at revision 1 and the other
-returns `409 RevisionConflict`. All invitation actions require `Pending`.
+repeated move with the same revision cannot apply twice. For invitation actions,
+the server evaluates the deadline after locking the game row. If acceptance and
+cancellation race and the first action gets the lock before the deadline, it
+commits at revision 1 and the second returns `409 RevisionConflict`.
+At the deadline, a pending invitation appears
+as `Expired` at the next revision, including on conditional board reads. Accepted
+games and invitations already declined or cancelled retain their state.
+
+The deadline is five minutes after creation. The migration uses the recorded
+creation time for existing pending invitations and its own execution time for
+legacy pending invitations without a creation timestamp. Reading or replaying
+an invitation leaves its deadline in place.
 
 Supply exactly one of `opponentUsername` and `opponentId`. Username lookup trims
 leading and trailing whitespace, accepts up to 256 characters, and matches the
@@ -102,8 +116,12 @@ Generate a new `requestId` for each intended game. Retry an unconfirmed creation
 with the same `requestId` and opponent. A username and an ID that resolve to the
 same account identify the same opponent. The request ID is unique per authenticated
 creator and stored with the game, so concurrent retries resolve to the same game
-ID. A replay returns the game's current state, including any progress since
-creation. Omitting `requestId` creates a new game for each successful request.
+ID. A replay returns the game's current state and leaves the creation quota
+untouched. New invitations count toward a five-minute sliding window for the
+ordered pair of account IDs, even after the invitation closes. One pending
+invitation per ordered pair and three pending outgoing invitations per sender
+are allowed. A duplicate returns the existing invitation's ID so the sender can
+reopen it. Only successful creations bind a request ID.
 
 Draw claims use `ThreefoldRepetition` or `FiftyMoveRule`. ChessRealms.Engine
 validates each claim. A valid intended move establishes eligibility and is

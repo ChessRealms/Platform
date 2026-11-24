@@ -34,6 +34,9 @@
           @if (sync.updating()) { <p role="status">Updating game…</p> }
           @if (sync.commandError(); as message) { <p class="form-errors" role="alert">{{ message }}</p> }
           @if (game.status === 'Pending') {
+            @if (game.invitationExpiresAt; as expiresAt) {
+              <p><cr-invitation-countdown [expiresAt]="expiresAt" /></p>
+            }
             @if (color() === 'Black') {
               <div class="invitation-actions">
                 <button type="button" [disabled]="!sync.canAct()" (click)="updateInvitation('accept')">Accept game</button>

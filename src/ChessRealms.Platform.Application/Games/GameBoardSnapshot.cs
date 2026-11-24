@@ -13,4 +13,5 @@ public sealed record GameBoardSnapshot(
     PlayerColor? Winner,
     GameEndReason? EndReason,
     PlayerColor? DrawOfferedBy,
+    DateTimeOffset? InvitationExpiresAt,
     string? RulesRecord);

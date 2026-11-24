@@ -36,7 +36,12 @@
                   }
                 </span>
               </span>
-              <span class="game-status">{{ statusText(game) }}</span>
+              <span class="game-status">
+                <span>{{ statusText(game) }}</span>
+                @if (game.status === 'Pending' && game.invitationExpiresAt; as expiresAt) {
+                  <br /><cr-invitation-countdown [expiresAt]="expiresAt" />
+                }
+              </span>
             </a>
           </li>
         }
@@ -58,6 +63,9 @@
     }
     @if (error(); as message) {
       <p class="form-errors" role="alert">{{ message }}</p>
+      @if (existingInvitationId(); as id) {
+        <p><a [routerLink]="['/games', id]">Open existing invitation</a></p>
+      }
     } @else if (pendingCreation() && !busy()) {
       <p role="status">Game creation hasn’t been confirmed. Retry to open the same invitation.</p>
     }

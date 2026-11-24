@@ -17,5 +17,9 @@ public enum GameError
     DrawClaimUnavailable,
     InvalidRequestId,
     CreationRequestConflict,
-    InvalidOpponentUsername
+    InvalidOpponentUsername,
+    InvitationExpired,
+    InvitationAlreadyPending,
+    InvitationLimitReached,
+    InvitationRateLimited
 }

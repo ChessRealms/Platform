@@ -27,6 +27,7 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
                 .HasDatabaseName(GameCreationRequestIndex).IsUnique();
             game.HasIndex(item => new { item.WhitePlayerId, item.Status });
             game.HasIndex(item => new { item.BlackPlayerId, item.Status });
+            game.HasIndex(item => new { item.WhitePlayerId, item.BlackPlayerId, item.CreatedAt });
         });
     }
 }

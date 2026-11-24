@@ -1,3 +1,5 @@
+using System.Globalization;
+
 using ChessRealms.Platform.Api.Realtime;
 using ChessRealms.Platform.Application.Games;
 using ChessRealms.Platform.Domain.Games;
@@ -12,7 +14,7 @@ namespace ChessRealms.Platform.Api.Controllers;
 [Authorize]
 [Route("api/games")]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-public sealed class GamesController(GameService games, IHubContext<GameHub> live,
+public sealed class GamesController(GameService games, IHubContext<GameHub> live, TimeProvider clock,
     ILogger<GamesController> logger) : ControllerBase
 {
     [HttpGet]
@@ -34,12 +36,20 @@ public sealed class GamesController(GameService games, IHubContext<GameHub> live
     {
         CreateGameResult result = await games.CreateAsync(PlayerId(), request.OpponentId, request.OpponentUsername,
             request.RequestId, cancellationToken);
+        if (result.Error == GameError.InvitationAlreadyPending)
+        {
+            return Conflict(new { code = result.Error.ToString(), gameId = result.Game!.Id });
+        }
+        if (result.RetryAfter is { } retryAfter)
+        {
+            Response.Headers.RetryAfter = Math.Ceiling(retryAfter.TotalSeconds).ToString(CultureInfo.InvariantCulture);
+        }
         if (result.Error != GameError.None)
         {
             return ErrorResponse(result.Error);
         }
 
-        GameResponse response = GameResponse.From(result.Game!);
+        GameResponse response = GameResponse.From(result.Game!, clock.GetUtcNow());
         return result.Created ? CreatedAtAction(nameof(Get), new { id = response.Id }, response) : Ok(response);
     }
 
@@ -47,7 +57,7 @@ public sealed class GamesController(GameService games, IHubContext<GameHub> live
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
         Game? game = await games.GetAsync(id, PlayerId(), cancellationToken);
-        return game is null ? ErrorResponse(GameError.NotFound) : Ok(GameResponse.From(game));
+        return game is null ? ErrorResponse(GameError.NotFound) : Ok(GameResponse.From(game, clock.GetUtcNow()));
     }
 
     [HttpPost("{id:guid}/accept")]
@@ -142,7 +152,7 @@ public sealed class GamesController(GameService games, IHubContext<GameHub> live
                 game.Id, game.Revision);
         }
 
-        return Ok(GameResponse.From(game));
+        return Ok(GameResponse.From(game, clock.GetUtcNow()));
     }
 
     private ObjectResult ErrorResponse(GameError error)
@@ -155,7 +165,10 @@ public sealed class GamesController(GameService games, IHubContext<GameHub> live
                 => StatusCodes.Status400BadRequest,
             GameError.RevisionConflict or GameError.GameNotPending or GameError.GameNotActive or GameError.NotYourTurn
                 or GameError.DrawOfferPending or GameError.NoDrawOffer or GameError.CreationRequestConflict
+                or GameError.InvitationLimitReached
                 => StatusCodes.Status409Conflict,
+            GameError.InvitationExpired => StatusCodes.Status410Gone,
+            GameError.InvitationRateLimited => StatusCodes.Status429TooManyRequests,
             GameError.IllegalMove or GameError.DrawClaimUnavailable => StatusCodes.Status422UnprocessableEntity,
             _ => throw new InvalidOperationException("Unexpected game operation result.")
         };

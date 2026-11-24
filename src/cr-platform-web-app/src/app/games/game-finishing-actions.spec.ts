@@ -6,6 +6,7 @@ describe('GameFinishingActions', () => {
   const game: Game = {
     id: 'game', whitePlayerId: 'white', blackPlayerId: 'black', status: 'Active', revision: 8, fen: '',
     sideToMove: 'White', winner: null, endReason: null, drawOfferedBy: null,
+    invitationExpiresAt: null,
   };
 
   async function open() {

@@ -6,5 +6,6 @@ public enum GameStatus
     Active,
     Finished,
     Declined,
-    Cancelled
+    Cancelled,
+    Expired
 }

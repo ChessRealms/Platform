@@ -10,6 +10,7 @@ import { GamesPage } from './games-page';
 describe('My games', () => {
   const incoming: GameListItem = {
     id: 'a1', opponentId: 'p1', opponentName: 'Rook', color: 'Black', status: 'Pending', createdAt: null,
+    invitationExpiresAt: null,
     isYourTurn: false, winner: null, endReason: null,
   };
   const outgoing: GameListItem = { ...incoming, id: 'a2', opponentName: 'Knight', color: 'White' };
@@ -96,8 +97,24 @@ describe('My games', () => {
     open(list);
 
     click('Finished');
-    expect(element.querySelector('.game-status')?.textContent)
+    expect(element.querySelector('.game-status')?.textContent?.trim())
       .toBe('Draw · Insufficient mating material after resignation');
+  });
+
+  it('links to an already pending invitation and clears the rejected attempt', async () => {
+    const list = vi.fn().mockReturnValue(of({ items: [], nextCursor: null }));
+    const create = vi.fn().mockReturnValue(throwError(() => ({
+      status: 409, error: { code: 'InvitationAlreadyPending', gameId: opponentId },
+    })));
+    open(list, create);
+    await fixture.whenStable();
+    enterOpponent();
+    click('Send invitation');
+
+    const link = [...element.querySelectorAll('a')].find(item => item.textContent === 'Open existing invitation');
+    expect(link?.getAttribute('href')).toBe(`/games/${opponentId}`);
+    expect(element.querySelector('[role="alert"]')?.textContent).toContain('already have a pending invitation');
+    expect(sessionStorage.length).toBe(0);
   });
 
   it('reuses the creation request after a lost response and a reload', async () => {

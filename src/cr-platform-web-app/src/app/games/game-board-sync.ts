@@ -93,6 +93,7 @@ export class GameBoardSync {
           const changed = command.kind === 'invitation'
             ? 'The invitation changed. Check its current status.' : 'The game changed. Check the current position.';
           this.actionError.set(error.error?.code === 'DrawClaimUnavailable' ? 'That draw claim is unavailable.'
+            : error.status === 410 ? 'This invitation has expired.'
             : error.status === 409 ? changed
             : error.status === 422 ? 'That move is illegal in the current position.'
             : 'Could not confirm the action. Check the updated board before trying again.');
@@ -114,11 +115,16 @@ export class GameBoardSync {
     }
 
     const firstRead = new Subject<void>();
+    const invitationDeadline = new Subject<string | null>();
+    const expiry = invitationDeadline.pipe(
+      distinctUntilChanged(),
+      switchMap(deadline => deadline ? timer(Math.max(0, Date.parse(deadline) - Date.now())) : EMPTY),
+    );
     const revisions = this.watchRevisions(id, firstRead);
     const online = fromEvent(this.window, 'online');
-    return merge(revisions, this.refreshRequests, timer(15000, 15000), online, of(null)).pipe(
+    return merge(revisions, this.refreshRequests, expiry, timer(15000, 15000), online, of(null)).pipe(
       filter(() => this.activity() !== 'sending' && !this.sessionUnavailable()),
-      switchMap(() => this.readBoard(id, firstRead)),
+      switchMap(() => this.readBoard(id, firstRead, invitationDeadline)),
       takeUntil(this.stopUpdates),
     );
   }
@@ -141,7 +147,8 @@ export class GameBoardSync {
     );
   }
 
-  private readBoard(id: string, firstRead: Subject<void>): Observable<GameBoard | null> {
+  private readBoard(id: string, firstRead: Subject<void>,
+    invitationDeadline: Subject<string | null>): Observable<GameBoard | null> {
     const version = this.requestVersion;
     return this.api.board(id, this.game()?.revision).pipe(
       tap(board => {
@@ -150,6 +157,7 @@ export class GameBoardSync {
         }
         if (board && board.game.revision >= (this.game()?.revision ?? 0)) {
           this.snapshot.set(board);
+          invitationDeadline.next(board.game.status === 'Pending' ? board.game.invitationExpiresAt : null);
         }
         this.readError.set(null);
         this.activity.set('idle');
