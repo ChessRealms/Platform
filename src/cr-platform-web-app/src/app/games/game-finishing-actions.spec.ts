@@ -8,6 +8,7 @@ describe('GameFinishingActions', () => {
     sideToMove: 'White', winner: null, endReason: null, drawOfferedBy: null,
     invitationExpiresAt: null,
     rematchExpiresAt: null, rematchOfferedBy: null, rematchGameId: null,
+    clock: null,
   };
 
   async function open() {

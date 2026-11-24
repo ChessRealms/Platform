@@ -7,6 +7,7 @@
   @if (lobby(); as current) {
     @switch (current.status) {
       @case ('Open') {
+        @if (current.timeControl === 'Blitz5') { <p>5+0 · 5 minutes per side</p> }
         @if (current.isOwner) {
           <p role="status">Waiting for a player</p>
           <label for="lobby-link">Invitation link</label>

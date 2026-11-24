@@ -57,8 +57,10 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         await Expect(black.GetByText("Your turn", new() { Exact = true })).ToBeVisibleAsync();
     }
 
-    [Fact]
-    public async Task PlayersSendAndAcceptAnInvitationByUsernameAndPlayTheFirstMove()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PlayersSendAndAcceptAnInvitationByUsernameAndPlayTheFirstMove(bool timed)
     {
         await using IBrowser browser = await browserSteps.LaunchBrowserAsync();
         await using IBrowserContext whiteContext = await browserSteps.NewContextAsync(browser);
@@ -74,6 +76,10 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
 
         await white.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
         string whiteUsername = await ReadUsernameAsync(white);
+        if (timed)
+        {
+            await white.GetByLabel("Time control", new() { Exact = true }).SelectOptionAsync("Blitz5");
+        }
         await SendInvitationAsync(white, blackUsername);
         await Expect(white.GetByLabel("Game link")).ToBeVisibleAsync();
         await Expect(white.GetByText(new Regex(@"^Expires in [0-5]:[0-5][0-9]$"))).ToBeVisibleAsync();
@@ -85,13 +91,32 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
             Has = black.GetByText(whiteUsername, new() { Exact = true }),
             HasText = "Invitation received"
         }).ClickAsync();
+        ILocator blackClocks = black.GetByRole(AriaRole.Group, new() { Name = "5+0 chess clocks" });
+        if (timed)
+        {
+            await Expect(blackClocks.Locator("time")).ToHaveTextAsync(["5:00", "5:00"]);
+        }
         await black.GetByRole(AriaRole.Button, new() { Name = "Accept game", Exact = true }).ClickAsync();
 
         await Expect(white.GetByText("Your turn", new() { Exact = true })).ToBeVisibleAsync();
+        if (timed)
+        {
+            ILocator whiteClocks = white.GetByRole(AriaRole.Group, new() { Name = "5+0 chess clocks" });
+            await Expect(whiteClocks.Locator("time").First).ToHaveTextAsync(new Regex(@"^4:[0-5][0-9]$"));
+            await Expect(whiteClocks.Locator("time").Last).ToHaveTextAsync("5:00");
+        }
         await white.GetByRole(AriaRole.Button, new() { Name = "e2, White pawn", Exact = true }).ClickAsync();
         await white.GetByRole(AriaRole.Button, new() { Name = "e4, empty", Exact = true }).ClickAsync();
         await Expect(black.GetByRole(AriaRole.Button, new() { Name = "e4, White pawn", Exact = true })).ToBeVisibleAsync();
         await Expect(black.GetByText("Your turn", new() { Exact = true })).ToBeVisibleAsync();
+        if (timed)
+        {
+            string whiteRemaining = await blackClocks.Locator("time").First.InnerTextAsync();
+            await Expect(blackClocks.Locator("time").Last).ToHaveTextAsync(new Regex(@"^4:[0-5][0-9]$"));
+            await black.ReloadAsync();
+            await Expect(blackClocks.Locator("time").First).ToHaveTextAsync(whiteRemaining);
+            await Expect(blackClocks.Locator("time").Last).ToHaveTextAsync(new Regex(@"^4:[0-5][0-9]$"));
+        }
     }
 
     [Fact]

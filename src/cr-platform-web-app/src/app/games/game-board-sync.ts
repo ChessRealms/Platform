@@ -9,7 +9,9 @@ import {
 } from 'rxjs';
 import { AuthSession } from '../identity/auth-session';
 import { GameLiveUpdates } from './game-live-updates';
-import { Game, GameBoard, GameFinishingAction, gameIdPattern, GameInvitationAction, GameRematchAction } from './game.models';
+import {
+  Game, GameBoard, GameClock, GameFinishingAction, gameIdPattern, GameInvitationAction, GameRematchAction, turnRemaining,
+} from './game.models';
 import { GamesApi } from './games-api';
 
 type BoardError = 'invalid-link' | 'sign-in-required' | 'not-found' | 'connection';
@@ -134,6 +136,7 @@ export class GameBoardSync {
     const firstRead = new Subject<void>();
     const invitationDeadline = new Subject<string | null>();
     const rematchDeadline = new Subject<string | null>();
+    const turnClock = new Subject<GameClock | null>();
     const invitationExpiry = invitationDeadline.pipe(
       distinctUntilChanged(),
       switchMap(deadline => deadline ? timer(Math.max(0, Date.parse(deadline) - Date.now())) : EMPTY),
@@ -146,12 +149,16 @@ export class GameBoardSync {
         switchMap(() => timer(boardPollInterval)),
       ) : EMPTY),
     );
+    const clockExpiry = turnClock.pipe(
+      distinctUntilChanged((previous, current) => previous?.turnDeadline === current?.turnDeadline),
+      switchMap(clock => clock?.turnDeadline ? timer(Math.max(0, turnRemaining(clock)) + 50) : EMPTY),
+    );
     const revisions = this.watchRevisions(id, firstRead);
     const online = fromEvent(this.window, 'online');
-    return merge(revisions, this.refreshRequests, invitationExpiry, rematchExpiry,
+    return merge(revisions, this.refreshRequests, invitationExpiry, rematchExpiry, clockExpiry,
       timer(boardPollInterval, boardPollInterval), online, of(null)).pipe(
       filter(() => this.activity() !== 'sending' && !this.sessionUnavailable()),
-      switchMap(() => this.readBoard(id, firstRead, invitationDeadline, rematchDeadline)),
+      switchMap(() => this.readBoard(id, firstRead, invitationDeadline, rematchDeadline, turnClock)),
       takeUntil(this.stopUpdates),
     );
   }
@@ -175,7 +182,8 @@ export class GameBoardSync {
   }
 
   private readBoard(id: string, firstRead: Subject<void>,
-    invitationDeadline: Subject<string | null>, rematchDeadline: Subject<string | null>): Observable<GameBoard | null> {
+    invitationDeadline: Subject<string | null>, rematchDeadline: Subject<string | null>, turnClock: Subject<GameClock | null>
+  ): Observable<GameBoard | null> {
     const version = this.requestVersion;
     return this.api.board(id, this.game()?.revision).pipe(
       tap(board => {
@@ -191,6 +199,7 @@ export class GameBoardSync {
           this.snapshot.set(board);
           invitationDeadline.next(game.status === 'Pending' ? game.invitationExpiresAt : null);
           rematchDeadline.next(game.rematchGameId ? null : game.rematchExpiresAt);
+          turnClock.next(game.clock);
           if (previous && !previous.rematchGameId && game.rematchGameId) {
             this.acceptedRematch.set(game.rematchGameId);
           }

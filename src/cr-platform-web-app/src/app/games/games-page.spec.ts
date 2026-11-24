@@ -11,7 +11,7 @@ describe('My games', () => {
   const incoming: GameListItem = {
     id: 'a1', opponentId: 'p1', opponentName: 'Rook', color: 'Black', status: 'Pending', createdAt: null,
     invitationExpiresAt: null,
-    isYourTurn: false, winner: null, endReason: null, isLobby: false,
+    isYourTurn: false, winner: null, endReason: null, isLobby: false, timeControl: null,
   };
   const outgoing: GameListItem = { ...incoming, id: 'a2', opponentName: 'Knight', color: 'White' };
   const opponentId = '1ae1fd73-7d50-43e2-bc5c-f9ef232fcdad';
@@ -74,20 +74,26 @@ describe('My games', () => {
     expect(element.querySelector('.game-row')?.getAttribute('href')).toBe('/games/a3');
   });
 
-  it('reuses the private link creation request after a lost response and a reload', () => {
+  it('reuses the private link request and its time control after a lost response and a reload', async () => {
     const list = vi.fn().mockReturnValue(of({ items: [], nextCursor: null }));
     const createLobby = vi.fn().mockReturnValueOnce(throwError(() => ({ status: 0 })))
       .mockReturnValueOnce(of({ id: opponentId }));
     open(list, undefined, createLobby);
     const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    await fixture.whenStable();
+    const timeControl = element.querySelector<HTMLSelectElement>('#link-time-control')!;
+    timeControl.value = 'Blitz5';
+    timeControl.dispatchEvent(new Event('change'));
     click('Create private link');
-    const requestId = createLobby.mock.calls[0][0];
+    const { requestId } = createLobby.mock.calls[0][0];
     expect(requestId).toMatch(gameIdPattern);
 
     fixture.destroy();
     render();
+    await fixture.whenStable();
+    expect(element.querySelector<HTMLSelectElement>('#link-time-control')?.value).toBe('Blitz5');
     click('Retry creating link');
-    expect(createLobby.mock.calls).toEqual([[requestId], [requestId]]);
+    expect(createLobby.mock.calls).toEqual([[{ requestId, timeControl: 'Blitz5' }], [{ requestId, timeControl: 'Blitz5' }]]);
     expect(navigate).toHaveBeenCalledWith(['/lobbies', opponentId]);
     expect(sessionStorage.length).toBe(0);
   });

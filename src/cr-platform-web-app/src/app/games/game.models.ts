@@ -1,4 +1,17 @@
 export type PlayerColor = 'White' | 'Black';
+export type GameTimeControl = 'Blitz5';
+
+export interface GameClock {
+  timeControl: GameTimeControl;
+  whiteMilliseconds: number;
+  blackMilliseconds: number;
+  turnDeadline: string | null;
+  serverTime: string;
+}
+
+export function turnRemaining(clock: GameClock): number {
+  return clock.turnDeadline ? Date.parse(clock.turnDeadline) - Date.parse(clock.serverTime) : 0;
+}
 export type GameListFilter = 'Pending' | 'Active' | 'Finished' | 'ClosedInvitations';
 export type GameStatus = Exclude<GameListFilter, 'ClosedInvitations'> | 'Declined' | 'Cancelled' | 'Expired';
 export type GameInvitationAction = 'accept' | 'decline' | 'cancel';
@@ -23,6 +36,7 @@ export interface Game {
   rematchExpiresAt: string | null;
   rematchOfferedBy: PlayerColor | null;
   rematchGameId: string | null;
+  clock: GameClock | null;
 }
 
 export interface GameListItem {
@@ -37,6 +51,7 @@ export interface GameListItem {
   winner: PlayerColor | null;
   endReason: string | null;
   isLobby: boolean;
+  timeControl: GameTimeControl | null;
 }
 
 export interface GameListPage {
@@ -59,6 +74,7 @@ export interface PrivateLobby {
   isOwner: boolean;
   hostName: string | null;
   gameId: string | null;
+  timeControl: GameTimeControl | null;
 }
 
 export const gameIdPattern = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
@@ -77,5 +93,6 @@ export const finishReasons: Record<string, string> = {
   FivefoldRepetition: 'Fivefold repetition', SeventyFiveMoveRule: '75-move rule',
   Resignation: 'Resignation', DrawAgreement: 'By agreement',
   ResignationNoPossibleMate: 'Insufficient mating material after resignation',
+  Timeout: 'Time expired', TimeoutNoPossibleMate: 'Time expired · Insufficient mating material',
   ThreefoldRepetition: 'Threefold repetition', FiftyMoveRule: '50-move rule',
 };

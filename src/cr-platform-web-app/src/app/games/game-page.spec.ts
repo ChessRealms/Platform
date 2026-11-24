@@ -17,6 +17,7 @@ describe('GamePage', () => {
     fen: '7k/P7/8/8/8/8/8/7K w - - 0 12', sideToMove: 'White', winner: null, endReason: null, drawOfferedBy: null,
     invitationExpiresAt: null,
     rematchExpiresAt: null, rematchOfferedBy: null, rematchGameId: null,
+    clock: null,
   };
   const initial: GameBoard = { game, moves: [], legalMoves: ['a7a8q', 'a7a8r', 'a7a8b', 'a7a8n'], drawClaims: [] };
 
@@ -109,6 +110,30 @@ describe('GamePage', () => {
     const reads = board.mock.calls.length;
     vi.advanceTimersByTime(45000);
     expect(board).toHaveBeenCalledTimes(reads);
+  });
+
+  it('requests the authoritative result when the running clock expires', () => {
+    vi.useFakeTimers();
+    const serverNow = Date.parse('2026-01-01T00:00:00Z');
+    const clock = {
+      timeControl: 'Blitz5' as const, whiteMilliseconds: 300000, blackMilliseconds: 300000,
+      turnDeadline: new Date(serverNow + 1000).toISOString(), serverTime: new Date(serverNow).toISOString(),
+    };
+    const board = vi.fn().mockReturnValueOnce(of({ ...initial, game: { ...game, clock } }))
+      .mockReturnValueOnce(of({
+        ...initial, legalMoves: [],
+        game: {
+          ...game, revision: 23, status: 'Finished', winner: 'Black', endReason: 'Timeout', sideToMove: null,
+          clock: { ...clock, whiteMilliseconds: 0, turnDeadline: null },
+        },
+      }));
+    const { page } = open(board);
+
+    vi.advanceTimersByTime(1000);
+    expect(page.status()).toBe('Your turn');
+    vi.advanceTimersByTime(50);
+    expect(board).toHaveBeenLastCalledWith(id, 22);
+    expect(page.status()).toBe('Black wins · Time expired');
   });
 
   it('reloads after an invitation conflict and stops watching when the invitation is closed', () => {

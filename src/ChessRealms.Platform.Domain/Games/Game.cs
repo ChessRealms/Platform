@@ -9,7 +9,8 @@ public sealed class Game
     {
     }
 
-    public Game(Guid whitePlayerId, Guid blackPlayerId, GamePosition startingPosition, DateTimeOffset createdAt)
+    public Game(Guid whitePlayerId, Guid blackPlayerId, GamePosition startingPosition, DateTimeOffset createdAt,
+        GameTimeControl? timeControl = null)
     {
         if (!CanPair(whitePlayerId, blackPlayerId))
         {
@@ -24,6 +25,13 @@ public sealed class Game
         BlackPlayerId = blackPlayerId;
         CreatedAt = createdAt;
         InvitationExpiresAt = createdAt + InvitationLifetime;
+        TimeControl = timeControl;
+        WhiteTimeRemaining = BlackTimeRemaining = timeControl switch
+        {
+            GameTimeControl.Blitz5 => TimeSpan.FromMinutes(5),
+            null => null,
+            _ => throw new ArgumentOutOfRangeException(nameof(timeControl))
+        };
         UpdatePosition(startingPosition);
     }
 
@@ -43,12 +51,25 @@ public sealed class Game
     public DateTimeOffset? FinishedAt { get; private set; }
     public PlayerColor? RematchOfferedBy { get; private set; }
     public Guid? RematchGameId { get; private set; }
+    public GameTimeControl? TimeControl { get; private set; }
+    public TimeSpan? WhiteTimeRemaining { get; private set; }
+    public TimeSpan? BlackTimeRemaining { get; private set; }
+    public DateTimeOffset? TurnDeadline { get; private set; }
 
     public static bool CanPair(Guid whitePlayerId, Guid blackPlayerId) =>
         whitePlayerId != Guid.Empty && blackPlayerId != Guid.Empty && whitePlayerId != blackPlayerId;
 
-    internal static Game StartActive(Guid whitePlayerId, Guid blackPlayerId, GamePosition position, DateTimeOffset now) =>
-        new(whitePlayerId, blackPlayerId, position, now) { Status = GameStatus.Active, InvitationExpiresAt = null };
+    internal static Game StartActive(Guid whitePlayerId, Guid blackPlayerId, GamePosition position, DateTimeOffset now,
+        GameTimeControl? timeControl)
+    {
+        Game game = new(whitePlayerId, blackPlayerId, position, now, timeControl)
+        {
+            Status = GameStatus.Active,
+            InvitationExpiresAt = null
+        };
+        game.StartTurnClock(now);
+        return game;
+    }
 
     public bool HasPlayer(Guid playerId) => playerId == WhitePlayerId || playerId == BlackPlayerId;
 
@@ -115,7 +136,7 @@ public sealed class Game
             return (GameError.NoRematchOffer, null);
         }
 
-        Game rematch = StartActive(BlackPlayerId, WhitePlayerId, startingPosition(), now);
+        Game rematch = StartActive(BlackPlayerId, WhitePlayerId, startingPosition(), now, TimeControl);
         RematchGameId = rematch.Id;
         Revision++;
         return (GameError.None, rematch);
@@ -139,8 +160,27 @@ public sealed class Game
         {
             DrawOfferedBy = null;
         }
+        StopTurnClock(now);
         ApplyPosition(position, now);
+        if (Status == GameStatus.Active)
+        {
+            StartTurnClock(now);
+        }
         return GameError.None;
+    }
+
+    public bool TryFinishOnTime(DateTimeOffset now, Func<string, PlayerColor, bool> hasInsufficientMatingMaterial)
+    {
+        if (TurnDeadline is not { } deadline || now < deadline)
+        {
+            return false;
+        }
+
+        PlayerColor opponent = SideToMove == PlayerColor.White ? PlayerColor.Black : PlayerColor.White;
+        bool drawn = hasInsufficientMatingMaterial(Fen, opponent);
+        Finish(drawn ? GameEndReason.TimeoutNoPossibleMate : GameEndReason.Timeout, drawn ? null : opponent, deadline);
+        Revision++;
+        return true;
     }
 
     public GameError Resign(Guid playerId, long expectedRevision, DateTimeOffset now,
@@ -218,6 +258,7 @@ public sealed class Game
             return GameError.DrawClaimUnavailable;
         }
 
+        StopTurnClock(now);
         ApplyPosition(position, now);
         return GameError.None;
     }
@@ -244,6 +285,10 @@ public sealed class Game
         }
 
         Status = nextStatus;
+        if (Status == GameStatus.Active)
+        {
+            StartTurnClock(now);
+        }
         Revision++;
         return GameError.None;
     }
@@ -275,11 +320,34 @@ public sealed class Game
 
     private void Finish(GameEndReason reason, PlayerColor? winner, DateTimeOffset now)
     {
+        StopTurnClock(now);
         Status = GameStatus.Finished;
         FinishedAt = now;
         EndReason = reason;
         Winner = winner;
         DrawOfferedBy = null;
+    }
+
+    private void StartTurnClock(DateTimeOffset now) =>
+        TurnDeadline = now + (SideToMove == PlayerColor.White ? WhiteTimeRemaining : BlackTimeRemaining);
+
+    private void StopTurnClock(DateTimeOffset now)
+    {
+        if (TurnDeadline is not { } deadline)
+        {
+            return;
+        }
+
+        TimeSpan remaining = deadline > now ? deadline - now : TimeSpan.Zero;
+        if (SideToMove == PlayerColor.White)
+        {
+            WhiteTimeRemaining = remaining < WhiteTimeRemaining!.Value ? remaining : WhiteTimeRemaining;
+        }
+        else
+        {
+            BlackTimeRemaining = remaining < BlackTimeRemaining!.Value ? remaining : BlackTimeRemaining;
+        }
+        TurnDeadline = null;
     }
 
     private GameError CheckActive(Guid playerId, long expectedRevision)

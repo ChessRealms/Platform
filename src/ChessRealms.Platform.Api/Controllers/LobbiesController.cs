@@ -14,8 +14,15 @@ namespace ChessRealms.Platform.Api.Controllers;
 public sealed class LobbiesController(LobbyService lobbies, IUsernameDirectory usernames, TimeProvider clock) : ControllerBase
 {
     [HttpPost]
-    public async Task<IActionResult> Create(CreateLobbyRequest request, CancellationToken cancellationToken) =>
-        await RespondAsync(await lobbies.CreateAsync(PlayerId(), request.RequestId, cancellationToken), cancellationToken);
+    public async Task<IActionResult> Create(CreateLobbyRequest request, CancellationToken cancellationToken)
+    {
+        if (!GameTimeControlRequest.TryParse(request.TimeControl, out GameTimeControl? timeControl))
+        {
+            return await RespondAsync(new(GameError.InvalidTimeControl), cancellationToken);
+        }
+        return await RespondAsync(await lobbies.CreateAsync(PlayerId(), request.RequestId, timeControl, cancellationToken),
+            cancellationToken);
+    }
 
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken) =>
@@ -46,11 +53,12 @@ public sealed class LobbiesController(LobbyService lobbies, IUsernameDirectory u
 
         int status = result.Error switch
         {
-            GameError.InvalidRequestId => StatusCodes.Status400BadRequest,
+            GameError.InvalidRequestId or GameError.InvalidTimeControl => StatusCodes.Status400BadRequest,
             GameError.Forbidden => StatusCodes.Status403Forbidden,
             GameError.NotFound => StatusCodes.Status404NotFound,
             GameError.InvitationExpired => StatusCodes.Status410Gone,
             GameError.InvitationLimitReached or GameError.RevisionConflict or GameError.LobbyNotOpen or GameError.LobbyAlreadyJoined
+                or GameError.CreationRequestConflict
                 => StatusCodes.Status409Conflict,
             _ => throw new InvalidOperationException("Unexpected lobby operation result.")
         };

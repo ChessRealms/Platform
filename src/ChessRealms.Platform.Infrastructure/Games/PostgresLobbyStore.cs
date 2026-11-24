@@ -11,7 +11,8 @@ internal sealed class PostgresLobbyStore(PlatformDbContext database, TimeProvide
     public Task<PrivateLobby?> FindAsync(Guid id, CancellationToken cancellationToken) =>
         database.PrivateLobbies.AsNoTracking().SingleOrDefaultAsync(lobby => lobby.Id == id, cancellationToken);
 
-    public async Task<LobbyResult> CreateAsync(Guid playerId, Guid requestId, CancellationToken cancellationToken)
+    public async Task<LobbyResult> CreateAsync(Guid playerId, Guid requestId, GameTimeControl? timeControl,
+        CancellationToken cancellationToken)
     {
         await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
         await PostgresInvitationQuota.LockCreatorAsync(database, playerId, cancellationToken);
@@ -19,7 +20,8 @@ internal sealed class PostgresLobbyStore(PlatformDbContext database, TimeProvide
             lobby => lobby.CreatorId == playerId && lobby.RequestId == requestId, cancellationToken);
         if (existing is not null)
         {
-            return new(GameError.None, existing);
+            return existing.TimeControl == timeControl
+                ? new(GameError.None, existing) : new(GameError.CreationRequestConflict);
         }
         DateTimeOffset now = PostgresInvitationQuota.GetCreationTime(clock);
         if (!await PostgresInvitationQuota.HasCapacityAsync(database, playerId, now, cancellationToken))
@@ -27,7 +29,7 @@ internal sealed class PostgresLobbyStore(PlatformDbContext database, TimeProvide
             return new(GameError.InvitationLimitReached);
         }
 
-        PrivateLobby lobby = new(playerId, requestId, now);
+        PrivateLobby lobby = new(playerId, requestId, now, timeControl);
         database.PrivateLobbies.Add(lobby);
         await database.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);

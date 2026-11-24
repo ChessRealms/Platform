@@ -3,6 +3,7 @@ import { Component, computed, effect, inject, linkedSignal } from '@angular/core
 import { Router, RouterLink } from '@angular/router';
 import { ChessBoard } from './chess-board';
 import { GameBoardCommand, GameBoardSync } from './game-board-sync';
+import { GameClocks } from './game-clocks';
 import { GameFinishingActions } from './game-finishing-actions';
 import {
   finishReasons, Game, GameBoard, GameFinishingAction, GameInvitationAction, GameRematchAction, invitationOutcome,
@@ -15,7 +16,7 @@ const promotionNames: Record<string, string> = { q: 'Queen', r: 'Rook', b: 'Bish
 @Component({
   selector: 'cr-game-page',
   providers: [GamesApi, GameBoardSync],
-  imports: [ChessBoard, GameFinishingActions, InvitationCountdown, RouterLink],
+  imports: [ChessBoard, GameClocks, GameFinishingActions, InvitationCountdown, RouterLink],
   templateUrl: './game-page.html',
   styleUrl: './game-page.css',
 })

@@ -29,6 +29,8 @@ The session lifecycle tests also verify:
 
 `GameBrowserTests` verifies that two players can share a username, send and accept
 an invitation through My games, and see White's first move in both browser contexts.
+The 5+0 case checks that both clocks start full, the running clock follows the
+turn, and reloading preserves the time saved for the waiting player.
 It also verifies that both players see declined and cancelled invitations on an
 open board and can reopen them from **Closed invitations** in My games.
 The private-link scenario copies a link, opens it while signed out in a separate

@@ -30,6 +30,9 @@
       <aside>
         <div class="play-state">
           <p class="status" role="status">{{ status() }}</p>
+          @if (game.clock; as clock) {
+            <cr-game-clocks [clock]="clock" [sideToMove]="game.sideToMove" />
+          }
           @if (!closedInvitation()) { <p>You play {{ color() }}.</p> }
           @if (sync.updating()) { <p role="status">Updating game…</p> }
           @if (sync.commandError(); as message) { <p class="form-errors" role="alert">{{ message }}</p> }

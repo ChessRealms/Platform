@@ -1,6 +1,6 @@
 # Private standard-chess games
 
-The API starts an untimed game from the standard position. The authenticated creator
+The API starts a game from the standard position. The authenticated creator
 plays White and invites a distinct confirmed account by username. The invited
 player plays Black and explicitly accepts. White can play the first move once the
 game is active.
@@ -23,10 +23,16 @@ can accept, decline, or play a move to decline. On their turn, a player can clai
 a draw on the current position or select an intended move to support the claim.
 The board shows the final result and reason to both players.
 
+Choose **Untimed** or **5+0** when creating a username invitation or private link.
+In 5+0, each player starts with five minutes and moves add no time. White's clock
+starts when the invitation is accepted or the guest joins. Only the player to
+move uses time. Reopening the board restores both clocks from the server.
+
 Either player can choose **Rematch** on the finished board. The other player
 can choose **Accept rematch** within five minutes of the original result. The
 countdown is shared and starts when the game ends. Accepting starts a new
-standard game with the same players and reversed colors. Both open boards
+standard game with the same players, reversed colors, and the same time control.
+In a timed rematch, White's new clock starts at acceptance. Both open boards
 follow the new game. Reopening the original result later shows **Open rematch**.
 
 Use **My games** to reopen a game without keeping its link. **Invitations**
@@ -172,7 +178,7 @@ leading and trailing whitespace, accepts up to 256 characters, and matches the
 full name using Identity's case-insensitive normalization.
 
 Generate a new `requestId` for each intended game. Retry an unconfirmed creation
-with the same `requestId` and opponent. A username and an ID that resolve to the
+with the same `requestId`, opponent, and time control. A username and an ID that resolve to the
 same account identify the same opponent. The request ID is unique per authenticated
 creator and stored with the game, so concurrent retries resolve to the same game
 ID. A replay returns the game's current state and leaves the creation quota
@@ -225,6 +231,24 @@ token expiry. The reconnect uses the current access token from the web session.
 
 Game groups live in the API process. Deployments with multiple API replicas need
 a shared SignalR service or backplane for notifications across replicas.
+
+## Game clocks
+
+Creation requests for games and private links accept `timeControl: "Blitz5"`.
+Omit the field or send `null` for an untimed game. Game and board responses
+include `clock` for timed games. It carries the time control, each side's
+balance at the start of the running turn or when last stopped, the running
+turn's absolute `turnDeadline`, and `serverTime` for rendering the countdown.
+The deadline is null before play starts and after the game finishes.
+
+The API checks the server clock after locking the game row. At the exact
+deadline the side to move runs out of time. The opponent wins by `Timeout` unless
+the engine's mating-material check returns insufficient material for them,
+which gives `TimeoutNoPossibleMate` and a draw. A command that first detects
+expiry returns the saved finished state with `200`. Board and game reads or
+opening the Active or Finished list also settle an elapsed clock. The finish
+time is the deadline even if both players were offline and opened the game
+later.
 
 ## Persistence and rules
 

@@ -34,8 +34,12 @@ public sealed class GamesController(GameService games, IHubContext<GameHub> live
     [HttpPost]
     public async Task<IActionResult> Create(CreateGameRequest request, CancellationToken cancellationToken)
     {
+        if (!GameTimeControlRequest.TryParse(request.TimeControl, out GameTimeControl? timeControl))
+        {
+            return ErrorResponse(GameError.InvalidTimeControl);
+        }
         CreateGameResult result = await games.CreateAsync(PlayerId(), request.OpponentId, request.OpponentUsername,
-            request.RequestId, cancellationToken);
+            request.RequestId, cancellationToken, timeControl);
         if (result.Error == GameError.InvitationAlreadyPending)
         {
             return Conflict(new { code = result.Error.ToString(), gameId = result.Game!.Id });
@@ -87,7 +91,7 @@ public sealed class GamesController(GameService games, IHubContext<GameHub> live
             return NoContent();
         }
 
-        return new GameBoardResponse(GameResponse.From(board), moves.Moves, moves.LegalMoves,
+        return new GameBoardResponse(GameResponse.From(board, clock.GetUtcNow()), moves.Moves, moves.LegalMoves,
             moves.DrawClaims.Select(reason => reason.ToString()).ToArray());
     }
 
@@ -170,6 +174,7 @@ public sealed class GamesController(GameService games, IHubContext<GameHub> live
             GameError.NotFound => StatusCodes.Status404NotFound,
             GameError.Forbidden => StatusCodes.Status403Forbidden,
             GameError.InvalidPlayers or GameError.InvalidOpponentUsername or GameError.OpponentUnavailable or GameError.InvalidRequestId
+                or GameError.InvalidTimeControl
                 => StatusCodes.Status400BadRequest,
             GameError.RevisionConflict or GameError.GameNotPending or GameError.GameNotActive or GameError.NotYourTurn
                 or GameError.DrawOfferPending or GameError.NoDrawOffer or GameError.CreationRequestConflict
