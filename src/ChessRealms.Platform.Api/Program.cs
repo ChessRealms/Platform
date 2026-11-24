@@ -14,6 +14,7 @@ WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.AddInfrastructure();
 builder.Services.AddScoped<GameService>();
+builder.Services.AddScoped<LobbyService>();
 builder.Services.AddIdentityAuthentication(builder.Configuration);
 builder.Services.AddIdentityEmailWorker();
 builder.Services.AddHostedService<LoginSessionCleanupWorker>();

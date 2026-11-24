@@ -11,7 +11,7 @@ describe('My games', () => {
   const incoming: GameListItem = {
     id: 'a1', opponentId: 'p1', opponentName: 'Rook', color: 'Black', status: 'Pending', createdAt: null,
     invitationExpiresAt: null,
-    isYourTurn: false, winner: null, endReason: null,
+    isYourTurn: false, winner: null, endReason: null, isLobby: false,
   };
   const outgoing: GameListItem = { ...incoming, id: 'a2', opponentName: 'Knight', color: 'White' };
   const opponentId = '1ae1fd73-7d50-43e2-bc5c-f9ef232fcdad';
@@ -21,13 +21,13 @@ describe('My games', () => {
 
   afterEach(() => sessionStorage.clear());
 
-  function open(list: ReturnType<typeof vi.fn>, create = vi.fn()): void {
+  function open(list: ReturnType<typeof vi.fn>, create = vi.fn(), createLobby = vi.fn()): void {
     TestBed.configureTestingModule({ providers: [
       provideRouter([]),
       { provide: AuthSession, useValue: { loginKey: () => 'current-login' } },
     ] })
       .overrideComponent(GamesPage, { set: { providers: [
-        { provide: GamesApi, useValue: { list, create, me: () => of({ userId: 'p2', username: 'WhiteKnight' }) } },
+        { provide: GamesApi, useValue: { list, create, createLobby, me: () => of({ userId: 'p2', username: 'WhiteKnight' }) } },
       ] } });
     render();
   }
@@ -72,6 +72,24 @@ describe('My games', () => {
     expect(element.textContent).toContain('Your turn');
     expect(element.textContent).not.toContain('Invitation received');
     expect(element.querySelector('.game-row')?.getAttribute('href')).toBe('/games/a3');
+  });
+
+  it('reuses the private link creation request after a lost response and a reload', () => {
+    const list = vi.fn().mockReturnValue(of({ items: [], nextCursor: null }));
+    const createLobby = vi.fn().mockReturnValueOnce(throwError(() => ({ status: 0 })))
+      .mockReturnValueOnce(of({ id: opponentId }));
+    open(list, undefined, createLobby);
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    click('Create private link');
+    const requestId = createLobby.mock.calls[0][0];
+    expect(requestId).toMatch(gameIdPattern);
+
+    fixture.destroy();
+    render();
+    click('Retry creating link');
+    expect(createLobby.mock.calls).toEqual([[requestId], [requestId]]);
+    expect(navigate).toHaveBeenCalledWith(['/lobbies', opponentId]);
+    expect(sessionStorage.length).toBe(0);
   });
 
   it('retains the current page and cursor when loading more fails', () => {

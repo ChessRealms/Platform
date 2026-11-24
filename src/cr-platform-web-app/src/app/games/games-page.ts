@@ -20,6 +20,7 @@ type GameFilter = (typeof gameFilters)[number];
 const maxUsernameLength = 256;
 
 const pendingCreationKey = 'chessrealms.pending-game-creation';
+const pendingLobbyKey = 'chessrealms.pending-lobby-creation';
 
 @Component({
   selector: 'cr-games-page',
@@ -48,6 +49,9 @@ export class GamesPage {
   readonly error = signal<string | null>(null);
   protected readonly existingInvitationId = signal<string | null>(null);
   readonly busy = signal(false);
+  protected readonly lobbyBusy = signal(false);
+  protected readonly lobbyError = signal<string | null>(null);
+  protected readonly pendingLobby = signal(this.readLobbyRequest());
   protected readonly pendingCreation = signal(this.readPendingCreation());
   opponentUsername = this.pendingCreation()?.opponentUsername ?? '';
 
@@ -99,6 +103,9 @@ export class GamesPage {
 
   protected statusText(game: GameListItem): string {
     if (game.status === 'Pending') {
+      if (game.isLobby) {
+        return 'Waiting for a player';
+      }
       return game.color === 'Black' ? 'Invitation received' : 'Waiting for acceptance';
     }
     if (game.status === 'Active') {
@@ -170,6 +177,62 @@ export class GamesPage {
   protected startNewInvitation(): void {
     this.rememberCreation(null);
     this.error.set(null);
+  }
+
+  protected createLobby(): void {
+    if (this.lobbyBusy()) {
+      return;
+    }
+    const requestId = this.pendingLobby() ?? this.window.crypto.randomUUID();
+    this.rememberLobbyRequest(requestId);
+    this.lobbyError.set(null);
+    this.lobbyBusy.set(true);
+    this.api.createLobby(requestId).pipe(
+      takeUntilDestroyed(this.destroyRef),
+      finalize(() => this.lobbyBusy.set(false)),
+    ).subscribe({
+      next: lobby => {
+        this.rememberLobbyRequest(null);
+        void this.router.navigate(['/lobbies', lobby.id]);
+      },
+      error: error => {
+        if (error.status === 409 && error.error?.code === 'InvitationLimitReached') {
+          this.rememberLobbyRequest(null);
+          this.lobbyError.set('You have three pending invitations. Cancel one or wait for it to expire.');
+        } else if (error.status === 400 || error.status === 403) {
+          this.rememberLobbyRequest(null);
+          this.lobbyError.set('Could not create an invitation with this account.');
+        } else {
+          this.lobbyError.set('Could not confirm creation. Retry to open the same link.');
+        }
+      },
+    });
+  }
+
+  private readLobbyRequest(): string | null {
+    try {
+      const stored = JSON.parse(this.window.sessionStorage.getItem(pendingLobbyKey) ?? 'null');
+      return this.login && stored?.login === this.login
+        && typeof stored.requestId === 'string' && gameIdPattern.test(stored.requestId) ? stored.requestId : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private rememberLobbyRequest(requestId: string | null): void {
+    this.pendingLobby.set(requestId);
+    if (!this.login || this.session.loginKey() !== this.login) {
+      return;
+    }
+    try {
+      if (requestId) {
+        this.window.sessionStorage.setItem(pendingLobbyKey, JSON.stringify({ login: this.login, requestId }));
+      } else {
+        this.window.sessionStorage.removeItem(pendingLobbyKey);
+      }
+    } catch {
+      // The pending attempt remains available on this page.
+    }
   }
 
   private readPendingCreation(): GameCreation | null {

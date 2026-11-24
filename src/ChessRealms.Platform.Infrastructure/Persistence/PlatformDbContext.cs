@@ -10,6 +10,7 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
     internal const string GameCreationRequestIndex = "IX_Games_WhitePlayerId_CreationRequestId";
 
     public DbSet<Game> Games => Set<Game>();
+    public DbSet<PrivateLobby> PrivateLobbies => Set<PrivateLobby>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -28,6 +29,14 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
             game.HasIndex(item => new { item.WhitePlayerId, item.Status });
             game.HasIndex(item => new { item.BlackPlayerId, item.Status });
             game.HasIndex(item => new { item.WhitePlayerId, item.BlackPlayerId, item.CreatedAt });
+        });
+        builder.Entity<PrivateLobby>(lobby =>
+        {
+            lobby.Property(item => item.Status).HasConversion<string>().HasMaxLength(16);
+            lobby.HasIndex(item => new { item.CreatorId, item.RequestId }).IsUnique();
+            lobby.HasIndex(item => new { item.CreatorId, item.Status, item.ExpiresAt });
+            lobby.HasIndex(item => item.GameId).IsUnique();
+            lobby.HasOne<Game>().WithOne().HasForeignKey<PrivateLobby>(item => item.GameId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

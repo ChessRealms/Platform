@@ -91,6 +91,59 @@ namespace ChessRealms.Platform.Infrastructure.Persistence.Migrations
 
                     b.ToTable("Games");
                 });
+
+            modelBuilder.Entity("ChessRealms.Platform.Domain.Games.PrivateLobby", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("GameId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("JoinedPlayerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GameId")
+                        .IsUnique();
+
+                    b.HasIndex("CreatorId", "RequestId")
+                        .IsUnique();
+
+                    b.HasIndex("CreatorId", "Status", "ExpiresAt");
+
+                    b.ToTable("PrivateLobbies");
+                });
+
+            modelBuilder.Entity("ChessRealms.Platform.Domain.Games.PrivateLobby", b =>
+                {
+                    b.HasOne("ChessRealms.Platform.Domain.Games.Game", null)
+                        .WithOne()
+                        .HasForeignKey("ChessRealms.Platform.Domain.Games.PrivateLobby", "GameId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
 #pragma warning restore 612, 618
         }
     }

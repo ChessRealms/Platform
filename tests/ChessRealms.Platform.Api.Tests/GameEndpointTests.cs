@@ -63,6 +63,195 @@ public sealed class GameEndpointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task SimultaneousLobbyJoinsCreateOneGameAndTheWinnerCanRetryAfterExpiry()
+    {
+        (Guid hostId, string hostToken) = await RegisterAndSignInAsync("host");
+        (Guid guestId, string guestToken) = await RegisterAndSignInAsync("guest");
+        (Guid otherId, string otherToken) = await RegisterAndSignInAsync("other");
+        using HttpClient host = CreateClient(hostToken);
+        using HttpClient guest = CreateClient(guestToken);
+        using HttpClient other = CreateClient(otherToken);
+        using HttpClient anonymous = CreateClient();
+        LobbyResponse lobby = await CreateLobbyAsync(host);
+        string url = $"/api/lobbies/{lobby.Id}";
+
+        using HttpResponseMessage anonymousRead = await anonymous.GetAsync(url, Cancellation);
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymousRead.StatusCode);
+        LobbyResponse preview = Assert.IsType<LobbyResponse>(await guest.GetFromJsonAsync<LobbyResponse>(url, Cancellation));
+        Assert.Equal("host", preview.HostName);
+        Assert.False(preview.IsOwner);
+        Assert.Equal("Open", preview.Status);
+        Assert.Null(preview.GameId);
+        Assert.Empty((await ListGamesAsync(guest)).Items);
+        Assert.Empty((await ListGamesAsync(host, "?status=Active")).Items);
+        GameListItemResponse invitation = Assert.Single((await ListGamesAsync(host)).Items);
+        Assert.Equal(lobby.Id, invitation.Id);
+        Assert.True(invitation.IsLobby);
+        Assert.Null(invitation.OpponentId);
+        using HttpResponseMessage selfJoin = await host.PostAsJsonAsync($"{url}/join", new GameRevisionRequest(0), Cancellation);
+        await AssertErrorAsync(selfJoin, HttpStatusCode.Forbidden, "Forbidden");
+        using HttpResponseMessage guestCancel = await guest.PostAsJsonAsync($"{url}/cancel", new GameRevisionRequest(0), Cancellation);
+        await AssertErrorAsync(guestCancel, HttpStatusCode.Forbidden, "Forbidden");
+
+        GameRevisionRequest revision = new(lobby.Revision);
+        Task<HttpResponseMessage> first = guest.PostAsJsonAsync($"{url}/join", revision, Cancellation);
+        Task<HttpResponseMessage> second = other.PostAsJsonAsync($"{url}/join", revision, Cancellation);
+        using HttpResponseMessage guestResponse = await first;
+        using HttpResponseMessage otherResponse = await second;
+        HttpResponseMessage[] responses = [guestResponse, otherResponse];
+        HttpResponseMessage success = Assert.Single(responses, response => response.StatusCode == HttpStatusCode.OK);
+        await AssertErrorAsync(Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Conflict),
+            HttpStatusCode.Conflict, "LobbyAlreadyJoined");
+        LobbyResponse joined = Assert.IsType<LobbyResponse>(await success.Content.ReadFromJsonAsync<LobbyResponse>(Cancellation));
+        Assert.Equal("Joined", joined.Status);
+        Assert.Equal(1, joined.Revision);
+        Guid gameId = Assert.IsType<Guid>(joined.GameId);
+        HttpClient winner = success == guestResponse ? guest : other;
+        HttpClient loser = success == guestResponse ? other : guest;
+
+        clock.Advance(TimeSpan.FromMinutes(5));
+        using HttpResponseMessage retry = await winner.PostAsJsonAsync($"{url}/join", revision, Cancellation);
+        Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
+        Assert.Equal(joined, await retry.Content.ReadFromJsonAsync<LobbyResponse>(Cancellation));
+        LobbyResponse hostView = Assert.IsType<LobbyResponse>(await host.GetFromJsonAsync<LobbyResponse>(url, Cancellation));
+        Assert.Equal(gameId, hostView.GameId);
+        using HttpResponseMessage loserRead = await loser.GetAsync(url, Cancellation);
+        await AssertErrorAsync(loserRead, HttpStatusCode.Conflict, "LobbyAlreadyJoined");
+        using HttpResponseMessage loserBoard = await loser.GetAsync($"/api/games/{gameId}/board", Cancellation);
+        Assert.Equal(HttpStatusCode.NotFound, loserBoard.StatusCode);
+
+        GameResponse active = (await ReadBoardAsync(winner, $"/api/games/{gameId}")).Game;
+        Assert.Equal((hostId, success == guestResponse ? guestId : otherId), (active.WhitePlayerId, active.BlackPlayerId));
+        Assert.Equal("Active", active.Status);
+        Assert.Equal(0, active.Revision);
+        Assert.Equal(gameId, Assert.Single((await ListGamesAsync(host, "?status=Active")).Items).Id);
+        Assert.Empty((await ListGamesAsync(host)).Items);
+        Assert.Empty((await ListGamesAsync(host, "?status=ClosedInvitations")).Items);
+        GameResponse moved = await MakeMoveAsync(host, $"/api/games/{gameId}", "e2e4", active.Revision);
+        Assert.Equal(moved, (await ReadBoardAsync(winner, $"/api/games/{gameId}")).Game);
+    }
+
+    [Fact]
+    public async Task JoiningAndCancellingTheSameLobbyCommitOnlyOneOutcome()
+    {
+        (_, string hostToken) = await RegisterAndSignInAsync("host");
+        (_, string guestToken) = await RegisterAndSignInAsync("guest");
+        using HttpClient host = CreateClient(hostToken);
+        using HttpClient guest = CreateClient(guestToken);
+        LobbyResponse lobby = await CreateLobbyAsync(host);
+        string url = $"/api/lobbies/{lobby.Id}";
+        GameRevisionRequest revision = new(lobby.Revision);
+
+        Task<HttpResponseMessage> join = guest.PostAsJsonAsync($"{url}/join", revision, Cancellation);
+        Task<HttpResponseMessage> cancel = host.PostAsJsonAsync($"{url}/cancel", revision, Cancellation);
+        using HttpResponseMessage joinResponse = await join;
+        using HttpResponseMessage cancelResponse = await cancel;
+        HttpResponseMessage[] responses = [joinResponse, cancelResponse];
+        HttpResponseMessage success = Assert.Single(responses, response => response.StatusCode == HttpStatusCode.OK);
+        await AssertErrorAsync(Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Conflict),
+            HttpStatusCode.Conflict, "RevisionConflict");
+        LobbyResponse committed = Assert.IsType<LobbyResponse>(await success.Content.ReadFromJsonAsync<LobbyResponse>(Cancellation));
+        Assert.Equal(1, committed.Revision);
+        Assert.Equal(success == joinResponse ? "Joined" : "Cancelled", committed.Status);
+        Assert.Equal(committed with { IsOwner = true }, await host.GetFromJsonAsync<LobbyResponse>(url, Cancellation));
+        Assert.Equal(committed with { IsOwner = false }, await guest.GetFromJsonAsync<LobbyResponse>(url, Cancellation));
+        Assert.Equal(success == joinResponse ? 1 : 0, (await ListGamesAsync(host, "?status=Active")).Items.Count);
+    }
+
+    [Fact]
+    public async Task LobbiesShareTheOutgoingQuotaAndExpireBeforeJoinOrCancel()
+    {
+        (_, string hostToken) = await RegisterAndSignInAsync("host");
+        (Guid guestId, string guestToken) = await RegisterAndSignInAsync("guest");
+        (Guid otherId, _) = await RegisterAndSignInAsync("other");
+        using HttpClient host = CreateClient(hostToken);
+        using HttpClient guest = CreateClient(guestToken);
+        GameResponse direct = await CreateGameAsync(host, guestId);
+        CreateLobbyRequest request = new(Guid.NewGuid());
+        LobbyResponse first = await CreateLobbyAsync(host, request);
+        Assert.Equal(clock.GetUtcNow().AddMinutes(5), first.ExpiresAt);
+
+        Task<HttpResponseMessage> nextLink = host.PostAsJsonAsync("/api/lobbies", new CreateLobbyRequest(Guid.NewGuid()), Cancellation);
+        Task<HttpResponseMessage> nextDirect = host.PostAsJsonAsync("/api/games", new CreateGameRequest(otherId), Cancellation);
+        using HttpResponseMessage next = await nextLink;
+        using HttpResponseMessage another = await nextDirect;
+        HttpResponseMessage[] responses = [next, another];
+        Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Created);
+        await AssertErrorAsync(Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Conflict),
+            HttpStatusCode.Conflict, "InvitationLimitReached");
+        GameListResponse invitations = await ListGamesAsync(host);
+        Assert.Equal(3, invitations.Items.Count);
+        Assert.Contains(invitations.Items, item => !item.IsLobby && item.Id == direct.Id);
+        using HttpResponseMessage replay = await host.PostAsJsonAsync("/api/lobbies", request, Cancellation);
+        Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        Assert.Equal(first, await replay.Content.ReadFromJsonAsync<LobbyResponse>(Cancellation));
+
+        clock.Advance(TimeSpan.FromMinutes(5));
+        string url = $"/api/lobbies/{first.Id}";
+        using HttpResponseMessage join = await guest.PostAsJsonAsync($"{url}/join", new GameRevisionRequest(0), Cancellation);
+        await AssertErrorAsync(join, HttpStatusCode.Gone, "InvitationExpired");
+        using HttpResponseMessage cancel = await host.PostAsJsonAsync($"{url}/cancel", new GameRevisionRequest(0), Cancellation);
+        await AssertErrorAsync(cancel, HttpStatusCode.Gone, "InvitationExpired");
+        LobbyResponse expired = Assert.IsType<LobbyResponse>(await guest.GetFromJsonAsync<LobbyResponse>(url, Cancellation));
+        Assert.Equal("Expired", expired.Status);
+        Assert.Null(expired.GameId);
+        Assert.Empty((await ListGamesAsync(host)).Items);
+        Assert.Equal(3, (await ListGamesAsync(host, "?status=ClosedInvitations")).Items.Count);
+        await CreateLobbyAsync(host);
+    }
+
+    [Fact]
+    public async Task JoinedLobbiesDoNotConsumeTheDirectInvitationWindow()
+    {
+        (_, string hostToken) = await RegisterAndSignInAsync("host");
+        (Guid guestId, string guestToken) = await RegisterAndSignInAsync("guest");
+        using HttpClient host = CreateClient(hostToken);
+        using HttpClient guest = CreateClient(guestToken);
+
+        for (int i = 0; i < 5; i++)
+        {
+            LobbyResponse lobby = await CreateLobbyAsync(host);
+            using HttpResponseMessage join = await guest.PostAsJsonAsync($"/api/lobbies/{lobby.Id}/join",
+                new GameRevisionRequest(lobby.Revision), Cancellation);
+            Assert.Equal(HttpStatusCode.OK, join.StatusCode);
+        }
+
+        Assert.Equal(5, (await ListGamesAsync(host, "?status=Active")).Items.Count);
+        await CreateGameAsync(host, guestId);
+    }
+
+    [Fact]
+    public async Task MyGamesPaginatesAcrossALobbyCursorThatHasClosed()
+    {
+        (Guid hostId, string hostToken) = await RegisterAndSignInAsync("host");
+        (Guid guestId, _) = await RegisterAndSignInAsync("guest");
+        using HttpClient host = CreateClient(hostToken);
+        await using AsyncServiceScope scope = app!.Services.CreateAsyncScope();
+        PlatformDbContext database = scope.ServiceProvider.GetRequiredService<PlatformDbContext>();
+        DateTimeOffset now = clock.GetUtcNow();
+        Game direct = new(hostId, guestId, scope.ServiceProvider.GetRequiredService<IGameRules>().StartingPosition(), now.AddSeconds(-1));
+        database.Games.Add(direct);
+        database.PrivateLobbies.AddRange(Enumerable.Range(0, 20).Select(_ => new PrivateLobby(hostId, Guid.NewGuid(), now)));
+        await database.SaveChangesAsync(Cancellation);
+
+        GameListResponse first = await ListGamesAsync(host);
+        Assert.Equal(20, first.Items.Count);
+        Assert.All(first.Items, item => Assert.True(item.IsLobby));
+        Guid cursor = Assert.IsType<Guid>(first.NextCursor);
+        using HttpResponseMessage cancel = await host.PostAsJsonAsync($"/api/lobbies/{cursor}/cancel",
+            new GameRevisionRequest(0), Cancellation);
+        Assert.Equal(HttpStatusCode.OK, cancel.StatusCode);
+
+        GameListResponse next = await ListGamesAsync(host, $"?before={cursor}");
+        Assert.Equal(direct.Id, Assert.Single(next.Items).Id);
+        Assert.Null(next.NextCursor);
+        GameListItemResponse closed = Assert.Single((await ListGamesAsync(host, "?status=ClosedInvitations")).Items);
+        Assert.Equal(cursor, closed.Id);
+        Assert.Equal("Cancelled", closed.Status);
+        Assert.True(closed.IsLobby);
+    }
+
+    [Fact]
     public async Task GameCreationReplaysAnInvitationForTheSameCreatorAndRequest()
     {
         (Guid whiteId, string whiteToken) = await RegisterAndSignInAsync("white");
@@ -998,6 +1187,7 @@ public sealed class GameEndpointTests : IAsyncLifetime
         builder.AddInfrastructure();
         builder.Services.AddSingleton<TimeProvider>(clock);
         builder.Services.AddScoped<GameService>();
+        builder.Services.AddScoped<LobbyService>();
         builder.Services.AddIdentityAuthentication(builder.Configuration);
         builder.Services.AddControllers().AddApplicationPart(typeof(GamesController).Assembly);
         builder.Services.AddSignalR();
@@ -1104,6 +1294,17 @@ public sealed class GameEndpointTests : IAsyncLifetime
         Assert.Equal($"/api/games/{game.Id}", response.Headers.Location?.AbsolutePath);
         Assert.True(response.Headers.CacheControl?.NoStore);
         return game;
+    }
+
+    private async Task<LobbyResponse> CreateLobbyAsync(HttpClient client, CreateLobbyRequest? request = null)
+    {
+        using HttpResponseMessage response = await client.PostAsJsonAsync("/api/lobbies",
+            request ?? new CreateLobbyRequest(Guid.NewGuid()), Cancellation);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        LobbyResponse lobby = Assert.IsType<LobbyResponse>(await response.Content.ReadFromJsonAsync<LobbyResponse>(Cancellation));
+        Assert.Equal($"/api/lobbies/{lobby.Id}", response.Headers.Location?.AbsolutePath);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+        return lobby;
     }
 
     private async Task<GameResponse> AcceptGameAsync(HttpClient client, string url)

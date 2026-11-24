@@ -67,9 +67,9 @@ public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerD
         }
 
         GameListItem[] items = rows.Take(ListPageSize).ToArray();
-        Guid[] opponents = items.Select(item => item.OpponentId).Distinct().ToArray();
+        Guid[] opponents = items.Select(item => item.OpponentId).OfType<Guid>().Distinct().ToArray();
         IReadOnlyDictionary<Guid, string> names = await players.FindNamesAsync(opponents, cancellationToken);
-        return new(items.Select(item => item with { OpponentName = names.GetValueOrDefault(item.OpponentId) }).ToArray(),
+        return new(items.Select(item => item.OpponentId is Guid id ? item with { OpponentName = names.GetValueOrDefault(id) } : item).ToArray(),
             rows.Count > ListPageSize ? items[^1].Id : null);
     }
 

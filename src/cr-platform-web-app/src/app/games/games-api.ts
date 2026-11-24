@@ -4,7 +4,7 @@ import { defer, EMPTY, filter, Observable, switchMap } from 'rxjs';
 import { AuthSession } from '../identity/auth-session';
 import { IdentityApiClient } from '../identity/identity-api.client';
 import { CurrentUser } from '../identity/identity-api.models';
-import { Game, GameBoard, GameFinishingAction, GameInvitationAction, GameListFilter, GameListPage } from './game.models';
+import { Game, GameBoard, GameFinishingAction, GameInvitationAction, GameListFilter, GameListPage, PrivateLobby } from './game.models';
 
 export type GameCreation = { requestId: string } & (
   { opponentUsername: string; opponentId?: never } | { opponentId: string; opponentUsername?: never }
@@ -31,6 +31,19 @@ export class GamesApi {
       ...this.options(token),
       params: before ? { status, before } : { status },
     }));
+  }
+
+  createLobby(requestId: string): Observable<PrivateLobby> {
+    return this.authorized(token => this.http.post<PrivateLobby>('/api/lobbies', { requestId }, this.options(token)));
+  }
+
+  lobby(id: string): Observable<PrivateLobby> {
+    return this.authorized(token => this.http.get<PrivateLobby>(`/api/lobbies/${encodeURIComponent(id)}`, this.options(token)));
+  }
+
+  updateLobby(lobby: PrivateLobby, action: 'join' | 'cancel'): Observable<PrivateLobby> {
+    return this.authorized(token => this.http.post<PrivateLobby>(`/api/lobbies/${encodeURIComponent(lobby.id)}/${action}`,
+      { expectedRevision: lobby.revision }, this.options(token)));
   }
 
   board(id: string, revision?: number): Observable<GameBoard | null> {

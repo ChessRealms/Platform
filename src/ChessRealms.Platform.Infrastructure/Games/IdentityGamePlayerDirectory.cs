@@ -7,6 +7,9 @@ namespace ChessRealms.Platform.Infrastructure.Games;
 
 internal sealed class IdentityGamePlayerDirectory(IdentityDbContext database) : IGamePlayerDirectory
 {
+    public Task<bool> IsEligibleAsync(Guid playerId, CancellationToken cancellationToken) =>
+        database.Users.AnyAsync(user => user.Id == playerId && user.EmailConfirmed, cancellationToken);
+
     public async Task<bool> AreEligibleAsync(Guid whitePlayerId, Guid blackPlayerId, CancellationToken cancellationToken)
     {
         int eligiblePlayers = await database.Users

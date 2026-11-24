@@ -21,5 +21,7 @@ public enum GameError
     InvitationExpired,
     InvitationAlreadyPending,
     InvitationLimitReached,
-    InvitationRateLimited
+    InvitationRateLimited,
+    LobbyNotOpen,
+    LobbyAlreadyJoined
 }

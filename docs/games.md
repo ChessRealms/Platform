@@ -36,6 +36,49 @@ Tabs in the same browser profile share a login. Switching accounts in another
 tab reloads the board and My games for the new player. Signing out clears both
 views. The board's sign-in link keeps the game ID.
 
+## Invite by link
+
+Choose **Create private link** in **My games** and use **Copy link** to share it.
+The link is valid for five minutes. It appears in the sender's **Invitations**
+until someone joins, the sender chooses **Cancel invitation**, or the link
+expires. The sender can reopen expired or cancelled links from **Closed invitations**.
+
+Opening the link shows a preview. If sign-in is needed, ChessRealms returns the
+player to that invitation after sign-in. The first confirmed player other than
+the sender to choose **Join game** takes Black, and both players can open the
+active game. The sender plays White. If the sender is still on the invitation
+page, it opens the board when it detects the join.
+
+The limit of three open outgoing invitations combines links and direct username
+invitations. The per-opponent limit applies to direct invitations. Reading a link
+or retrying its creation leaves the original deadline in place.
+
+### Lobby API
+
+The same bearer authentication applies to `/api/lobbies`. A lobby ID is an
+unguessable UUID used in the shareable URL. Treat open links as invitations that
+can be forwarded. Only the sender and the account that joined can retrieve the
+resulting game ID.
+
+| Route | Request body | Successful response |
+| --- | --- | --- |
+| `POST /api/lobbies` | `{"requestId":"<uuid>"}` | `201` with the lobby at revision 0 and a `Location` header. Reuse the request ID to recover the same lobby with `200`. |
+| `GET /api/lobbies/{id}` | None | `200` with the current lobby for a signed-in viewer. |
+| `POST /api/lobbies/{id}/join` | `{"expectedRevision":0}` | `200` with the joined lobby and `gameId`. A retry by the same player returns that game even after the original deadline. |
+| `POST /api/lobbies/{id}/cancel` | `{"expectedRevision":0}` | `200` with the cancelled lobby. Only its sender can cancel. |
+
+Lobby statuses are `Open`, `Joined`, `Cancelled`, and `Expired`. Join and
+cancel lock the lobby row before checking the deadline. Once it is reached, both
+actions return `410 InvitationExpired` for an open lobby. A competing action
+returns `409 RevisionConflict` or `409 LobbyAlreadyJoined`. The join and the
+new active game commit together.
+
+The games list includes the sender's open and closed link invitations in their
+respective filters. A link row has `isLobby: true`, a lobby ID in `id`, and a
+null opponent. Once joined, the game appears under `Active` for both players.
+
+## Connection recovery
+
 If the connection drops during play, the board retains the last loaded position
 and checks for updates when the browser comes back online. If the access token
 expired while offline, use **Restore session** to return to the same game. If an

@@ -43,6 +43,9 @@ public sealed class Game
     public static bool CanPair(Guid whitePlayerId, Guid blackPlayerId) =>
         whitePlayerId != Guid.Empty && blackPlayerId != Guid.Empty && whitePlayerId != blackPlayerId;
 
+    internal static Game StartFromLobby(Guid whitePlayerId, Guid blackPlayerId, GamePosition position, DateTimeOffset now) =>
+        new(whitePlayerId, blackPlayerId, position, now) { Status = GameStatus.Active, InvitationExpiresAt = null };
+
     public bool HasPlayer(Guid playerId) => playerId == WhitePlayerId || playerId == BlackPlayerId;
 
     public bool IsInvitationExpired(DateTimeOffset now) => Status == GameStatus.Pending && InvitationExpiresAt <= now;
