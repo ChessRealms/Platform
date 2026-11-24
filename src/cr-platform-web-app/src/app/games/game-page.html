@@ -58,6 +58,9 @@
               [canAct]="sync.canAct()" [legalMoves]="sync.board()?.legalMoves ?? []" [drawClaims]="sync.board()?.drawClaims ?? []"
               (action)="finish($event)" />
           }
+          @if (game.status === 'Finished') {
+            <p><a [routerLink]="['/games', game.id, 'replay']">Review game</a></p>
+          }
           @if (game.rematchGameId; as rematchId) {
             <a [routerLink]="['/games', rematchId]">Open rematch</a>
           } @else if (sync.rematchDeadline(); as deadline) {

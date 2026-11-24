@@ -1,12 +1,16 @@
 import { ParamMap } from '@angular/router';
 import { gameIdPattern } from './game.models';
 
-export type InvitationReturn = { gameId: string } | { lobbyId: string };
+export type InvitationReturn = { gameId: string } | { lobbyId: string } | { replayId: string };
 
 export function invitationReturn(params: ParamMap, gameIdParam = 'gameId'): InvitationReturn | undefined {
   const lobbyId = params.get('lobbyId');
   if (lobbyId && gameIdPattern.test(lobbyId)) {
     return { lobbyId };
+  }
+  const replayId = params.get('replayId');
+  if (replayId && gameIdPattern.test(replayId)) {
+    return { replayId };
   }
   const gameId = params.get(gameIdParam);
   return gameId && gameIdPattern.test(gameId) ? { gameId } : undefined;
@@ -16,5 +20,8 @@ export function invitationReturnPath(target: InvitationReturn | undefined): stri
   if (!target) {
     return ['/home'];
   }
-  return 'lobbyId' in target ? ['/lobbies', target.lobbyId] : ['/games', target.gameId];
+  if ('lobbyId' in target) {
+    return ['/lobbies', target.lobbyId];
+  }
+  return 'replayId' in target ? ['/games', target.replayId, 'replay'] : ['/games', target.gameId];
 }

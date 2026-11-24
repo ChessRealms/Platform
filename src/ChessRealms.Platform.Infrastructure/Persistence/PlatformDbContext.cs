@@ -10,6 +10,7 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
     internal const string GameCreationRequestIndex = "IX_Games_WhitePlayerId_CreationRequestId";
 
     public DbSet<Game> Games => Set<Game>();
+    public DbSet<GameMoveTiming> GameMoveTimings => Set<GameMoveTiming>();
     public DbSet<PrivateLobby> PrivateLobbies => Set<PrivateLobby>();
 
     protected override void OnModelCreating(ModelBuilder builder)
@@ -32,6 +33,11 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
             game.HasIndex(item => new { item.BlackPlayerId, item.Status });
             game.HasIndex(item => new { item.WhitePlayerId, item.BlackPlayerId, item.CreatedAt });
             game.HasOne<Game>().WithOne().HasForeignKey<Game>(item => item.RematchGameId).OnDelete(DeleteBehavior.Restrict);
+        });
+        builder.Entity<GameMoveTiming>(timing =>
+        {
+            timing.HasKey(item => new { item.GameId, item.Ply });
+            timing.HasOne<Game>().WithMany().HasForeignKey(item => item.GameId);
         });
         builder.Entity<PrivateLobby>(lobby =>
         {

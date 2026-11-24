@@ -28,5 +28,6 @@ public enum GameError
     RematchExpired,
     RematchOfferPending,
     NoRematchOffer,
-    InvalidTimeControl
+    InvalidTimeControl,
+    GameNotFinished
 }

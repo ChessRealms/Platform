@@ -99,6 +99,13 @@ public sealed class GamesController(GameService games, IHubContext<GameHub> live
     public async Task<IActionResult> Play(Guid id, PlayGameMoveRequest request, CancellationToken cancellationToken) =>
         await ChangeResponseAsync(await games.PlayAsync(id, PlayerId(), request.ExpectedRevision!.Value, request.Move, cancellationToken));
 
+    [HttpGet("{id:guid}/replay")]
+    public async Task<ActionResult<GameReplayResponse>> Replay(Guid id, CancellationToken cancellationToken)
+    {
+        (GameError error, GameReplay? replay) = await games.ReadReplayAsync(id, PlayerId(), cancellationToken);
+        return replay is null ? ErrorResponse(error) : GameReplayResponse.From(replay);
+    }
+
     [HttpPost("{id:guid}/resign")]
     public async Task<IActionResult> Resign(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
         await ChangeResponseAsync(await games.ResignAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken));
@@ -176,7 +183,7 @@ public sealed class GamesController(GameService games, IHubContext<GameHub> live
             GameError.InvalidPlayers or GameError.InvalidOpponentUsername or GameError.OpponentUnavailable or GameError.InvalidRequestId
                 or GameError.InvalidTimeControl
                 => StatusCodes.Status400BadRequest,
-            GameError.RevisionConflict or GameError.GameNotPending or GameError.GameNotActive or GameError.NotYourTurn
+            GameError.RevisionConflict or GameError.GameNotPending or GameError.GameNotActive or GameError.GameNotFinished or GameError.NotYourTurn
                 or GameError.DrawOfferPending or GameError.NoDrawOffer or GameError.CreationRequestConflict
                 or GameError.InvitationLimitReached or GameError.RematchUnavailable or GameError.RematchOfferPending or GameError.NoRematchOffer
                 => StatusCodes.Status409Conflict,

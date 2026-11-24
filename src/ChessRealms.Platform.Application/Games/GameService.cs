@@ -132,8 +132,31 @@ public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerD
 
     public Task<GameOperationResult> PlayAsync(Guid gameId, Guid playerId, long expectedRevision, string move,
         CancellationToken cancellationToken) =>
-        ChangeAsync(gameId, playerId, (game, now) => game.Play(playerId, expectedRevision, now, record => rules.Play(record, move)),
-            cancellationToken);
+        store.PlayAsync(gameId, playerId, (game, now) =>
+        {
+            GameMoveTiming? timing = null;
+            GameError error = ApplyActiveCommand(game, now,
+                (current, at) => current.Play(playerId, expectedRevision, at, record => rules.Play(record, move), out timing));
+            return (error, timing);
+        }, cancellationToken);
+
+    public async Task<(GameError Error, GameReplay? Replay)> ReadReplayAsync(Guid gameId, Guid playerId,
+        CancellationToken cancellationToken)
+    {
+        Game? game = await GetAsync(gameId, playerId, cancellationToken);
+        if (game is null)
+        {
+            return (GameError.NotFound, null);
+        }
+        if (game.Status != GameStatus.Finished)
+        {
+            return (GameError.GameNotFinished, null);
+        }
+
+        IReadOnlyList<GameMoveTiming> timings = game.StartedAt.HasValue
+            ? await store.ReadMoveTimingsAsync(game.Id, cancellationToken) : [];
+        return (GameError.None, GameReplay.From(game, playerId, rules.ReadReplay(game.RulesRecord), timings));
+    }
 
     public Task<GameOperationResult> ResignAsync(Guid gameId, Guid playerId, long expectedRevision,
         CancellationToken cancellationToken) =>
@@ -165,12 +188,14 @@ public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerD
 
     private Task<GameOperationResult> ChangeAsync(Guid gameId, Guid playerId, Func<Game, DateTimeOffset, GameError> change,
         CancellationToken cancellationToken) =>
-        store.ChangeLockedAsync(gameId, playerId, (game, now) =>
+        store.ChangeLockedAsync(gameId, playerId, (game, now) => ApplyActiveCommand(game, now, change), cancellationToken);
+
+    private GameError ApplyActiveCommand(Game game, DateTimeOffset now, Func<Game, DateTimeOffset, GameError> change)
+    {
+        if (game.TryFinishOnTime(now, rules.HasInsufficientMatingMaterial))
         {
-            if (game.TryFinishOnTime(now, rules.HasInsufficientMatingMaterial))
-            {
-                return GameError.None;
-            }
-            return game.IsInvitationExpired(now) ? GameError.GameNotActive : change(game, now);
-        }, cancellationToken);
+            return GameError.None;
+        }
+        return game.IsInvitationExpired(now) ? GameError.GameNotActive : change(game, now);
+    }
 }

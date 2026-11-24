@@ -916,6 +916,18 @@ public sealed class GameEndpointTests : IAsyncLifetime
         Assert.Equal(2, persisted.Revision);
         Assert.Equal(updated, persisted);
         Assert.Equal(resign && ReferenceEquals(responses[1], winner) ? "Resignation" : null, persisted.EndReason);
+        await using AsyncServiceScope scope = app!.Services.CreateAsyncScope();
+        PlatformDbContext database = scope.ServiceProvider.GetRequiredService<PlatformDbContext>();
+        List<GameMoveTiming> timings = await database.GameMoveTimings.Where(timing => timing.GameId == pending.Id)
+            .ToListAsync(Cancellation);
+        if (persisted.Status == "Finished")
+        {
+            Assert.Empty(timings);
+        }
+        else
+        {
+            Assert.Equal(1, Assert.Single(timings).Ply);
+        }
         using HttpResponseMessage stale = await PlayAsync(white, gameUrl, "e2e4", 1);
         await AssertErrorAsync(stale, HttpStatusCode.Conflict, "RevisionConflict");
     }
@@ -1111,6 +1123,19 @@ public sealed class GameEndpointTests : IAsyncLifetime
         Assert.Equal(1, finished.Game.Clock.WhiteMilliseconds);
         Assert.Equal(0, finished.Game.Clock.BlackMilliseconds);
 
+        GameReplayResponse replay = await ReadReplayAsync(white, url);
+        Assert.Equal("recorded", replay.TimingMode);
+        Assert.Equal(300000, replay.InitialClock!.WhiteMilliseconds);
+        GameReplayMoveResponse frame = Assert.Single(replay.Moves);
+        Assert.Equal(299999L, frame.AtMs);
+        Assert.Equal("e4", frame.San);
+        Assert.Equal(finished.Game.Fen, frame.Fen);
+        Assert.Equal(1, frame.Clock!.WhiteMilliseconds);
+        Assert.Equal(300000, frame.Clock.BlackMilliseconds);
+        Assert.Equal(599999L, replay.Finish.AtMs);
+        Assert.Equal("Timeout", replay.Finish.EndReason);
+        Assert.Equal(0, replay.Finish.Clock!.BlackMilliseconds);
+
         GameResponse offered = await ApplyActionAsync(white, url, "rematch/offer", finished.Game.Revision);
         GameResponse accepted = await ApplyActionAsync(black, url, "rematch/accept", offered.Revision);
         GameResponse rematch = (await ReadBoardAsync(black, $"/api/games/{accepted.RematchGameId}")).Game;
@@ -1173,6 +1198,77 @@ public sealed class GameEndpointTests : IAsyncLifetime
         LobbyResponse result = Assert.IsType<LobbyResponse>(await joined.Content.ReadFromJsonAsync<LobbyResponse>(Cancellation));
         GameResponse active = (await ReadBoardAsync(guest, $"/api/games/{result.GameId}")).Game;
         Assert.Equal(clock.GetUtcNow().AddMinutes(5), active.Clock!.TurnDeadline);
+    }
+
+    [Fact]
+    public async Task ReplayIsPrivateAndResignationWithoutMovesHasItsOwnTime()
+    {
+        (_, string whiteToken) = await RegisterAndSignInAsync("white");
+        (Guid blackId, string blackToken) = await RegisterAndSignInAsync("black");
+        (_, string outsiderToken) = await RegisterAndSignInAsync("outsider");
+        using HttpClient white = CreateClient(whiteToken);
+        using HttpClient black = CreateClient(blackToken);
+        using HttpClient outsider = CreateClient(outsiderToken);
+        GameResponse pending = await CreateGameAsync(white, blackId);
+        string url = $"/api/games/{pending.Id}";
+        clock.Advance(TimeSpan.FromSeconds(30));
+        GameResponse active = await AcceptGameAsync(black, url);
+        using HttpResponseMessage tooEarly = await white.GetAsync($"{url}/replay", Cancellation);
+        await AssertErrorAsync(tooEarly, HttpStatusCode.Conflict, "GameNotFinished");
+        clock.Advance(TimeSpan.FromSeconds(7));
+        GameResponse finished = await ApplyActionAsync(black, url, "resign", active.Revision);
+        using HttpResponseMessage inaccessible = await outsider.GetAsync($"{url}/replay", Cancellation);
+        await AssertErrorAsync(inaccessible, HttpStatusCode.NotFound, "NotFound");
+
+        GameReplayResponse replay = await ReadReplayAsync(black, url);
+        Assert.Equal("Black", replay.ViewerColor);
+        Assert.Equal("recorded", replay.TimingMode);
+        Assert.Equal(finished.Fen, replay.InitialFen);
+        Assert.Empty(replay.Moves);
+        Assert.Equal("White", replay.Finish.Winner);
+        Assert.Equal("Resignation", replay.Finish.EndReason);
+        Assert.Equal(7000L, replay.Finish.AtMs);
+    }
+
+    [Theory]
+    [InlineData("7k/8/8/3pP3/8/8/8/7K w - d6 0 2", "e5d6", "exd6", "7k/8/3P4/8/8/8/8/7K", "White", "2", false)]
+    [InlineData("7k/P7/8/8/8/8/8/7K w - - 0 1", "a7a8q", "a8=Q+", "Q6k/8/8/8/8/8/8/7K", "White", "1", false)]
+    [InlineData("r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 37", "e8c8", "O-O-O", "2kr3r/8/8/8/8/8/8/R3K2R", "Black", "37", true)]
+    public async Task ReplayUsesTheRecordedInitialPositionAndHandlesSpecialMoves(string fen, string coordinate, string san,
+        string board, string color, string moveNumber, bool legacy)
+    {
+        (Guid whiteId, string whiteToken) = await RegisterAndSignInAsync("white");
+        (Guid blackId, string blackToken) = await RegisterAndSignInAsync("black");
+        using HttpClient white = CreateClient(whiteToken);
+        using HttpClient black = CreateClient(blackToken);
+        await using AsyncServiceScope scope = app!.Services.CreateAsyncScope();
+        PlatformDbContext database = scope.ServiceProvider.GetRequiredService<PlatformDbContext>();
+        PlayerColor startingColor = Enum.Parse<PlayerColor>(color);
+        Game game = new(whiteId, blackId, new(PositionRecord(fen), fen, startingColor), clock.GetUtcNow());
+        database.Games.Add(game);
+        await database.SaveChangesAsync(Cancellation);
+        string url = $"/api/games/{game.Id}";
+        GameResponse active = await AcceptGameAsync(black, url);
+        if (legacy)
+        {
+            await database.Games.Where(row => row.Id == game.Id).ExecuteUpdateAsync(
+                updates => updates.SetProperty(row => row.StartedAt, (DateTimeOffset?)null), Cancellation);
+        }
+
+        clock.Advance(TimeSpan.FromSeconds(3));
+        GameResponse moved = await MakeMoveAsync(startingColor == PlayerColor.White ? white : black, url, coordinate, active.Revision);
+        clock.Advance(TimeSpan.FromSeconds(8));
+        await ApplyActionAsync(white, url, "resign", moved.Revision);
+        GameReplayResponse replay = await ReadReplayAsync(black, url);
+        GameReplayMoveResponse frame = Assert.Single(replay.Moves);
+        Assert.Equal(fen, replay.InitialFen);
+        Assert.Equal(san, frame.San);
+        Assert.Equal(moveNumber, frame.MoveNumber);
+        Assert.Equal(color, frame.Color);
+        Assert.Equal(board, frame.Fen.Split(' ')[0]);
+        Assert.Equal(legacy ? "unavailable" : "recorded", replay.TimingMode);
+        Assert.Equal(legacy ? null : 3000L, frame.AtMs);
+        Assert.Equal(legacy ? null : 11000L, replay.Finish.AtMs);
     }
 
     [Fact]
@@ -1517,6 +1613,9 @@ public sealed class GameEndpointTests : IAsyncLifetime
 
     private async Task<GameBoardResponse> ReadBoardAsync(HttpClient client, string url) =>
         Assert.IsType<GameBoardResponse>(await client.GetFromJsonAsync<GameBoardResponse>($"{url}/board", Cancellation));
+
+    private async Task<GameReplayResponse> ReadReplayAsync(HttpClient client, string url) =>
+        Assert.IsType<GameReplayResponse>(await client.GetFromJsonAsync<GameReplayResponse>($"{url}/replay", Cancellation));
 
     private Task<HttpResponseMessage> PlayAsync(HttpClient client, string url, string move, long revision) =>
         client.PostAsJsonAsync($"{url}/moves", new PlayGameMoveRequest(revision, move), Cancellation);
