@@ -1,5 +1,7 @@
 export type PlayerColor = 'White' | 'Black';
-export type GameStatus = 'Pending' | 'Active' | 'Finished';
+export type GameListFilter = 'Pending' | 'Active' | 'Finished' | 'ClosedInvitations';
+export type GameStatus = Exclude<GameListFilter, 'ClosedInvitations'> | 'Declined' | 'Cancelled';
+export type GameInvitationAction = 'accept' | 'decline' | 'cancel';
 export type DrawClaimReason = 'ThreefoldRepetition' | 'FiftyMoveRule';
 export type GameFinishingAction =
   | { kind: 'resign' | 'offer' | 'accept' | 'decline' }
@@ -43,6 +45,14 @@ export interface GameBoard {
 }
 
 export const gameIdPattern = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
+
+export function invitationOutcome(status: GameStatus | undefined): string | undefined {
+  switch (status) {
+    case 'Declined': return 'Invitation declined';
+    case 'Cancelled': return 'Invitation cancelled';
+    default: return undefined;
+  }
+}
 
 export const finishReasons: Record<string, string> = {
   Checkmate: 'Checkmate', Stalemate: 'Stalemate', DeadPosition: 'Dead position',

@@ -63,9 +63,9 @@ public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerD
         return game?.HasPlayer(playerId) == true ? game : null;
     }
 
-    public async Task<GameListPage> ListAsync(Guid playerId, GameStatus status, Guid? before, CancellationToken cancellationToken)
+    public async Task<GameListPage> ListAsync(Guid playerId, GameListFilter filter, Guid? before, CancellationToken cancellationToken)
     {
-        IReadOnlyList<GameListItem> rows = await store.ListAsync(playerId, status, before, ListPageSize + 1, cancellationToken);
+        IReadOnlyList<GameListItem> rows = await store.ListAsync(playerId, filter, before, ListPageSize + 1, cancellationToken);
         if (rows.Count == 0)
         {
             return new([], null);
@@ -94,6 +94,14 @@ public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerD
     public Task<GameOperationResult> AcceptAsync(Guid gameId, Guid playerId, long expectedRevision,
         CancellationToken cancellationToken) =>
         ChangeAsync(gameId, game => game.Accept(playerId, expectedRevision), cancellationToken);
+
+    public Task<GameOperationResult> DeclineAsync(Guid gameId, Guid playerId, long expectedRevision,
+        CancellationToken cancellationToken) =>
+        ChangeAsync(gameId, game => game.Decline(playerId, expectedRevision), cancellationToken);
+
+    public Task<GameOperationResult> CancelAsync(Guid gameId, Guid playerId, long expectedRevision,
+        CancellationToken cancellationToken) =>
+        ChangeAsync(gameId, game => game.Cancel(playerId, expectedRevision), cancellationToken);
 
     public Task<GameOperationResult> PlayAsync(Guid gameId, Guid playerId, long expectedRevision, string move,
         CancellationToken cancellationToken) =>

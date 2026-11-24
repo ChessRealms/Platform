@@ -50,6 +50,49 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         await Expect(black.GetByText("Your turn", new() { Exact = true })).ToBeVisibleAsync();
     }
 
+    [Theory]
+    [InlineData(true, "Decline", "Invitation declined")]
+    [InlineData(false, "Cancel invitation", "Invitation cancelled")]
+    public async Task BothPlayersSeeTheClosedInvitation(bool recipientActs, string action, string outcome)
+    {
+        await using IBrowser browser = await browserSteps.LaunchBrowserAsync();
+        await using IBrowserContext whiteContext = await browserSteps.NewContextAsync(browser);
+        await using IBrowserContext blackContext = await browserSteps.NewContextAsync(browser);
+        (IPage white, string whiteEmail) = await browserSteps.RegisterAndOpenSignInAsync(whiteContext);
+        (IPage black, string blackEmail) = await browserSteps.RegisterAndOpenSignInAsync(blackContext);
+        await browserSteps.SignInAsync(white, whiteEmail);
+        await browserSteps.SignInAsync(black, blackEmail);
+
+        await black.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
+        string blackUsername = await ReadUsernameAsync(black);
+        await white.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
+        await SendInvitationAsync(white, blackUsername);
+        await Expect(white.GetByLabel("Game link")).ToBeVisibleAsync();
+        ILocator blackList = black.GetByRole(AriaRole.Region, new() { Name = "Your games", Exact = true });
+        await blackList.GetByRole(AriaRole.Button, new() { Name = "Refresh", Exact = true }).ClickAsync();
+        await blackList.GetByRole(AriaRole.Link).Filter(new() { HasText = "Invitation received" }).ClickAsync();
+        await Expect(black.GetByRole(AriaRole.Button, new() { Name = "Accept game", Exact = true })).ToBeEnabledAsync();
+        await Expect(black.GetByRole(AriaRole.Button, new() { Name = "Cancel invitation", Exact = true })).ToHaveCountAsync(0);
+        await Expect(white.GetByRole(AriaRole.Button, new() { Name = "Decline", Exact = true })).ToHaveCountAsync(0);
+
+        IPage actor = recipientActs ? black : white;
+        await actor.GetByRole(AriaRole.Button, new() { Name = action, Exact = true }).ClickAsync();
+        foreach (IPage page in new[] { white, black })
+        {
+            await Expect(page.GetByText(outcome, new() { Exact = true })).ToBeVisibleAsync();
+            await Expect(page.GetByRole(AriaRole.Button, new() { Name = "Accept game", Exact = true })).ToHaveCountAsync(0);
+            await Expect(page.GetByRole(AriaRole.Button, new() { Name = "Decline", Exact = true })).ToHaveCountAsync(0);
+            await Expect(page.GetByRole(AriaRole.Button, new() { Name = "Cancel invitation", Exact = true })).ToHaveCountAsync(0);
+
+            await page.GetByRole(AriaRole.Main).GetByRole(AriaRole.Link, new() { Name = "Games", Exact = true }).ClickAsync();
+            await Expect(page.GetByText("No pending invitations.", new() { Exact = true })).ToBeVisibleAsync();
+            ILocator list = page.GetByRole(AriaRole.Region, new() { Name = "Your games", Exact = true });
+            await list.GetByRole(AriaRole.Button, new() { Name = "Closed invitations", Exact = true }).ClickAsync();
+            await list.GetByRole(AriaRole.Link).Filter(new() { HasText = outcome }).ClickAsync();
+            await Expect(page.GetByText(outcome, new() { Exact = true })).ToBeVisibleAsync();
+        }
+    }
+
     [Fact]
     public async Task PlayersSignInFromInviteAndSyncPrivateGameAcrossBrowsers()
     {

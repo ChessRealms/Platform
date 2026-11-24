@@ -21,7 +21,7 @@ describe('GamePage', () => {
   afterEach(() => vi.useRealTimers());
 
   function open(board: ReturnType<typeof vi.fn>, move = vi.fn().mockReturnValue(of(game)),
-    updates: Observable<number | null> = NEVER, params = of(convertToParamMap({ id }))) {
+    updates: Observable<number | null> = NEVER, params = of(convertToParamMap({ id })), updateInvitation = vi.fn()) {
     const watch = vi.fn(() => updates);
     TestBed.configureTestingModule({
       providers: [
@@ -32,7 +32,7 @@ describe('GamePage', () => {
       ],
     }).overrideComponent(GamePage, { set: { providers: [
       GameBoardSync,
-      { provide: GamesApi, useValue: { me: () => of({ userId: 'white' }), board, move } },
+      { provide: GamesApi, useValue: { me: () => of({ userId: 'white' }), board, move, updateInvitation } },
     ] } });
     const fixture = TestBed.createComponent(GamePage);
     return { page: fixture.componentInstance, sync: fixture.debugElement.injector.get(GameBoardSync), watch };
@@ -78,6 +78,30 @@ describe('GamePage', () => {
     window.dispatchEvent(new Event('online'));
     vi.advanceTimersByTime(45000);
     expect(board).toHaveBeenCalledTimes(1);
+  });
+
+  it('reloads after an invitation conflict and stops watching when the invitation is closed', () => {
+    vi.useFakeTimers();
+    const updates = new Subject<number | null>();
+    const pending: Game = { ...game, status: 'Pending', revision: 0, sideToMove: null };
+    const declined: Game = { ...pending, status: 'Declined', revision: 1 };
+    const board = vi.fn().mockReturnValueOnce(of({ ...initial, game: pending, legalMoves: [] }))
+      .mockReturnValueOnce(of({ ...initial, game: declined, legalMoves: [] }));
+    const updateInvitation = vi.fn().mockReturnValue(throwError(() => new HttpErrorResponse({ status: 409 })));
+    const { page, sync } = open(board, undefined, updates, undefined, updateInvitation);
+
+    expect(updates.observed).toBe(true);
+    expect(sync.submit({ kind: 'invitation', action: 'cancel' })).toBe(true);
+    expect(updateInvitation).toHaveBeenCalledExactlyOnceWith(pending, 'cancel');
+    expect(board).toHaveBeenLastCalledWith(id, 0);
+    expect(page.status()).toBe('Invitation declined');
+    expect(sync.commandError()).toBe('The invitation changed. Check its current status.');
+    expect(sync.canAct()).toBe(false);
+    expect(updates.observed).toBe(false);
+
+    window.dispatchEvent(new Event('online'));
+    vi.advanceTimersByTime(45000);
+    expect(board).toHaveBeenCalledTimes(2);
   });
 
   it('stops background reads after reconnecting and discovering the final result', () => {

@@ -4,7 +4,7 @@ import { RouterLink } from '@angular/router';
 import { ChessBoard } from './chess-board';
 import { GameBoardCommand, GameBoardSync } from './game-board-sync';
 import { GameFinishingActions } from './game-finishing-actions';
-import { finishReasons, Game, GameBoard, GameFinishingAction } from './game.models';
+import { finishReasons, Game, GameBoard, GameFinishingAction, GameInvitationAction, invitationOutcome } from './game.models';
 import { GamesApi } from './games-api';
 
 const promotionNames: Record<string, string> = { q: 'Queen', r: 'Rook', b: 'Bishop', n: 'Knight' };
@@ -46,6 +46,7 @@ export class GamePage {
     const moves = this.sync.board()?.moves ?? [];
     return moves.filter((_, i) => i % 2 === 0).map((white, i) => ({ white, black: moves[i * 2 + 1] }));
   });
+  protected readonly closedInvitation = computed(() => invitationOutcome(this.game()?.status));
   readonly status = computed(() => {
     const game = this.game();
     if (!game) {
@@ -58,7 +59,7 @@ export class GamePage {
       const reason = game.endReason ? finishReasons[game.endReason] : undefined;
       return (game.winner ? `${game.winner} wins` : 'Draw') + (reason ? ` · ${reason}` : '');
     }
-    return game.sideToMove === this.color() ? 'Your turn' : `${game.sideToMove} to move`;
+    return this.closedInvitation() ?? (game.sideToMove === this.color() ? 'Your turn' : `${game.sideToMove} to move`);
   });
 
   gameLink(game: Game): string {
@@ -90,8 +91,8 @@ export class GamePage {
     this.submit({ kind: 'move', move });
   }
 
-  accept(): void {
-    this.submit({ kind: 'accept-invite' });
+  protected updateInvitation(action: GameInvitationAction): void {
+    this.submit({ kind: 'invitation', action });
   }
 
   finish(action: GameFinishingAction): void {

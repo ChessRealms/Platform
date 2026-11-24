@@ -30,15 +30,21 @@
       <aside>
         <div class="play-state">
           <p class="status" role="status">{{ status() }}</p>
-          <p>You play {{ color() }}.</p>
+          @if (!closedInvitation()) { <p>You play {{ color() }}.</p> }
           @if (sync.updating()) { <p role="status">Updating game…</p> }
           @if (sync.commandError(); as message) { <p class="form-errors" role="alert">{{ message }}</p> }
           @if (game.status === 'Pending') {
             @if (color() === 'Black') {
-              <button type="button" [disabled]="!sync.canAct()" (click)="accept()">Accept game</button>
+              <div class="invitation-actions">
+                <button type="button" [disabled]="!sync.canAct()" (click)="updateInvitation('accept')">Accept game</button>
+                <button type="button" [disabled]="!sync.canAct()" (click)="updateInvitation('decline')">Decline</button>
+              </div>
             } @else {
               <label for="game-link">Game link</label>
               <input id="game-link" readonly [value]="gameLink(game)" />
+              <div class="invitation-actions">
+                <button type="button" [disabled]="!sync.canAct()" (click)="updateInvitation('cancel')">Cancel invitation</button>
+              </div>
             }
           }
           @if (game.status === 'Active') {

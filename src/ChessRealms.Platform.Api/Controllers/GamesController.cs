@@ -16,10 +16,10 @@ public sealed class GamesController(GameService games, IHubContext<GameHub> live
     ILogger<GamesController> logger) : ControllerBase
 {
     [HttpGet]
-    public async Task<ActionResult<GameListResponse>> List([FromQuery] GameStatus? status, [FromQuery] Guid? before,
+    public async Task<ActionResult<GameListResponse>> List([FromQuery] GameListFilter? status, [FromQuery] Guid? before,
         CancellationToken cancellationToken)
     {
-        GameStatus filter = status ?? GameStatus.Pending;
+        GameListFilter filter = status ?? GameListFilter.Pending;
         if (!Enum.IsDefined(filter))
         {
             return BadRequest(new { code = "InvalidGameStatus" });
@@ -53,6 +53,14 @@ public sealed class GamesController(GameService games, IHubContext<GameHub> live
     [HttpPost("{id:guid}/accept")]
     public async Task<IActionResult> Accept(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
         await ChangeResponseAsync(await games.AcceptAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken));
+
+    [HttpPost("{id:guid}/decline")]
+    public async Task<IActionResult> Decline(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
+        await ChangeResponseAsync(await games.DeclineAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken));
+
+    [HttpPost("{id:guid}/cancel")]
+    public async Task<IActionResult> Cancel(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
+        await ChangeResponseAsync(await games.CancelAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken));
 
     [HttpGet("{id:guid}/board")]
     public async Task<ActionResult<GameBoardResponse>> Board(Guid id, [FromQuery] long? afterRevision,

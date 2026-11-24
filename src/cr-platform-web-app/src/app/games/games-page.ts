@@ -5,13 +5,14 @@ import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { catchError, EMPTY, finalize, Subject, switchMap } from 'rxjs';
 import { AuthSession } from '../identity/auth-session';
-import { finishReasons, gameIdPattern, GameListItem } from './game.models';
+import { finishReasons, gameIdPattern, GameListItem, invitationOutcome } from './game.models';
 import { GameCreation, GamesApi } from './games-api';
 
 const gameFilters = [
   { status: 'Pending', label: 'Invitations', empty: 'No pending invitations.' },
   { status: 'Active', label: 'Active', empty: 'No active games.' },
   { status: 'Finished', label: 'Finished', empty: 'No finished games.' },
+  { status: 'ClosedInvitations', label: 'Closed invitations', empty: 'No closed invitations.' },
 ] as const;
 
 type GameFilter = (typeof gameFilters)[number];
@@ -100,6 +101,10 @@ export class GamesPage {
     }
     if (game.status === 'Active') {
       return game.isYourTurn ? 'Your turn' : 'Opponent’s turn';
+    }
+    const outcome = invitationOutcome(game.status);
+    if (outcome) {
+      return outcome;
     }
     const result = game.winner === null ? 'Draw' : game.winner === game.color ? 'Won' : 'Lost';
     const reason = game.endReason ? finishReasons[game.endReason] : undefined;
