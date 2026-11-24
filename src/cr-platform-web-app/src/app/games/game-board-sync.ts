@@ -9,13 +9,15 @@ import {
 } from 'rxjs';
 import { AuthSession } from '../identity/auth-session';
 import { GameLiveUpdates } from './game-live-updates';
-import { Game, GameBoard, GameFinishingAction, gameIdPattern, GameInvitationAction } from './game.models';
+import { Game, GameBoard, GameFinishingAction, gameIdPattern, GameInvitationAction, GameRematchAction } from './game.models';
 import { GamesApi } from './games-api';
 
 type BoardError = 'invalid-link' | 'sign-in-required' | 'not-found' | 'connection';
 type BoardActivity = 'idle' | 'sending' | 'refreshing';
+const boardPollInterval = 15000;
 export type GameBoardCommand = { kind: 'move'; move: string }
   | { kind: 'invitation'; action: GameInvitationAction }
+  | { kind: 'rematch'; action: GameRematchAction }
   | GameFinishingAction;
 
 @Injectable()
@@ -34,6 +36,8 @@ export class GameBoardSync {
   private readonly actionError = signal<string | null>(null);
   private readonly player = signal<string | null>(null);
   private readonly playerLoadFailed = signal(false);
+  private readonly rematchWindowElapsed = signal(false);
+  private readonly acceptedRematch = signal<string | null>(null);
   // A response belongs to the current route and must not predate the latest command.
   private requestVersion = 0;
 
@@ -46,12 +50,20 @@ export class GameBoardSync {
   readonly playerError = this.playerLoadFailed.asReadonly();
   readonly sessionUnavailable = computed(() => this.session.state() === 'unavailable');
   readonly updating = computed(() => this.activity() !== 'idle');
+  readonly startedRematch = this.acceptedRematch.asReadonly();
   private readonly isOpen = computed(() => {
     const status = this.game()?.status;
     return status === 'Pending' || status === 'Active';
   });
-  readonly canAct = computed(() => this.isOpen() && !!this.player() && !this.updating()
+  private readonly readyToAct = computed(() => !!this.player() && !this.updating()
     && !this.readError() && !this.sessionUnavailable());
+  readonly canAct = computed(() => this.isOpen() && this.readyToAct());
+  readonly rematchDeadline = computed(() => {
+    const game = this.game();
+    return game?.status === 'Finished' && !game.rematchGameId && !this.rematchWindowElapsed()
+      ? game.rematchExpiresAt : null;
+  });
+  readonly canRematch = computed(() => !!this.rematchDeadline() && this.readyToAct());
 
   constructor() {
     this.loadPlayer();
@@ -72,7 +84,10 @@ export class GameBoardSync {
 
   submit(command: GameBoardCommand): boolean {
     const game = this.game();
-    if (!game || !this.canAct()) {
+    const allowed = command.kind === 'rematch'
+      ? this.canRematch() && Date.parse(game?.rematchExpiresAt ?? '') > Date.now()
+      : this.canAct();
+    if (!game || !allowed) {
       return false;
     }
     const version = ++this.requestVersion;
@@ -93,7 +108,7 @@ export class GameBoardSync {
           const changed = command.kind === 'invitation'
             ? 'The invitation changed. Check its current status.' : 'The game changed. Check the current position.';
           this.actionError.set(error.error?.code === 'DrawClaimUnavailable' ? 'That draw claim is unavailable.'
-            : error.status === 410 ? 'This invitation has expired.'
+            : error.status === 410 ? (command.kind === 'rematch' ? 'The rematch window has closed.' : 'This invitation has expired.')
             : error.status === 409 ? changed
             : error.status === 422 ? 'That move is illegal in the current position.'
             : 'Could not confirm the action. Check the updated board before trying again.');
@@ -107,6 +122,8 @@ export class GameBoardSync {
     this.id.set(id);
     this.requestVersion++;
     this.snapshot.set(null);
+    this.rematchWindowElapsed.set(false);
+    this.acceptedRematch.set(null);
     this.activity.set('idle');
     this.actionError.set(null);
     this.readError.set(gameIdPattern.test(id) ? null : 'invalid-link');
@@ -116,15 +133,25 @@ export class GameBoardSync {
 
     const firstRead = new Subject<void>();
     const invitationDeadline = new Subject<string | null>();
-    const expiry = invitationDeadline.pipe(
+    const rematchDeadline = new Subject<string | null>();
+    const invitationExpiry = invitationDeadline.pipe(
       distinctUntilChanged(),
       switchMap(deadline => deadline ? timer(Math.max(0, Date.parse(deadline) - Date.now())) : EMPTY),
     );
+    const rematchExpiry = rematchDeadline.pipe(
+      distinctUntilChanged(),
+      switchMap(deadline => deadline ? timer(Math.max(0, Date.parse(deadline) - Date.now())).pipe(
+        tap(() => this.rematchWindowElapsed.set(true)),
+        // Allow a fallback read after an acceptance committed near the deadline.
+        switchMap(() => timer(boardPollInterval)),
+      ) : EMPTY),
+    );
     const revisions = this.watchRevisions(id, firstRead);
     const online = fromEvent(this.window, 'online');
-    return merge(revisions, this.refreshRequests, expiry, timer(15000, 15000), online, of(null)).pipe(
+    return merge(revisions, this.refreshRequests, invitationExpiry, rematchExpiry,
+      timer(boardPollInterval, boardPollInterval), online, of(null)).pipe(
       filter(() => this.activity() !== 'sending' && !this.sessionUnavailable()),
-      switchMap(() => this.readBoard(id, firstRead, invitationDeadline)),
+      switchMap(() => this.readBoard(id, firstRead, invitationDeadline, rematchDeadline)),
       takeUntil(this.stopUpdates),
     );
   }
@@ -148,20 +175,32 @@ export class GameBoardSync {
   }
 
   private readBoard(id: string, firstRead: Subject<void>,
-    invitationDeadline: Subject<string | null>): Observable<GameBoard | null> {
+    invitationDeadline: Subject<string | null>, rematchDeadline: Subject<string | null>): Observable<GameBoard | null> {
     const version = this.requestVersion;
     return this.api.board(id, this.game()?.revision).pipe(
       tap(board => {
         if (version !== this.requestVersion) {
           return;
         }
-        if (board && board.game.revision >= (this.game()?.revision ?? 0)) {
+        const previous = this.game();
+        if (board && board.game.revision >= (previous?.revision ?? 0)) {
+          const game = board.game;
+          if (game.rematchExpiresAt && Date.parse(game.rematchExpiresAt) <= Date.now()) {
+            this.rematchWindowElapsed.set(true);
+          }
           this.snapshot.set(board);
-          invitationDeadline.next(board.game.status === 'Pending' ? board.game.invitationExpiresAt : null);
+          invitationDeadline.next(game.status === 'Pending' ? game.invitationExpiresAt : null);
+          rematchDeadline.next(game.rematchGameId ? null : game.rematchExpiresAt);
+          if (previous && !previous.rematchGameId && game.rematchGameId) {
+            this.acceptedRematch.set(game.rematchGameId);
+          }
         }
         this.readError.set(null);
         this.activity.set('idle');
-        if (this.game() && !this.isOpen()) {
+        const game = this.game();
+        const watchingRematch = !!game?.rematchExpiresAt && !game.rematchGameId
+          && Date.parse(game.rematchExpiresAt) + boardPollInterval > Date.now();
+        if (game && !this.isOpen() && !watchingRematch) {
           this.stopUpdates.next();
         } else {
           firstRead.next();
@@ -186,6 +225,7 @@ export class GameBoardSync {
     switch (command.kind) {
       case 'move': return this.api.move(game, command.move);
       case 'invitation': return this.api.updateInvitation(game, command.action);
+      case 'rematch': return this.api.updateRematch(game, command.action);
       default: return this.api.finish(game, command);
     }
   }

@@ -43,7 +43,7 @@ public sealed class PrivateLobby
             return error;
         }
 
-        game = Game.StartFromLobby(CreatorId, playerId, position, now);
+        game = Game.StartActive(CreatorId, playerId, position, now);
         JoinedPlayerId = playerId;
         GameId = game.Id;
         Status = LobbyStatus.Joined;

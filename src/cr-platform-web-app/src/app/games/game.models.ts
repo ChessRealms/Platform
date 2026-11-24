@@ -2,6 +2,7 @@ export type PlayerColor = 'White' | 'Black';
 export type GameListFilter = 'Pending' | 'Active' | 'Finished' | 'ClosedInvitations';
 export type GameStatus = Exclude<GameListFilter, 'ClosedInvitations'> | 'Declined' | 'Cancelled' | 'Expired';
 export type GameInvitationAction = 'accept' | 'decline' | 'cancel';
+export type GameRematchAction = 'offer' | 'accept';
 export type DrawClaimReason = 'ThreefoldRepetition' | 'FiftyMoveRule';
 export type GameFinishingAction =
   | { kind: 'resign' | 'offer' | 'accept' | 'decline' }
@@ -19,6 +20,9 @@ export interface Game {
   endReason: string | null;
   drawOfferedBy: PlayerColor | null;
   invitationExpiresAt: string | null;
+  rematchExpiresAt: string | null;
+  rematchOfferedBy: PlayerColor | null;
+  rematchGameId: string | null;
 }
 
 export interface GameListItem {

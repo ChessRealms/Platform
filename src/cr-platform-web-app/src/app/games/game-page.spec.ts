@@ -16,6 +16,7 @@ describe('GamePage', () => {
     id, whitePlayerId: 'white', blackPlayerId: 'black', status: 'Active', revision: 22,
     fen: '7k/P7/8/8/8/8/8/7K w - - 0 12', sideToMove: 'White', winner: null, endReason: null, drawOfferedBy: null,
     invitationExpiresAt: null,
+    rematchExpiresAt: null, rematchOfferedBy: null, rematchGameId: null,
   };
   const initial: GameBoard = { game, moves: [], legalMoves: ['a7a8q', 'a7a8r', 'a7a8b', 'a7a8n'], drawClaims: [] };
 
@@ -36,7 +37,7 @@ describe('GamePage', () => {
       { provide: GamesApi, useValue: { me: () => of({ userId: 'white' }), board, move, updateInvitation } },
     ] } });
     const fixture = TestBed.createComponent(GamePage);
-    return { page: fixture.componentInstance, sync: fixture.debugElement.injector.get(GameBoardSync), watch };
+    return { fixture, page: fixture.componentInstance, sync: fixture.debugElement.injector.get(GameBoardSync), watch };
   }
 
   it('uses server legal moves and requires an explicit promotion choice', () => {
@@ -79,6 +80,35 @@ describe('GamePage', () => {
     window.dispatchEvent(new Event('online'));
     vi.advanceTimersByTime(45000);
     expect(board).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides rematch actions at the deadline and then stops background reads', () => {
+    vi.useFakeTimers();
+    const updates = new Subject<number | null>();
+    const finished: Game = {
+      ...game, status: 'Finished', sideToMove: null, rematchOfferedBy: 'Black',
+      rematchExpiresAt: new Date(Date.now() + 5000).toISOString(),
+    };
+    const board = vi.fn().mockReturnValueOnce(of({ ...initial, game: finished, legalMoves: [] }))
+      .mockReturnValue(of(null));
+    const { fixture, sync } = open(board, undefined, updates);
+    fixture.detectChanges();
+    const acceptButton = () => [...(fixture.nativeElement as HTMLElement).querySelectorAll('button')]
+      .find(button => button.textContent === 'Accept rematch');
+
+    expect(acceptButton()?.disabled).toBe(false);
+    expect(updates.observed).toBe(true);
+    vi.advanceTimersByTime(5000);
+    fixture.detectChanges();
+    expect(acceptButton()).toBeUndefined();
+    expect(sync.submit({ kind: 'rematch', action: 'accept' })).toBe(false);
+
+    vi.advanceTimersByTime(15000);
+    expect(board).toHaveBeenLastCalledWith(id, finished.revision);
+    expect(updates.observed).toBe(false);
+    const reads = board.mock.calls.length;
+    vi.advanceTimersByTime(45000);
+    expect(board).toHaveBeenCalledTimes(reads);
   });
 
   it('reloads after an invitation conflict and stops watching when the invitation is closed', () => {

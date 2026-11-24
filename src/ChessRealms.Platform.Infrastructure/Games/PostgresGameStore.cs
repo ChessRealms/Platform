@@ -27,6 +27,7 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
                 .Select(item => new GameBoardSnapshot(item.Game.Id, item.Game.WhitePlayerId, item.Game.BlackPlayerId,
                     item.Expired ? GameStatus.Expired : item.Game.Status, item.Revision, item.Game.Fen, item.Game.SideToMove,
                     item.Game.Winner, item.Game.EndReason, item.Game.DrawOfferedBy, item.Game.InvitationExpiresAt,
+                    item.Game.FinishedAt, item.Game.RematchOfferedBy, item.Game.RematchGameId,
                     item.Revision == afterRevision ? null : item.Game.RulesRecord))
                 .SingleOrDefault());
 
@@ -148,6 +149,7 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
         DateTimeOffset cutoff = now - PairWindow;
         DateTimeOffset? windowStart = await sent.Where(game => game.BlackPlayerId == opponentId && game.CreatedAt > cutoff)
             .Where(game => !database.PrivateLobbies.Any(lobby => lobby.GameId == game.Id))
+            .Where(game => !database.Games.Any(source => source.RematchGameId == game.Id))
             .OrderByDescending(game => game.CreatedAt).Skip(MaxPairInvitations - 1)
             .Select(game => game.CreatedAt).FirstOrDefaultAsync(cancellationToken);
         if (windowStart is { } first)
@@ -168,8 +170,17 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
         return new(GameError.None, game, Created: true);
     }
 
-    public async Task<GameOperationResult> ChangeInvitationAsync(Guid gameId, Guid playerId,
+    public Task<GameOperationResult> ChangeLockedAsync(Guid gameId, Guid playerId,
         Func<Game, DateTimeOffset, GameError> change, CancellationToken cancellationToken)
+        => ChangeLockedAsync(gameId, playerId, (game, now) => (change(game, now), null), cancellationToken);
+
+    public Task<GameOperationResult> AcceptRematchAsync(Guid gameId, Guid playerId, long expectedRevision,
+        Func<GamePosition> startingPosition, CancellationToken cancellationToken) =>
+        ChangeLockedAsync(gameId, playerId,
+            (game, now) => game.AcceptRematch(playerId, expectedRevision, now, startingPosition), cancellationToken);
+
+    private async Task<GameOperationResult> ChangeLockedAsync(Guid gameId, Guid playerId,
+        Func<Game, DateTimeOffset, (GameError Error, Game? Rematch)> change, CancellationToken cancellationToken)
     {
         await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
         Game? game = await database.Games.FromSql($"""
@@ -181,12 +192,16 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
         {
             return new(GameError.NotFound);
         }
-        GameError error = change(game, clock.GetUtcNow());
+        (GameError error, Game? rematch) = change(game, clock.GetUtcNow());
         if (error != GameError.None)
         {
             return new(error);
         }
 
+        if (rematch is not null)
+        {
+            database.Games.Add(rematch);
+        }
         await database.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return new(GameError.None, game);

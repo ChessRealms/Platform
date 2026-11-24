@@ -49,8 +49,18 @@ namespace ChessRealms.Platform.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<DateTimeOffset?>("FinishedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTimeOffset?>("InvitationExpiresAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("RematchGameId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RematchOfferedBy")
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
 
                     b.Property<long>("Revision")
                         .IsConcurrencyToken()
@@ -78,6 +88,9 @@ namespace ChessRealms.Platform.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(8)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("RematchGameId")
+                        .IsUnique();
 
                     b.HasIndex("BlackPlayerId", "Status");
 
@@ -135,6 +148,14 @@ namespace ChessRealms.Platform.Infrastructure.Persistence.Migrations
                     b.HasIndex("CreatorId", "Status", "ExpiresAt");
 
                     b.ToTable("PrivateLobbies");
+                });
+
+            modelBuilder.Entity("ChessRealms.Platform.Domain.Games.Game", b =>
+                {
+                    b.HasOne("ChessRealms.Platform.Domain.Games.Game", null)
+                        .WithOne()
+                        .HasForeignKey("ChessRealms.Platform.Domain.Games.Game", "RematchGameId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("ChessRealms.Platform.Domain.Games.PrivateLobby", b =>

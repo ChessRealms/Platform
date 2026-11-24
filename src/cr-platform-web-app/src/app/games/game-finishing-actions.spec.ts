@@ -7,6 +7,7 @@ describe('GameFinishingActions', () => {
     id: 'game', whitePlayerId: 'white', blackPlayerId: 'black', status: 'Active', revision: 8, fen: '',
     sideToMove: 'White', winner: null, endReason: null, drawOfferedBy: null,
     invitationExpiresAt: null,
+    rematchExpiresAt: null, rematchOfferedBy: null, rematchGameId: null,
   };
 
   async function open() {

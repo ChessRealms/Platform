@@ -21,6 +21,7 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
             game.Property(item => item.SideToMove).HasConversion<string>().HasMaxLength(8);
             game.Property(item => item.Winner).HasConversion<string>().HasMaxLength(8);
             game.Property(item => item.DrawOfferedBy).HasConversion<string>().HasMaxLength(8);
+            game.Property(item => item.RematchOfferedBy).HasConversion<string>().HasMaxLength(8);
             game.Property(item => item.EndReason).HasConversion<string>().HasMaxLength(32);
             game.Property(item => item.RulesRecord).HasColumnType("jsonb");
             game.Property<Guid?>(GameCreationRequestId);
@@ -29,6 +30,7 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
             game.HasIndex(item => new { item.WhitePlayerId, item.Status });
             game.HasIndex(item => new { item.BlackPlayerId, item.Status });
             game.HasIndex(item => new { item.WhitePlayerId, item.BlackPlayerId, item.CreatedAt });
+            game.HasOne<Game>().WithOne().HasForeignKey<Game>(item => item.RematchGameId).OnDelete(DeleteBehavior.Restrict);
         });
         builder.Entity<PrivateLobby>(lobby =>
         {

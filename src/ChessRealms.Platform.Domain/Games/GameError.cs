@@ -23,5 +23,9 @@ public enum GameError
     InvitationLimitReached,
     InvitationRateLimited,
     LobbyNotOpen,
-    LobbyAlreadyJoined
+    LobbyAlreadyJoined,
+    RematchUnavailable,
+    RematchExpired,
+    RematchOfferPending,
+    NoRematchOffer
 }

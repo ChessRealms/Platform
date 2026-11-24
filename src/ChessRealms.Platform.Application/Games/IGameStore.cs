@@ -11,7 +11,9 @@ public interface IGameStore
         CancellationToken cancellationToken);
     Task<CreateGameResult> CreateAsync(Guid creatorId, Guid opponentId, GamePosition startingPosition, Guid? requestId,
         CancellationToken cancellationToken);
-    Task<GameOperationResult> ChangeInvitationAsync(Guid gameId, Guid playerId, Func<Game, DateTimeOffset, GameError> change,
+    Task<GameOperationResult> ChangeLockedAsync(Guid gameId, Guid playerId, Func<Game, DateTimeOffset, GameError> change,
+        CancellationToken cancellationToken);
+    Task<GameOperationResult> AcceptRematchAsync(Guid gameId, Guid playerId, long expectedRevision, Func<GamePosition> startingPosition,
         CancellationToken cancellationToken);
     Task<bool> TrySaveChangesAsync(CancellationToken cancellationToken);
 }

@@ -3,6 +3,7 @@ namespace ChessRealms.Platform.Domain.Games;
 public sealed class Game
 {
     public static readonly TimeSpan InvitationLifetime = TimeSpan.FromMinutes(5);
+    public static readonly TimeSpan RematchWindow = TimeSpan.FromMinutes(5);
 
     private Game()
     {
@@ -39,11 +40,14 @@ public sealed class Game
     public PlayerColor? Winner { get; private set; }
     public GameEndReason? EndReason { get; private set; }
     public PlayerColor? DrawOfferedBy { get; private set; }
+    public DateTimeOffset? FinishedAt { get; private set; }
+    public PlayerColor? RematchOfferedBy { get; private set; }
+    public Guid? RematchGameId { get; private set; }
 
     public static bool CanPair(Guid whitePlayerId, Guid blackPlayerId) =>
         whitePlayerId != Guid.Empty && blackPlayerId != Guid.Empty && whitePlayerId != blackPlayerId;
 
-    internal static Game StartFromLobby(Guid whitePlayerId, Guid blackPlayerId, GamePosition position, DateTimeOffset now) =>
+    internal static Game StartActive(Guid whitePlayerId, Guid blackPlayerId, GamePosition position, DateTimeOffset now) =>
         new(whitePlayerId, blackPlayerId, position, now) { Status = GameStatus.Active, InvitationExpiresAt = null };
 
     public bool HasPlayer(Guid playerId) => playerId == WhitePlayerId || playerId == BlackPlayerId;
@@ -59,7 +63,65 @@ public sealed class Game
     public GameError Cancel(Guid playerId, long expectedRevision, DateTimeOffset now) =>
         ChangeInvitation(playerId, expectedRevision, now, WhitePlayerId, GameStatus.Cancelled);
 
-    public GameError Play(Guid playerId, long expectedRevision, Func<string, GamePosition?> applyRules)
+    public GameError OfferRematch(Guid playerId, long expectedRevision, DateTimeOffset now)
+    {
+        GameError error = CheckRematchWindow(playerId, now);
+        if (error != GameError.None)
+        {
+            return error;
+        }
+
+        PlayerColor color = ColorOf(playerId);
+        if (RematchOfferedBy is { } offerer)
+        {
+            return offerer == color ? GameError.None : GameError.RematchOfferPending;
+        }
+        if (expectedRevision != Revision)
+        {
+            return GameError.RevisionConflict;
+        }
+
+        RematchOfferedBy = color;
+        Revision++;
+        return GameError.None;
+    }
+
+    public (GameError Error, Game? Rematch) AcceptRematch(Guid playerId, long expectedRevision, DateTimeOffset now,
+        Func<GamePosition> startingPosition)
+    {
+        if (!HasPlayer(playerId))
+        {
+            return (GameError.NotFound, null);
+        }
+        if (RematchOfferedBy == ColorOf(playerId))
+        {
+            return (GameError.Forbidden, null);
+        }
+        if (RematchGameId is not null)
+        {
+            return (GameError.None, null);
+        }
+        GameError error = CheckRematchWindow(playerId, now);
+        if (error != GameError.None)
+        {
+            return (error, null);
+        }
+        if (expectedRevision != Revision)
+        {
+            return (GameError.RevisionConflict, null);
+        }
+        if (RematchOfferedBy is null)
+        {
+            return (GameError.NoRematchOffer, null);
+        }
+
+        Game rematch = StartActive(BlackPlayerId, WhitePlayerId, startingPosition(), now);
+        RematchGameId = rematch.Id;
+        Revision++;
+        return (GameError.None, rematch);
+    }
+
+    public GameError Play(Guid playerId, long expectedRevision, DateTimeOffset now, Func<string, GamePosition?> applyRules)
     {
         GameError error = CheckTurn(playerId, expectedRevision);
         if (error != GameError.None)
@@ -77,11 +139,12 @@ public sealed class Game
         {
             DrawOfferedBy = null;
         }
-        ApplyPosition(position);
+        ApplyPosition(position, now);
         return GameError.None;
     }
 
-    public GameError Resign(Guid playerId, long expectedRevision, Func<string, PlayerColor, bool> hasInsufficientMatingMaterial)
+    public GameError Resign(Guid playerId, long expectedRevision, DateTimeOffset now,
+        Func<string, PlayerColor, bool> hasInsufficientMatingMaterial)
     {
         GameError error = CheckActive(playerId, expectedRevision);
         if (error != GameError.None)
@@ -91,7 +154,7 @@ public sealed class Game
 
         PlayerColor opponent = playerId == WhitePlayerId ? PlayerColor.Black : PlayerColor.White;
         bool drawn = hasInsufficientMatingMaterial(Fen, opponent);
-        Finish(drawn ? GameEndReason.ResignationNoPossibleMate : GameEndReason.Resignation, drawn ? null : opponent);
+        Finish(drawn ? GameEndReason.ResignationNoPossibleMate : GameEndReason.Resignation, drawn ? null : opponent, now);
         Revision++;
         return GameError.None;
     }
@@ -108,12 +171,12 @@ public sealed class Game
             return GameError.DrawOfferPending;
         }
 
-        DrawOfferedBy = playerId == WhitePlayerId ? PlayerColor.White : PlayerColor.Black;
+        DrawOfferedBy = ColorOf(playerId);
         Revision++;
         return GameError.None;
     }
 
-    public GameError ReplyToDrawOffer(Guid playerId, long expectedRevision, bool accept)
+    public GameError ReplyToDrawOffer(Guid playerId, long expectedRevision, bool accept, DateTimeOffset now)
     {
         GameError error = CheckActive(playerId, expectedRevision);
         if (error != GameError.None)
@@ -124,14 +187,14 @@ public sealed class Game
         {
             return GameError.NoDrawOffer;
         }
-        if (offerer == (playerId == WhitePlayerId ? PlayerColor.White : PlayerColor.Black))
+        if (offerer == ColorOf(playerId))
         {
             return GameError.Forbidden;
         }
 
         if (accept)
         {
-            Finish(GameEndReason.DrawAgreement, null);
+            Finish(GameEndReason.DrawAgreement, null, now);
         }
         else
         {
@@ -141,7 +204,7 @@ public sealed class Game
         return GameError.None;
     }
 
-    public GameError ClaimDraw(Guid playerId, long expectedRevision, Func<string, GamePosition?> applyClaim)
+    public GameError ClaimDraw(Guid playerId, long expectedRevision, DateTimeOffset now, Func<string, GamePosition?> applyClaim)
     {
         GameError error = CheckTurn(playerId, expectedRevision);
         if (error != GameError.None)
@@ -155,7 +218,7 @@ public sealed class Game
             return GameError.DrawClaimUnavailable;
         }
 
-        ApplyPosition(position);
+        ApplyPosition(position, now);
         return GameError.None;
     }
 
@@ -185,20 +248,35 @@ public sealed class Game
         return GameError.None;
     }
 
-    private void ApplyPosition(GamePosition position)
+    private GameError CheckRematchWindow(Guid playerId, DateTimeOffset now)
+    {
+        if (!HasPlayer(playerId))
+        {
+            return GameError.NotFound;
+        }
+        if (Status != GameStatus.Finished || FinishedAt is not { } finishedAt || RematchGameId is not null)
+        {
+            return GameError.RematchUnavailable;
+        }
+        return now >= finishedAt + RematchWindow ? GameError.RematchExpired : GameError.None;
+    }
+
+    private PlayerColor ColorOf(Guid playerId) => playerId == WhitePlayerId ? PlayerColor.White : PlayerColor.Black;
+
+    private void ApplyPosition(GamePosition position, DateTimeOffset now)
     {
         UpdatePosition(position);
-        if (position.EndReason is not null)
+        if (position.EndReason is { } reason)
         {
-            Status = GameStatus.Finished;
-            DrawOfferedBy = null;
+            Finish(reason, position.Winner, now);
         }
         Revision++;
     }
 
-    private void Finish(GameEndReason reason, PlayerColor? winner)
+    private void Finish(GameEndReason reason, PlayerColor? winner, DateTimeOffset now)
     {
         Status = GameStatus.Finished;
+        FinishedAt = now;
         EndReason = reason;
         Winner = winner;
         DrawOfferedBy = null;
