@@ -10,6 +10,7 @@ import { GamesPage } from './games-page';
 describe('My games', () => {
   const incoming: GameListItem = {
     id: 'a1', opponentId: 'p1', opponentName: 'Rook', color: 'Black', status: 'Pending', createdAt: null,
+    opponentIsGuest: false,
     invitationExpiresAt: null,
     isYourTurn: false, winner: null, endReason: null, isLobby: false, timeControl: null,
   };

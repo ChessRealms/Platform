@@ -22,22 +22,29 @@ public sealed class PrivateLobby
     public LobbyStatus Status { get; private set; }
     public long Revision { get; private set; }
     public Guid? JoinedPlayerId { get; private set; }
+    public bool JoinedAsGuest { get; private set; }
     public Guid? GameId { get; private set; }
     public GameTimeControl? TimeControl { get; private set; }
 
     public LobbyStatus StatusAt(DateTimeOffset now) =>
         Status == LobbyStatus.Open && now >= ExpiresAt ? LobbyStatus.Expired : Status;
 
-    public GameError Join(Guid playerId, long expectedRevision, DateTimeOffset now, GamePosition position, out Game? game)
+    public bool IsOwner(GameParticipant? player) => player is { IsGuest: false } account && account.Id == CreatorId;
+
+    public bool IsJoiner(GameParticipant? player) =>
+        player is { } joiner && joiner.Id == JoinedPlayerId && joiner.IsGuest == JoinedAsGuest;
+
+    public GameError Join(GameParticipant player, string? guestName, long expectedRevision, DateTimeOffset now,
+        GamePosition position, out Game? game)
     {
         game = null;
-        if (!Game.CanPair(CreatorId, playerId))
+        if (!Game.CanPair(CreatorId, player.Id) || player.IsGuest != (guestName is not null))
         {
             return GameError.Forbidden;
         }
         if (Status == LobbyStatus.Joined)
         {
-            return playerId == JoinedPlayerId ? GameError.None : GameError.LobbyAlreadyJoined;
+            return IsJoiner(player) ? GameError.None : GameError.LobbyAlreadyJoined;
         }
         GameError error = CheckOpen(expectedRevision, now);
         if (error != GameError.None)
@@ -45,8 +52,9 @@ public sealed class PrivateLobby
             return error;
         }
 
-        game = Game.StartActive(CreatorId, playerId, position, now, TimeControl);
-        JoinedPlayerId = playerId;
+        game = Game.StartActive(CreatorId, player.Id, position, now, TimeControl, blackGuestName: guestName);
+        JoinedPlayerId = player.Id;
+        JoinedAsGuest = player.IsGuest;
         GameId = game.Id;
         Status = LobbyStatus.Joined;
         Revision++;

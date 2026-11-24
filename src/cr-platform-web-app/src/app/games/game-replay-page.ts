@@ -7,6 +7,7 @@ import { ChessBoard } from './chess-board';
 import { finishReasons, gameIdPattern } from './game.models';
 import { GameReplay } from './game-replay.models';
 import { GamesApi } from './games-api';
+import { guestGames } from './guest-games';
 
 @Component({
   selector: 'cr-game-replay-page',
@@ -17,6 +18,7 @@ import { GamesApi } from './games-api';
 })
 export class GameReplayPage implements OnInit {
   readonly gameId = input.required<string>();
+  protected readonly guest = inject(guestGames);
   protected readonly replay = signal<GameReplay | null>(null);
   protected readonly error = signal<number | null>(null);
   protected readonly step = signal(0);

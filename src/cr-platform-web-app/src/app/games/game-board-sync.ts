@@ -13,6 +13,7 @@ import {
   Game, GameBoard, GameClock, GameFinishingAction, gameIdPattern, GameInvitationAction, GameRematchAction, turnRemaining,
 } from './game.models';
 import { GamesApi } from './games-api';
+import { guestGames } from './guest-games';
 
 type BoardError = 'invalid-link' | 'sign-in-required' | 'not-found' | 'connection';
 type BoardActivity = 'idle' | 'sending' | 'refreshing';
@@ -27,6 +28,7 @@ export class GameBoardSync {
   private readonly api = inject(GamesApi);
   private readonly liveUpdates = inject(GameLiveUpdates);
   private readonly session = inject(AuthSession);
+  private readonly guest = inject(guestGames);
   private readonly window = inject(DOCUMENT).defaultView!;
   private readonly destroyRef = inject(DestroyRef);
   private readonly refreshRequests = new Subject<void>();
@@ -50,7 +52,7 @@ export class GameBoardSync {
   readonly commandError = this.actionError.asReadonly();
   readonly playerId = this.player.asReadonly();
   readonly playerError = this.playerLoadFailed.asReadonly();
-  readonly sessionUnavailable = computed(() => this.session.state() === 'unavailable');
+  readonly sessionUnavailable = computed(() => !this.guest && this.session.state() === 'unavailable');
   readonly updating = computed(() => this.activity() !== 'idle');
   readonly startedRematch = this.acceptedRematch.asReadonly();
   private readonly isOpen = computed(() => {
@@ -167,7 +169,7 @@ export class GameBoardSync {
     let latestNotification = -1;
     return firstRead.pipe(
       take(1),
-      switchMap(() => this.liveUpdates.watch(id)),
+      switchMap(() => this.guest ? this.liveUpdates.watch(id, () => this.api.guestLiveProof()) : this.liveUpdates.watch(id)),
       filter(revision => {
         if (revision === null) {
           return true;

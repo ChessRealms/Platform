@@ -14,6 +14,8 @@ export const routes: Routes = [
   { path: 'games', canActivate: [authGuard], loadComponent: () => import('./games/game-session-page').then(module => module.GameSessionPage) },
   { path: 'games/:id', canActivate: [authGuard], loadComponent: () => import('./games/game-session-page').then(module => module.GameSessionPage) },
   { path: 'games/:replayId/replay', canActivate: [authGuard], loadComponent: () => import('./games/game-session-page').then(module => module.GameSessionPage) },
-  { path: 'lobbies/:lobbyId', canActivate: [authGuard], loadComponent: () => import('./games/game-session-page').then(module => module.GameSessionPage) },
+  { path: 'lobbies/:lobbyId', loadComponent: () => import('./games/game-session-page').then(module => module.GameSessionPage) },
+  { path: 'guest/games/:id', loadComponent: () => import('./games/guest-game-session-page').then(module => module.GuestGameSessionPage) },
+  { path: 'guest/games/:replayId/replay', loadComponent: () => import('./games/guest-game-session-page').then(module => module.GuestGameSessionPage) },
   { path: '**', redirectTo: 'home' },
 ];

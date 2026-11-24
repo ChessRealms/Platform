@@ -1,8 +1,13 @@
+using System.Threading.RateLimiting;
+
+using ChessRealms.Platform.Api.Controllers;
 using ChessRealms.Platform.Api.Realtime;
 using ChessRealms.Platform.Infrastructure.Identity;
 using ChessRealms.Platform.Infrastructure.Identity.Jwt;
 
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
@@ -13,7 +18,15 @@ public static class IdentityAuthentication
     public static IServiceCollection AddIdentityAuthentication(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddIdentityLogin(configuration);
-        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
+        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer()
+            .AddScheme<AuthenticationSchemeOptions, GuestAuthentication>(GuestAuthentication.GuestScheme, _ => { })
+            .AddPolicyScheme(GuestAuthentication.GamePolicy, null, options =>
+            {
+                options.ForwardDefaultSelector = context => context.Request.Headers.ContainsKey("Authorization")
+                    || (context.WebSockets.IsWebSocketRequest && context.Request.Query.TryGetValue("access_token", out var tokens)
+                        && !GuestHubProof.IsGuest(tokens))
+                    ? JwtBearerDefaults.AuthenticationScheme : GuestAuthentication.GuestScheme;
+            });
         services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
             .Configure<JwtSigningKey, IOptions<JwtOptions>>((bearer, key, options) =>
             {
@@ -45,7 +58,8 @@ public static class IdentityAuthentication
                         // Browser WebSockets cannot set the Authorization header.
                         if (context.Request.Path == GameHub.Path && context.HttpContext.WebSockets.IsWebSocketRequest
                             && !context.Request.Headers.ContainsKey("Authorization")
-                            && context.Request.Query.TryGetValue("access_token", out var tokens) && tokens.Count == 1)
+                            && context.Request.Query.TryGetValue("access_token", out var tokens) && tokens.Count == 1
+                            && !GuestHubProof.IsGuest(tokens))
                         {
                             context.Token = tokens[0];
                         }
@@ -69,7 +83,11 @@ public static class IdentityAuthentication
                     }
                 };
             }).ValidateOnStart();
-        services.AddAuthorization();
+        services.AddAuthorization(options => options.AddPolicy(GuestAuthentication.GamePolicy,
+            policy => policy.AddAuthenticationSchemes(GuestAuthentication.GamePolicy).RequireAuthenticatedUser()));
+        services.AddRateLimiter(options => options.AddPolicy(GuestSessionsController.RateLimitPolicy, context =>
+            RateLimitPartition.GetFixedWindowLimiter(context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                _ => new FixedWindowRateLimiterOptions { PermitLimit = 20, Window = TimeSpan.FromMinutes(1) })));
         return services;
     }
 }

@@ -5,6 +5,7 @@ import { Game, GameFinishingAction } from './game.models';
 describe('GameFinishingActions', () => {
   const game: Game = {
     id: 'game', whitePlayerId: 'white', blackPlayerId: 'black', status: 'Active', revision: 8, fen: '',
+    whiteGuestName: null, blackGuestName: null,
     sideToMove: 'White', winner: null, endReason: null, drawOfferedBy: null,
     invitationExpiresAt: null,
     rematchExpiresAt: null, rematchOfferedBy: null, rematchGameId: null,

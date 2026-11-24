@@ -58,29 +58,31 @@ public sealed class GamesController(GameService games, IHubContext<GameHub> live
     }
 
     [HttpGet("{id:guid}")]
+    [Authorize(Policy = GuestAuthentication.GamePolicy)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
-        Game? game = await games.GetAsync(id, PlayerId(), cancellationToken);
+        Game? game = await games.GetAsync(id, GuestAuthentication.Participant(User), cancellationToken);
         return game is null ? ErrorResponse(GameError.NotFound) : Ok(GameResponse.From(game, clock.GetUtcNow()));
     }
 
     [HttpPost("{id:guid}/accept")]
     public async Task<IActionResult> Accept(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
-        await ChangeResponseAsync(await games.AcceptAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken));
+        await ChangeResponseAsync(await games.AcceptAsync(id, GuestAuthentication.Participant(User), request.ExpectedRevision!.Value, cancellationToken));
 
     [HttpPost("{id:guid}/decline")]
     public async Task<IActionResult> Decline(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
-        await ChangeResponseAsync(await games.DeclineAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken));
+        await ChangeResponseAsync(await games.DeclineAsync(id, GuestAuthentication.Participant(User), request.ExpectedRevision!.Value, cancellationToken));
 
     [HttpPost("{id:guid}/cancel")]
     public async Task<IActionResult> Cancel(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
-        await ChangeResponseAsync(await games.CancelAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken));
+        await ChangeResponseAsync(await games.CancelAsync(id, GuestAuthentication.Participant(User), request.ExpectedRevision!.Value, cancellationToken));
 
     [HttpGet("{id:guid}/board")]
+    [Authorize(Policy = GuestAuthentication.GamePolicy)]
     public async Task<ActionResult<GameBoardResponse>> Board(Guid id, [FromQuery] long? afterRevision,
         CancellationToken cancellationToken)
     {
-        (GameBoardSnapshot? board, GameMoveList? moves) = await games.ReadBoardAsync(id, PlayerId(), afterRevision,
+        (GameBoardSnapshot? board, GameMoveList? moves) = await games.ReadBoardAsync(id, GuestAuthentication.Participant(User), afterRevision,
             cancellationToken);
         if (board is null)
         {
@@ -96,41 +98,50 @@ public sealed class GamesController(GameService games, IHubContext<GameHub> live
     }
 
     [HttpPost("{id:guid}/moves")]
+    [Authorize(Policy = GuestAuthentication.GamePolicy)]
     public async Task<IActionResult> Play(Guid id, PlayGameMoveRequest request, CancellationToken cancellationToken) =>
-        await ChangeResponseAsync(await games.PlayAsync(id, PlayerId(), request.ExpectedRevision!.Value, request.Move, cancellationToken));
+        await ChangeResponseAsync(await games.PlayAsync(id, GuestAuthentication.Participant(User), request.ExpectedRevision!.Value, request.Move, cancellationToken));
 
     [HttpGet("{id:guid}/replay")]
+    [Authorize(Policy = GuestAuthentication.GamePolicy)]
     public async Task<ActionResult<GameReplayResponse>> Replay(Guid id, CancellationToken cancellationToken)
     {
-        (GameError error, GameReplay? replay) = await games.ReadReplayAsync(id, PlayerId(), cancellationToken);
+        (GameError error, GameReplay? replay) = await games.ReadReplayAsync(id, GuestAuthentication.Participant(User), cancellationToken);
         return replay is null ? ErrorResponse(error) : GameReplayResponse.From(replay);
     }
 
     [HttpPost("{id:guid}/resign")]
+    [Authorize(Policy = GuestAuthentication.GamePolicy)]
     public async Task<IActionResult> Resign(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
-        await ChangeResponseAsync(await games.ResignAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken));
+        await ChangeResponseAsync(await games.ResignAsync(id, GuestAuthentication.Participant(User), request.ExpectedRevision!.Value, cancellationToken));
 
     [HttpPost("{id:guid}/rematch/offer")]
+    [Authorize(Policy = GuestAuthentication.GamePolicy)]
     public async Task<IActionResult> OfferRematch(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
-        await ChangeResponseAsync(await games.OfferRematchAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken));
+        await ChangeResponseAsync(await games.OfferRematchAsync(id, GuestAuthentication.Participant(User), request.ExpectedRevision!.Value, cancellationToken));
 
     [HttpPost("{id:guid}/rematch/accept")]
+    [Authorize(Policy = GuestAuthentication.GamePolicy)]
     public async Task<IActionResult> AcceptRematch(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
-        await ChangeResponseAsync(await games.AcceptRematchAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken));
+        await ChangeResponseAsync(await games.AcceptRematchAsync(id, GuestAuthentication.Participant(User), request.ExpectedRevision!.Value, cancellationToken));
 
     [HttpPost("{id:guid}/draw/offer")]
+    [Authorize(Policy = GuestAuthentication.GamePolicy)]
     public async Task<IActionResult> OfferDraw(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
-        await ChangeResponseAsync(await games.OfferDrawAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken));
+        await ChangeResponseAsync(await games.OfferDrawAsync(id, GuestAuthentication.Participant(User), request.ExpectedRevision!.Value, cancellationToken));
 
     [HttpPost("{id:guid}/draw/accept")]
+    [Authorize(Policy = GuestAuthentication.GamePolicy)]
     public async Task<IActionResult> AcceptDraw(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
-        await ChangeResponseAsync(await games.ReplyToDrawOfferAsync(id, PlayerId(), request.ExpectedRevision!.Value, true, cancellationToken));
+        await ChangeResponseAsync(await games.ReplyToDrawOfferAsync(id, GuestAuthentication.Participant(User), request.ExpectedRevision!.Value, true, cancellationToken));
 
     [HttpPost("{id:guid}/draw/decline")]
+    [Authorize(Policy = GuestAuthentication.GamePolicy)]
     public async Task<IActionResult> DeclineDraw(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
-        await ChangeResponseAsync(await games.ReplyToDrawOfferAsync(id, PlayerId(), request.ExpectedRevision!.Value, false, cancellationToken));
+        await ChangeResponseAsync(await games.ReplyToDrawOfferAsync(id, GuestAuthentication.Participant(User), request.ExpectedRevision!.Value, false, cancellationToken));
 
     [HttpPost("{id:guid}/draw/claim")]
+    [Authorize(Policy = GuestAuthentication.GamePolicy)]
     public async Task<IActionResult> ClaimDraw(Guid id, ClaimGameDrawRequest request, CancellationToken cancellationToken)
     {
         DrawClaimReason? reason = request.Reason switch
@@ -144,7 +155,7 @@ public sealed class GamesController(GameService games, IHubContext<GameHub> live
             return BadRequest(new { code = "InvalidDrawClaimReason" });
         }
 
-        return await ChangeResponseAsync(await games.ClaimDrawAsync(id, PlayerId(), request.ExpectedRevision!.Value,
+        return await ChangeResponseAsync(await games.ClaimDrawAsync(id, GuestAuthentication.Participant(User), request.ExpectedRevision!.Value,
             reason.Value, request.IntendedMove, cancellationToken));
     }
 

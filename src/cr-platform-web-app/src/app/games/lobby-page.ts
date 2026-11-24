@@ -2,15 +2,17 @@ import { DOCUMENT } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { catchError, EMPTY, exhaustMap, filter, finalize, merge, Subject, timer } from 'rxjs';
+import { catchError, EMPTY, exhaustMap, filter, finalize, merge, Subject, switchMap, timer } from 'rxjs';
 import { gameIdPattern, PrivateLobby } from './game.models';
 import { GamesApi } from './games-api';
+import { guestGames } from './guest-games';
 import { InvitationCountdown } from './invitation-countdown';
 
 @Component({
   selector: 'cr-lobby-page',
-  imports: [InvitationCountdown, RouterLink],
+  imports: [FormsModule, InvitationCountdown, RouterLink],
   providers: [GamesApi],
   templateUrl: './lobby-page.html',
 })
@@ -19,13 +21,15 @@ export class LobbyPage {
   private readonly destroyRef = inject(DestroyRef);
   private readonly document = inject(DOCUMENT);
   private readonly router = inject(Router);
-  private readonly id = inject(ActivatedRoute).snapshot.paramMap.get('lobbyId') ?? '';
+  protected readonly id = inject(ActivatedRoute).snapshot.paramMap.get('lobbyId') ?? '';
+  protected readonly guest = inject(guestGames);
   private readonly refresh = new Subject<void>();
   protected readonly lobby = signal<PrivateLobby | null>(null);
   protected readonly error = signal<string | null>(null);
   protected readonly busy = signal(false);
   protected readonly unavailable = signal(false);
   protected readonly copyStatus = signal<string | null>(null);
+  protected displayName = '';
 
   constructor() {
     if (!gameIdPattern.test(this.id)) {
@@ -76,17 +80,26 @@ export class LobbyPage {
     }
     this.busy.set(true);
     this.error.set(null);
-    this.api.updateLobby(lobby, action).pipe(
+    const change = this.guest && !lobby.guestName
+      ? this.api.prepareGuest(this.id, this.displayName.trim()).pipe(switchMap(() => this.api.updateLobby(lobby, action)))
+      : this.api.updateLobby(lobby, action);
+    change.pipe(
       takeUntilDestroyed(this.destroyRef),
       finalize(() => this.busy.set(false)),
     ).subscribe({
       next: current => this.receive(current),
       error: (error: HttpErrorResponse) => {
-        if (error.status === 403) {
+        if (error.error?.code === 'InvalidGuestName') {
+          this.error.set('Enter a display name from 1 to 32 characters.');
+        } else if (error.status === 429) {
+          this.error.set('Too many attempts. Try again in a minute.');
+        } else if (error.status === 403) {
           this.error.set('This account cannot perform that action.');
-          return;
+        } else if (this.guest && (error.status === 0 || error.status >= 500)) {
+          this.error.set('Could not confirm the join. Try again.');
+        } else {
+          this.refresh.next();
         }
-        this.refresh.next();
       },
     });
   }
@@ -98,7 +111,7 @@ export class LobbyPage {
     this.error.set(null);
     this.lobby.set(current);
     if (current.gameId) {
-      void this.router.navigate(['/games', current.gameId], { replaceUrl: true });
+      void this.router.navigate([this.guest ? '/guest/games' : '/games', current.gameId], { replaceUrl: true });
     }
   }
 }

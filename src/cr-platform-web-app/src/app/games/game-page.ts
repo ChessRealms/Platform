@@ -9,6 +9,7 @@ import {
   finishReasons, Game, GameBoard, GameFinishingAction, GameInvitationAction, GameRematchAction, invitationOutcome,
 } from './game.models';
 import { GamesApi } from './games-api';
+import { guestGames } from './guest-games';
 import { InvitationCountdown } from './invitation-countdown';
 
 const promotionNames: Record<string, string> = { q: 'Queen', r: 'Rook', b: 'Bishop', n: 'Knight' };
@@ -24,6 +25,8 @@ export class GamePage {
   protected readonly sync = inject(GameBoardSync);
   private readonly document = inject(DOCUMENT);
   private readonly router = inject(Router);
+  protected readonly guest = inject(guestGames);
+  protected readonly gameRoot = this.guest ? '/guest/games' : '/games';
 
   readonly game = this.sync.game;
   readonly selected = linkedSignal<GameBoard | null, string | null>({
@@ -36,11 +39,12 @@ export class GamePage {
   });
   readonly promotionNames = promotionNames;
   protected readonly boardErrorMessages = {
-    'sign-in-required': 'Sign in to see this game.',
+    'sign-in-required': this.guest ? 'This guest session is unavailable.' : 'Sign in to see this game.',
     'not-found': 'This game is unavailable.',
     connection: 'Connection interrupted. The board will retry automatically.',
   };
   readonly color = computed(() => this.game()?.blackPlayerId === this.sync.playerId() ? 'Black' : 'White');
+  protected readonly guestName = computed(() => this.game()?.whiteGuestName ?? this.game()?.blackGuestName);
   readonly targets = computed(() => new Set((this.sync.board()?.legalMoves ?? [])
     .filter(move => move.slice(0, 2) === this.selected()).map(move => move.slice(2, 4))));
   readonly lastMove = computed(() => {
@@ -71,7 +75,7 @@ export class GamePage {
     effect(() => {
       const rematchId = this.sync.startedRematch();
       if (rematchId) {
-        void this.router.navigate(['/games', rematchId]);
+        void this.router.navigate([this.gameRoot, rematchId]);
       }
     });
   }

@@ -33,6 +33,8 @@ public sealed class Game
     public Guid Id { get; private set; }
     public Guid WhitePlayerId { get; private set; }
     public Guid BlackPlayerId { get; private set; }
+    public string? WhiteGuestName { get; private set; }
+    public string? BlackGuestName { get; private set; }
     public DateTimeOffset? CreatedAt { get; private set; }
     public DateTimeOffset? StartedAt { get; private set; }
     public DateTimeOffset? InvitationExpiresAt { get; private set; }
@@ -63,17 +65,23 @@ public sealed class Game
     };
 
     internal static Game StartActive(Guid whitePlayerId, Guid blackPlayerId, GamePosition position, DateTimeOffset now,
-        GameTimeControl? timeControl)
+        GameTimeControl? timeControl, string? whiteGuestName = null, string? blackGuestName = null)
     {
         Game game = new(whitePlayerId, blackPlayerId, position, now, timeControl)
         {
-            InvitationExpiresAt = null
+            InvitationExpiresAt = null,
+            WhiteGuestName = whiteGuestName,
+            BlackGuestName = blackGuestName
         };
         game.Start(now);
         return game;
     }
 
-    public bool HasPlayer(Guid playerId) => playerId == WhitePlayerId || playerId == BlackPlayerId;
+    public bool HasPlayer(GameParticipant player) =>
+        (player.Id == WhitePlayerId && player.IsGuest == (WhiteGuestName is not null))
+        || (player.Id == BlackPlayerId && player.IsGuest == (BlackGuestName is not null));
+
+    private bool HasPlayer(Guid playerId) => playerId == WhitePlayerId || playerId == BlackPlayerId;
 
     public bool IsInvitationExpired(DateTimeOffset now) => Status == GameStatus.Pending && InvitationExpiresAt <= now;
 
@@ -138,7 +146,7 @@ public sealed class Game
             return (GameError.NoRematchOffer, null);
         }
 
-        Game rematch = StartActive(BlackPlayerId, WhitePlayerId, startingPosition(), now, TimeControl);
+        Game rematch = StartActive(BlackPlayerId, WhitePlayerId, startingPosition(), now, TimeControl, BlackGuestName, WhiteGuestName);
         RematchGameId = rematch.Id;
         Revision++;
         return (GameError.None, rematch);

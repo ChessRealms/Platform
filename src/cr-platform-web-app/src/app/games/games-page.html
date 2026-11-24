@@ -28,7 +28,10 @@
           <li>
             <a class="game-row" [routerLink]="[game.isLobby ? '/lobbies' : '/games', game.id]">
               <span class="game-details">
-                <strong>{{ game.isLobby ? 'Link invitation' : game.opponentName ?? game.opponentId }}</strong>
+                <strong>
+                  {{ game.isLobby ? 'Link invitation' : game.opponentName ?? game.opponentId }}
+                  @if (game.opponentIsGuest) { <span> (guest)</span> }
+                </strong>
                 <span class="game-meta">
                   {{ game.color }}
                   @if (game.timeControl === 'Blitz5') { <span>5+0</span> }

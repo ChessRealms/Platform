@@ -1,4 +1,5 @@
 using ChessRealms.Platform.Domain.Games;
+using ChessRealms.Platform.Infrastructure.Games;
 
 using Microsoft.EntityFrameworkCore;
 
@@ -11,12 +12,15 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
 
     public DbSet<Game> Games => Set<Game>();
     public DbSet<GameMoveTiming> GameMoveTimings => Set<GameMoveTiming>();
+    internal DbSet<GuestPlayer> GuestPlayers => Set<GuestPlayer>();
     public DbSet<PrivateLobby> PrivateLobbies => Set<PrivateLobby>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
         builder.Entity<Game>(game =>
         {
+            game.Property(item => item.WhiteGuestName).HasMaxLength(32);
+            game.Property(item => item.BlackGuestName).HasMaxLength(32);
             game.Property(item => item.Revision).IsConcurrencyToken();
             game.Property(item => item.Status).HasConversion<string>().HasMaxLength(16);
             game.Property(item => item.SideToMove).HasConversion<string>().HasMaxLength(8);
@@ -33,6 +37,15 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
             game.HasIndex(item => new { item.BlackPlayerId, item.Status });
             game.HasIndex(item => new { item.WhitePlayerId, item.BlackPlayerId, item.CreatedAt });
             game.HasOne<Game>().WithOne().HasForeignKey<Game>(item => item.RematchGameId).OnDelete(DeleteBehavior.Restrict);
+        });
+        builder.Entity<GuestPlayer>(guest =>
+        {
+            guest.ToTable("GuestPlayers");
+            guest.HasKey(player => player.Id);
+            guest.Property(player => player.Id).ValueGeneratedNever();
+            guest.Property(player => player.DisplayName).HasMaxLength(32).IsRequired();
+            guest.Property(player => player.SessionHash).HasMaxLength(64);
+            guest.HasIndex(player => player.SessionHash).IsUnique();
         });
         builder.Entity<GameMoveTiming>(timing =>
         {

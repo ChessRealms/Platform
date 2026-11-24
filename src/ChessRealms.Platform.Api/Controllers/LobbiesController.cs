@@ -2,6 +2,7 @@ using ChessRealms.Platform.Application.Games;
 using ChessRealms.Platform.Application.Identity;
 using ChessRealms.Platform.Domain.Games;
 
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -18,36 +19,57 @@ public sealed class LobbiesController(LobbyService lobbies, IUsernameDirectory u
     {
         if (!GameTimeControlRequest.TryParse(request.TimeControl, out GameTimeControl? timeControl))
         {
-            return await RespondAsync(new(GameError.InvalidTimeControl), cancellationToken);
+            return await RespondAsync(new(GameError.InvalidTimeControl), null, cancellationToken);
         }
-        return await RespondAsync(await lobbies.CreateAsync(PlayerId(), request.RequestId, timeControl, cancellationToken),
-            cancellationToken);
+        GameParticipant player = GuestAuthentication.Participant(User);
+        return await RespondAsync(await lobbies.CreateAsync(player.Id, request.RequestId, timeControl, cancellationToken),
+            player, cancellationToken);
     }
 
     [HttpGet("{id:guid}")]
-    public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken) =>
-        await RespondAsync(await lobbies.GetAsync(id, PlayerId(), cancellationToken), cancellationToken);
+    public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
+    {
+        GameParticipant player = GuestAuthentication.Participant(User);
+        return await RespondAsync(await lobbies.GetAsync(id, player, cancellationToken), player, cancellationToken);
+    }
+
+    [HttpGet("{id:guid}/guest")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GuestPreview(Guid id, CancellationToken cancellationToken)
+    {
+        AuthenticateResult session = await HttpContext.AuthenticateAsync(GuestAuthentication.GuestScheme);
+        GameParticipant? player = session.Principal is { } principal ? GuestAuthentication.Participant(principal) : null;
+        return await RespondAsync(await lobbies.GetAsync(id, player, cancellationToken), player, cancellationToken,
+            session.Principal?.Identity?.Name);
+    }
 
     [HttpPost("{id:guid}/join")]
-    public async Task<IActionResult> Join(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
-        await RespondAsync(await lobbies.JoinAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken),
-            cancellationToken);
+    [Authorize(Policy = GuestAuthentication.GamePolicy)]
+    public async Task<IActionResult> Join(Guid id, GameRevisionRequest request, CancellationToken cancellationToken)
+    {
+        GameParticipant player = GuestAuthentication.Participant(User);
+        string? guestName = player.IsGuest ? User.Identity!.Name : null;
+        return await RespondAsync(await lobbies.JoinAsync(id, player, guestName, request.ExpectedRevision!.Value, cancellationToken),
+            player, cancellationToken, guestName);
+    }
 
     [HttpPost("{id:guid}/cancel")]
-    public async Task<IActionResult> Cancel(Guid id, GameRevisionRequest request, CancellationToken cancellationToken) =>
-        await RespondAsync(await lobbies.CancelAsync(id, PlayerId(), request.ExpectedRevision!.Value, cancellationToken),
-            cancellationToken);
+    public async Task<IActionResult> Cancel(Guid id, GameRevisionRequest request, CancellationToken cancellationToken)
+    {
+        GameParticipant player = GuestAuthentication.Participant(User);
+        return await RespondAsync(await lobbies.CancelAsync(id, player.Id, request.ExpectedRevision!.Value, cancellationToken),
+            player, cancellationToken);
+    }
 
-    private Guid PlayerId() => Guid.Parse(User.FindFirst("sub")!.Value);
-
-    private async Task<IActionResult> RespondAsync(LobbyResult result, CancellationToken cancellationToken)
+    private async Task<IActionResult> RespondAsync(LobbyResult result, GameParticipant? player, CancellationToken cancellationToken,
+        string? guestName = null)
     {
         if (result.Lobby is { } lobby)
         {
             DateTimeOffset now = clock.GetUtcNow();
             string? hostName = lobby.StatusAt(now) == LobbyStatus.Open
                 ? await usernames.FindUsernameAsync(lobby.CreatorId, cancellationToken) : null;
-            LobbyResponse response = LobbyResponse.From(lobby, PlayerId(), hostName, now);
+            LobbyResponse response = LobbyResponse.From(lobby, player, hostName, now, guestName);
             return result.Created ? CreatedAtAction(nameof(Get), new { id = lobby.Id }, response) : Ok(response);
         }
 

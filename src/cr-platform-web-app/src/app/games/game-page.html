@@ -1,6 +1,8 @@
 <section class="game-page" (keydown.escape)="clearSelection()">
   <header>
-    <a routerLink="/games">Games</a>
+    @if (!guest) {
+      <a routerLink="/games">Games</a>
+    }
     <h1>Private game</h1>
   </header>
 
@@ -11,13 +13,13 @@
     <a routerLink="/session-unavailable" [queryParams]="{ gameId: sync.gameId() }">Restore session</a>
   } @else if (boardError && boardError !== 'invalid-link') {
     <p class="form-errors" role="alert">{{ boardErrorMessages[boardError] }}</p>
-    @if (boardError === 'sign-in-required') {
+    @if (boardError === 'sign-in-required' && !guest) {
       <a routerLink="/login" [queryParams]="{ gameId: sync.gameId() }">Sign in</a>
     } @else if (boardError === 'connection') {
       <button type="button" (click)="sync.retry()">Refresh board</button>
     }
   }
-  @if (sync.playerError() && !sync.sessionUnavailable()) {
+  @if (sync.playerError() && !sync.sessionUnavailable() && (!guest || !boardError)) {
     <p class="form-errors" role="alert">Could not load your player ID.</p>
     <button type="button" (click)="sync.retry()">Retry</button>
   }
@@ -34,6 +36,7 @@
             <cr-game-clocks [clock]="clock" [sideToMove]="game.sideToMove" />
           }
           @if (!closedInvitation()) { <p>You play {{ color() }}.</p> }
+          @if (guestName(); as name) { <p>{{ name }} (guest) plays {{ game.whiteGuestName ? 'White' : 'Black' }}.</p> }
           @if (sync.updating()) { <p role="status">Updating game…</p> }
           @if (sync.commandError(); as message) { <p class="form-errors" role="alert">{{ message }}</p> }
           @if (game.status === 'Pending') {
@@ -59,10 +62,10 @@
               (action)="finish($event)" />
           }
           @if (game.status === 'Finished') {
-            <p><a [routerLink]="['/games', game.id, 'replay']">Review game</a></p>
+            <p><a [routerLink]="[gameRoot, game.id, 'replay']">Review game</a></p>
           }
           @if (game.rematchGameId; as rematchId) {
-            <a [routerLink]="['/games', rematchId]">Open rematch</a>
+            <a [routerLink]="[gameRoot, rematchId]">Open rematch</a>
           } @else if (sync.rematchDeadline(); as deadline) {
             <p><cr-invitation-countdown [expiresAt]="deadline" /></p>
             @if (game.rematchOfferedBy === color()) {

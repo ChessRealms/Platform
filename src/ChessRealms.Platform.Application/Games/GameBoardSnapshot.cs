@@ -21,4 +21,6 @@ public sealed record GameBoardSnapshot(
     TimeSpan? WhiteTimeRemaining,
     TimeSpan? BlackTimeRemaining,
     DateTimeOffset? TurnDeadline,
-    string? RulesRecord);
+    string? RulesRecord,
+    string? WhiteGuestName,
+    string? BlackGuestName);

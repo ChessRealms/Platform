@@ -25,6 +25,8 @@ export interface Game {
   id: string;
   whitePlayerId: string;
   blackPlayerId: string;
+  whiteGuestName: string | null;
+  blackGuestName: string | null;
   status: GameStatus;
   revision: number;
   fen: string;
@@ -43,6 +45,7 @@ export interface GameListItem {
   id: string;
   opponentId: string | null;
   opponentName: string | null;
+  opponentIsGuest: boolean;
   color: PlayerColor;
   status: GameStatus;
   createdAt: string | null;
@@ -73,6 +76,7 @@ export interface PrivateLobby {
   expiresAt: string;
   isOwner: boolean;
   hostName: string | null;
+  guestName: string | null;
   gameId: string | null;
   timeControl: GameTimeControl | null;
 }

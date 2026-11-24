@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.SignalR;
 
 namespace ChessRealms.Platform.Api.Realtime;
 
-[Authorize]
+[Authorize(Policy = GuestAuthentication.GamePolicy)]
 public sealed class GameHub(GameService games) : Hub
 {
     public const string Path = "/api/games/live";
@@ -23,8 +23,7 @@ public sealed class GameHub(GameService games) : Hub
             throw new HubException("This connection already has a game subscription.");
         }
 
-        Guid playerId = Guid.Parse(Context.User!.FindFirst("sub")!.Value);
-        if (await games.GetAsync(gameId, playerId, Context.ConnectionAborted) is null)
+        if (await games.GetAsync(gameId, GuestAuthentication.Participant(Context.User!), Context.ConnectionAborted) is null)
         {
             throw new HubException("This game is unavailable.");
         }

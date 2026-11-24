@@ -35,6 +35,9 @@ It also verifies that both players see declined and cancelled invitations on an
 open board and can reopen them from **Closed invitations** in My games.
 The private-link scenario copies a link, opens it while signed out in a separate
 browser context, returns to the invitation after sign-in, and plays the first move.
+The guest scenario joins a 5+0 game without signing in, verifies that the guest
+can subscribe to live updates, and plays both sides across a guest reload.
+A third browser sees the used invitation and cannot open the guest's board.
 In the direct-link scenario, Black opens the invitation while signed out,
 signs in, returns to the same game, and accepts.
 The test reopens the game from Invitations, Active, and Finished in My games.

@@ -63,11 +63,16 @@ The link is valid for five minutes. It appears in the sender's **Invitations**
 until someone joins, the sender chooses **Cancel invitation**, or the link
 expires. The sender can reopen expired or cancelled links from **Closed invitations**.
 
-Opening the link shows a preview. If sign-in is needed, ChessRealms returns the
-player to that invitation after sign-in. The first confirmed player other than
-the sender to choose **Join game** takes Black, and both players can open the
-active game. The sender plays White. If the sender is still on the invitation
-page, it opens the board when it detects the join.
+Opening the link shows a preview. A signed-out visitor can enter a display name
+and choose **Play as guest**, or sign in and return to the invitation. The first
+guest or confirmed player other than the sender to join takes Black. The sender
+plays White and the invitation page opens the board when it detects the join.
+Guest names have a **guest** label on the board and in the sender's game list.
+
+The guest can reload the board or reopen the link from the same browser profile.
+Once joined, the session keeps access to that seat after the link expires. It
+also grants access to the guest's rematches and finished-game replays. A new
+browser profile can use the guest's link only while the invitation is open.
 
 The limit of three open outgoing invitations combines links and direct username
 invitations. The per-opponent limit applies to direct invitations. Reading a link
@@ -75,16 +80,18 @@ or retrying its creation leaves the original deadline in place.
 
 ### Lobby API
 
-The same bearer authentication applies to `/api/lobbies`. A lobby ID is an
-unguessable UUID used in the shareable URL. Treat open links as invitations that
-can be forwarded. Only the sender and the account that joined can retrieve the
+Account requests to `/api/lobbies` use bearer authentication. The guest
+preview also accepts signed-out visitors. A lobby ID is an unguessable UUID
+used in the shareable URL. Treat open links as invitations that
+can be forwarded. Only the sender and the player that joined can retrieve the
 resulting game ID.
 
 | Route | Request body | Successful response |
 | --- | --- | --- |
 | `POST /api/lobbies` | `{"requestId":"<uuid>"}` | `201` with the lobby at revision 0 and a `Location` header. Reuse the request ID to recover the same lobby with `200`. |
 | `GET /api/lobbies/{id}` | None | `200` with the current lobby for a signed-in viewer. |
-| `POST /api/lobbies/{id}/join` | `{"expectedRevision":0}` | `200` with the joined lobby and `gameId`. A retry by the same player returns that game even after the original deadline. |
+| `GET /api/lobbies/{id}/guest` | None | `200` with the invitation state. An open invitation includes the host name and format. A guest who already joined can recover their game ID. |
+| `POST /api/lobbies/{id}/join` | `{"expectedRevision":0}` | `200` with the joined lobby and `gameId`. Accepts an account or guest session. A retry by the same player returns that game even after the original deadline. |
 | `POST /api/lobbies/{id}/cancel` | `{"expectedRevision":0}` | `200` with the cancelled lobby. Only its sender can cancel. |
 
 Lobby statuses are `Open`, `Joined`, `Cancelled`, and `Expired`. Join and
@@ -95,7 +102,27 @@ new active game commit together.
 
 The games list includes the sender's open and closed link invitations in their
 respective filters. A link row has `isLobby: true`, a lobby ID in `id`, and a
-null opponent. Once joined, the game appears under `Active` for both players.
+null opponent. Once joined, the game appears under `Active` for each account
+participant. For a guest game, the sender's list includes the guest's display
+name and `opponentIsGuest` indicator.
+
+### Guest sessions
+
+The browser first posts `{ lobbyId, displayName }` to `/api/guests/session`.
+The API checks that the lobby is open before creating a guest. The response
+sets a `Secure`, `HttpOnly`, `SameSite=Strict` cookie. A retry with the same
+cookie returns the same guest ID. The browser sends this cookie on the separate
+join request, so it can retry the join after losing the response. A new session
+lives for 30 days. Activity renews it at most once per day. Deleting the cookie
+or using `DELETE /api/guests/session` ends that browser's access to its guest
+seats.
+
+Guest HTTP requests use the same-origin web header. Before connecting to
+SignalR, the browser obtains a five-minute proof from
+`GET /api/guests/session/live`. The WebSocket requires both the proof and
+the guest cookie. HTTP game actions and SignalR
+subscriptions check both participant ID and participant type against the seat.
+Creating invitations and listing **My games** require an account.
 
 ## Connection recovery
 
@@ -107,9 +134,10 @@ game. Reconnecting checks what the server saved before you try a move again.
 
 ## HTTP contract
 
-Every route requires a bearer access token. The API uses the JWT subject as the
-acting player ID. Only participants can read or act on an existing game. An unknown
-game and a game belonging to other players both return `404 NotFound`.
+Account requests use a bearer access token. Board and replay reads, moves,
+finishing actions and rematches also accept the guest cookie. Only participants
+can read or act on an existing game. An unknown game and a game belonging to
+other players both return `404 NotFound`.
 
 | Route | Request body | Successful response |
 | --- | --- | --- |

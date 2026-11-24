@@ -1,16 +1,20 @@
+import { DOCUMENT } from '@angular/common';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
-import { defer, EMPTY, filter, Observable, switchMap } from 'rxjs';
+import { defer, EMPTY, filter, firstValueFrom, Observable, switchMap } from 'rxjs';
 import { AuthSession } from '../identity/auth-session';
 import { IdentityApiClient } from '../identity/identity-api.client';
 import { CurrentUser } from '../identity/identity-api.models';
 import { GameReplay } from './game-replay.models';
+import { guestGames } from './guest-games';
 import {
   Game, GameBoard, GameFinishingAction, GameInvitationAction, GameListFilter, GameListPage, GameRematchAction,
   GameTimeControl, PrivateLobby,
 } from './game.models';
 
 export type GameCreationOptions = { requestId: string; timeControl?: GameTimeControl };
+type PlayerProfile = Pick<CurrentUser, 'userId' | 'username'>;
+const guestRequest = { headers: { 'X-ChessRealms-Web': '1' }, timeout: 10000 };
 export type GameCreation = GameCreationOptions & (
   { opponentUsername: string; opponentId?: never } | { opponentId: string; opponentUsername?: never }
 );
@@ -21,9 +25,26 @@ export class GamesApi {
   private readonly session = inject(AuthSession);
   private readonly login = this.session.loginKey();
   private readonly identity = inject(IdentityApiClient);
+  private readonly guest = inject(guestGames);
+  private readonly browser = inject(DOCUMENT).defaultView!;
 
-  me(): Observable<CurrentUser> {
-    return this.authorized(token => this.identity.me(token));
+  me(): Observable<PlayerProfile> {
+    return this.guest ? this.http.get<PlayerProfile>('/api/guests/session', guestRequest)
+      : this.authorized(token => this.identity.me(token));
+  }
+
+  prepareGuest(lobbyId: string, displayName: string): Observable<PlayerProfile> {
+    return defer(() => {
+      const create = () => firstValueFrom(this.http.post<PlayerProfile>(
+        '/api/guests/session', { lobbyId, displayName }, guestRequest));
+      // Serialize initial cookie creation across tabs when the browser provides Web Locks.
+      return this.browser.navigator.locks?.request('chessrealms.guest-session', create) ?? create();
+    });
+  }
+
+  async guestLiveProof(): Promise<string> {
+    const response = await firstValueFrom(this.http.get<{ accessToken: string }>('/api/guests/session/live', guestRequest));
+    return response.accessToken;
   }
 
   create(attempt: GameCreation): Observable<Game> {
@@ -43,7 +64,9 @@ export class GamesApi {
   }
 
   lobby(id: string): Observable<PrivateLobby> {
-    return this.authorized(token => this.http.get<PrivateLobby>(`/api/lobbies/${encodeURIComponent(id)}`, this.options(token)));
+    const url = `/api/lobbies/${encodeURIComponent(id)}`;
+    return this.guest ? this.http.get<PrivateLobby>(`${url}/guest`, guestRequest)
+      : this.authorized(token => this.http.get<PrivateLobby>(url, this.options(token)));
   }
 
   updateLobby(lobby: PrivateLobby, action: 'join' | 'cancel'): Observable<PrivateLobby> {
@@ -88,6 +111,9 @@ export class GamesApi {
   }
 
   private authorized<T>(request: (token: string) => Observable<T>): Observable<T> {
+    if (this.guest) {
+      return request('');
+    }
     return defer(() => this.session.getAccessToken(this.login)).pipe(switchMap(token => {
       if (this.login !== this.session.loginKey()) {
         return EMPTY;
@@ -100,6 +126,6 @@ export class GamesApi {
   }
 
   private options(token: string) {
-    return { headers: { Authorization: `Bearer ${token}` }, timeout: 10000 };
+    return this.guest ? guestRequest : { headers: { Authorization: `Bearer ${token}` }, timeout: 10000 };
   }
 }
