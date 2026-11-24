@@ -68,7 +68,12 @@ public sealed class IdentityController(
 
     [HttpGet("me")]
     [Authorize]
-    public IActionResult Me() => Ok(new { userId = Guid.Parse(User.FindFirst("sub")!.Value) });
+    public async Task<IActionResult> Me([FromServices] IUsernameDirectory usernames, CancellationToken cancellationToken)
+    {
+        Guid userId = UserId();
+        string? username = await usernames.FindUsernameAsync(userId, cancellationToken);
+        return Ok(new { userId, username });
+    }
 
     [HttpGet("sessions")]
     [Authorize]

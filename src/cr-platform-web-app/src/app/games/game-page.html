@@ -37,7 +37,7 @@
             @if (color() === 'Black') {
               <button type="button" [disabled]="!sync.canAct()" (click)="accept()">Accept game</button>
             } @else {
-              <label for="game-link">Share this link with your opponent</label>
+              <label for="game-link">Game link</label>
               <input id="game-link" readonly [value]="gameLink(game)" />
             }
           }

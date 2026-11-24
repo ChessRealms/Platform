@@ -6,7 +6,7 @@ import { Router, RouterLink } from '@angular/router';
 import { catchError, EMPTY, finalize, Subject, switchMap } from 'rxjs';
 import { AuthSession } from '../identity/auth-session';
 import { finishReasons, gameIdPattern, GameListItem } from './game.models';
-import { GamesApi } from './games-api';
+import { GameCreation, GamesApi } from './games-api';
 
 const gameFilters = [
   { status: 'Pending', label: 'Invitations', empty: 'No pending invitations.' },
@@ -15,7 +15,7 @@ const gameFilters = [
 ] as const;
 
 type GameFilter = (typeof gameFilters)[number];
-type GameCreation = { opponentId: string; requestId: string };
+const maxUsernameLength = 256;
 
 const pendingCreationKey = 'chessrealms.pending-game-creation';
 
@@ -40,11 +40,13 @@ export class GamesPage {
   protected readonly nextCursor = signal<string | null>(null);
   protected readonly listLoading = signal(false);
   protected readonly listError = signal<string | null>(null);
-  readonly userId = signal<string | null>(null);
+  protected readonly username = signal<string | null>(null);
+  protected readonly usernameError = signal<string | null>(null);
+  protected readonly maxUsernameLength = maxUsernameLength;
   readonly error = signal<string | null>(null);
   readonly busy = signal(false);
   protected readonly pendingCreation = signal(this.readPendingCreation());
-  opponentId = this.pendingCreation()?.opponentId ?? '';
+  opponentUsername = this.pendingCreation()?.opponentUsername ?? '';
 
   constructor() {
     this.listRequests.pipe(
@@ -67,8 +69,8 @@ export class GamesPage {
     this.refresh();
 
     this.api.me().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: user => this.userId.set(user.userId),
-      error: () => this.error.set('Could not load your player ID. Reload the page to try again.'),
+      next: user => this.username.set(user.username),
+      error: () => this.usernameError.set('Could not load your username. Reload the page to try again.'),
     });
   }
 
@@ -105,20 +107,20 @@ export class GamesPage {
   }
 
   create(): void {
-    if (this.busy() || !this.userId()) {
+    if (this.busy()) {
       return;
     }
     const pending = this.pendingCreation();
-    const opponentId = pending?.opponentId ?? this.opponentId.trim().toLowerCase();
-    if (!gameIdPattern.test(opponentId) || opponentId === this.userId()?.toLowerCase()) {
-      this.error.set('Enter a different player’s ID.');
+    const opponentUsername = this.opponentUsername.trim();
+    if (!pending && (!opponentUsername || opponentUsername.length > maxUsernameLength)) {
+      this.error.set('Enter a username of up to 256 characters.');
       return;
     }
-    const attempt = pending ?? { opponentId, requestId: this.window.crypto.randomUUID() };
+    const attempt = pending ?? { opponentUsername, requestId: this.window.crypto.randomUUID() };
     this.rememberCreation(attempt);
     this.error.set(null);
     this.busy.set(true);
-    this.api.create(attempt.opponentId, attempt.requestId).pipe(
+    this.api.create(attempt).pipe(
       takeUntilDestroyed(this.destroyRef),
       finalize(() => this.busy.set(false)),
     ).subscribe({
@@ -127,11 +129,18 @@ export class GamesPage {
         void this.router.navigate(['/games', game.id]);
       },
       error: error => {
-        if (error.status === 400 || error.status === 409) {
+        if (error.status === 409) {
           this.rememberCreation(null);
-          this.error.set(error.status === 400
-            ? 'That player is unavailable. Check the ID and ask them to confirm their email.'
-            : 'This request ID has already been used for a different invitation. Start a new invitation.');
+          this.error.set('This request ID has already been used for a different invitation. Start a new invitation.');
+        } else if (error.status === 400) {
+          this.rememberCreation(null);
+          if (attempt.opponentId) {
+            this.error.set('Could not retry that invitation. Enter your opponent’s username to send a new one.');
+          } else if (error.error?.code === 'InvalidPlayers') {
+            this.error.set('Enter another player’s username.');
+          } else {
+            this.error.set('That player is unavailable. Check the username and ask them to confirm their email.');
+          }
         }
       },
     });
@@ -145,11 +154,19 @@ export class GamesPage {
   private readPendingCreation(): GameCreation | null {
     try {
       const stored = this.window.sessionStorage.getItem(pendingCreationKey);
-      const attempt = JSON.parse(stored ?? 'null') as Partial<GameCreation & { login: string }> | null;
+      const attempt = JSON.parse(stored ?? 'null') as {
+        login?: unknown; requestId?: unknown; opponentId?: unknown; opponentUsername?: unknown;
+      } | null;
       if (this.login && attempt?.login === this.login
-        && typeof attempt.requestId === 'string' && gameIdPattern.test(attempt.requestId)
-        && typeof attempt.opponentId === 'string' && gameIdPattern.test(attempt.opponentId)) {
-        return { opponentId: attempt.opponentId, requestId: attempt.requestId };
+        && typeof attempt.requestId === 'string' && gameIdPattern.test(attempt.requestId)) {
+        const { opponentId, opponentUsername, requestId } = attempt;
+        if (opponentId === undefined && typeof opponentUsername === 'string'
+          && opponentUsername.trim() && opponentUsername.trim().length <= maxUsernameLength) {
+          return { opponentUsername, requestId };
+        }
+        if (opponentUsername === undefined && typeof opponentId === 'string' && gameIdPattern.test(opponentId)) {
+          return { opponentId, requestId };
+        }
       }
     } catch {
       // Stay usable when storage is blocked or contains invalid data.

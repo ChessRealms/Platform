@@ -49,10 +49,12 @@
   </section>
 
   <section class="home-card" aria-labelledby="new-game-title">
-    <h2 id="new-game-title">New private game</h2>
-    @if (userId(); as id) {
-      <label for="player-id">Your player ID</label>
-      <input id="player-id" readonly [value]="id" />
+    <h2 id="new-game-title">Invite a player</h2>
+    @if (username(); as name) {
+      <label for="your-username">Your username</label>
+      <input id="your-username" readonly [value]="name" />
+    } @else if (usernameError(); as message) {
+      <p role="status">{{ message }}</p>
     }
     @if (error(); as message) {
       <p class="form-errors" role="alert">{{ message }}</p>
@@ -61,12 +63,17 @@
     }
     <form (ngSubmit)="create()">
       <div class="form-field">
-        <label for="opponent-id">Opponent’s player ID</label>
-        <input id="opponent-id" name="opponentId" [(ngModel)]="opponentId" required maxlength="36"
-          [readOnly]="!!pendingCreation()" autocomplete="off" spellcheck="false" />
+        @if (pendingCreation()?.opponentId; as id) {
+          <label for="opponent-id">Opponent’s player ID</label>
+          <input id="opponent-id" readonly [value]="id" />
+        } @else {
+          <label for="opponent-username">Opponent’s username</label>
+          <input id="opponent-username" name="opponentUsername" [(ngModel)]="opponentUsername" required
+            [maxlength]="maxUsernameLength" [readOnly]="!!pendingCreation()" autocomplete="off" spellcheck="false" />
+        }
       </div>
-      <button type="submit" [disabled]="busy() || !userId()">
-        {{ busy() ? 'Creating game…' : pendingCreation() ? 'Retry creation' : 'Create private game' }}
+      <button type="submit" [disabled]="busy()">
+        {{ busy() ? 'Sending invitation…' : pendingCreation() ? 'Retry creation' : 'Send invitation' }}
       </button>
       @if (pendingCreation() && !busy()) {
         <button type="button" (click)="startNewInvitation()">Start a new invitation</button>

@@ -6,6 +6,10 @@ import { IdentityApiClient } from '../identity/identity-api.client';
 import { CurrentUser } from '../identity/identity-api.models';
 import { Game, GameBoard, GameFinishingAction, GameListPage, GameStatus } from './game.models';
 
+export type GameCreation = { requestId: string } & (
+  { opponentUsername: string; opponentId?: never } | { opponentId: string; opponentUsername?: never }
+);
+
 @Injectable()
 export class GamesApi {
   private readonly http = inject(HttpClient);
@@ -17,9 +21,9 @@ export class GamesApi {
     return this.authorized(token => this.identity.me(token));
   }
 
-  create(opponentId: string, requestId: string): Observable<Game> {
+  create(attempt: GameCreation): Observable<Game> {
     return this.authorized(token =>
-      this.http.post<Game>('/api/games', { opponentId, requestId }, this.options(token)));
+      this.http.post<Game>('/api/games', attempt, this.options(token)));
   }
 
   list(status: GameStatus, before: string | null): Observable<GameListPage> {

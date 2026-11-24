@@ -1,35 +1,57 @@
+using ChessRealms.Platform.Application.Identity;
 using ChessRealms.Platform.Domain.Games;
 
 namespace ChessRealms.Platform.Application.Games;
 
-public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerDirectory players, TimeProvider clock)
+public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerDirectory players, IUsernameDirectory usernames,
+    TimeProvider clock)
 {
     private const int ListPageSize = 20;
 
-    public async Task<CreateGameResult> CreateAsync(Guid creatorId, Guid opponentId, Guid? requestId,
-        CancellationToken cancellationToken)
+    public async Task<CreateGameResult> CreateAsync(Guid creatorId, Guid? opponentId, string? opponentUsername,
+        Guid? requestId, CancellationToken cancellationToken)
     {
         if (requestId == Guid.Empty)
         {
             return new(GameError.InvalidRequestId);
         }
-        if (requestId is Guid key
-            && await store.FindByCreationRequestAsync(creatorId, key, cancellationToken) is { } existing)
-        {
-            return ReplayCreation(existing, opponentId);
-        }
-        if (!Game.CanPair(creatorId, opponentId))
+        if (opponentId.HasValue == (opponentUsername is not null))
         {
             return new(GameError.InvalidPlayers);
         }
-        if (!await players.AreEligibleAsync(creatorId, opponentId, cancellationToken))
+        if (opponentUsername is not null)
+        {
+            string username = opponentUsername.Trim();
+            if (username.Length is 0 or > 256)
+            {
+                return new(GameError.InvalidOpponentUsername);
+            }
+
+            opponentId = await usernames.FindIdAsync(username, cancellationToken);
+            if (opponentId is null)
+            {
+                return new(GameError.OpponentUnavailable);
+            }
+        }
+
+        Guid blackPlayerId = opponentId.GetValueOrDefault();
+        if (requestId is Guid key
+            && await store.FindByCreationRequestAsync(creatorId, key, cancellationToken) is { } existing)
+        {
+            return ReplayCreation(existing, blackPlayerId);
+        }
+        if (!Game.CanPair(creatorId, blackPlayerId))
+        {
+            return new(GameError.InvalidPlayers);
+        }
+        if (!await players.AreEligibleAsync(creatorId, blackPlayerId, cancellationToken))
         {
             return new(GameError.OpponentUnavailable);
         }
 
-        Game game = new(creatorId, opponentId, rules.StartingPosition(), clock.GetUtcNow());
+        Game game = new(creatorId, blackPlayerId, rules.StartingPosition(), clock.GetUtcNow());
         Game saved = await store.CreateOrGetAsync(game, requestId, cancellationToken);
-        return saved.Id == game.Id ? new(GameError.None, saved, Created: true) : ReplayCreation(saved, opponentId);
+        return saved.Id == game.Id ? new(GameError.None, saved, Created: true) : ReplayCreation(saved, blackPlayerId);
     }
 
     private static CreateGameResult ReplayCreation(Game game, Guid opponentId) =>

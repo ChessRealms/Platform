@@ -13,6 +13,7 @@ using ChessRealms.Platform.Application.Games;
 using ChessRealms.Platform.Application.Identity;
 using ChessRealms.Platform.Domain.Games;
 using ChessRealms.Platform.Infrastructure;
+using ChessRealms.Platform.Infrastructure.Identity;
 using ChessRealms.Platform.Infrastructure.Identity.Persistence;
 using ChessRealms.Platform.Infrastructure.Persistence;
 
@@ -109,6 +110,87 @@ public sealed class GameEndpointTests : IAsyncLifetime
         GameResponse legacySecond = await CreateGameAsync(white, blackId);
         Assert.NotEqual(legacyFirst.Id, legacySecond.Id);
         Assert.Equal(whiteId, legacySecond.WhitePlayerId);
+    }
+
+    [Fact]
+    public async Task InvitationsByUsernameResolveTheConfirmedAccountAndReplayAcrossSelectors()
+    {
+        (Guid whiteId, string whiteToken) = await RegisterAndSignInAsync("WhiteKnight");
+        (Guid blackId, string blackToken) = await RegisterAndSignInAsync("BlackKnight");
+        (Guid otherId, _) = await RegisterAndSignInAsync("OtherKnight");
+        using HttpClient white = CreateClient(whiteToken);
+        using HttpClient black = CreateClient(blackToken);
+        Guid requestId = Guid.NewGuid();
+        CreateGameRequest request = new(RequestId: requestId, OpponentUsername: " blackknight ");
+
+        Task<HttpResponseMessage> first = white.PostAsJsonAsync("/api/games", request, Cancellation);
+        Task<HttpResponseMessage> second = white.PostAsJsonAsync("/api/games", request with
+        {
+            OpponentUsername = "BLACKKNIGHT"
+        }, Cancellation);
+        using HttpResponseMessage firstResponse = await first;
+        using HttpResponseMessage secondResponse = await second;
+        HttpResponseMessage[] responses = [firstResponse, secondResponse];
+        HttpResponseMessage created = Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Created);
+        HttpResponseMessage replayed = Assert.Single(responses, response => response.StatusCode == HttpStatusCode.OK);
+        GameResponse pending = Assert.IsType<GameResponse>(await created.Content.ReadFromJsonAsync<GameResponse>(Cancellation));
+        Assert.Equal(pending, await replayed.Content.ReadFromJsonAsync<GameResponse>(Cancellation));
+        Assert.Equal(whiteId, pending.WhitePlayerId);
+        Assert.Equal(blackId, pending.BlackPlayerId);
+        Assert.Equal(GameStatus.Pending.ToString(), pending.Status);
+        Assert.Equal(0, pending.Revision);
+        string url = $"/api/games/{pending.Id}";
+        Assert.Equal(url, created.Headers.Location?.AbsolutePath);
+        GameListItemResponse invitation = Assert.Single((await ListGamesAsync(black)).Items);
+        Assert.Equal(pending.Id, invitation.Id);
+        Assert.Equal("WhiteKnight", invitation.OpponentName);
+        Assert.Equal(pending.Id, Assert.Single((await ListGamesAsync(white)).Items).Id);
+
+        GameResponse active = await AcceptGameAsync(black, url);
+        using HttpResponseMessage replayById = await white.PostAsJsonAsync("/api/games", new CreateGameRequest(blackId, requestId), Cancellation);
+        Assert.Equal(HttpStatusCode.OK, replayById.StatusCode);
+        Assert.Equal(active, await replayById.Content.ReadFromJsonAsync<GameResponse>(Cancellation));
+        using HttpResponseMessage replayByUsername = await white.PostAsJsonAsync("/api/games", request, Cancellation);
+        Assert.Equal(HttpStatusCode.OK, replayByUsername.StatusCode);
+        Assert.Equal(active, await replayByUsername.Content.ReadFromJsonAsync<GameResponse>(Cancellation));
+
+        using HttpResponseMessage conflict = await white.PostAsJsonAsync("/api/games", request with { OpponentUsername = "OtherKnight" }, Cancellation);
+        await AssertErrorAsync(conflict, HttpStatusCode.Conflict, "CreationRequestConflict");
+        GameResponse legacy = await CreateGameAsync(white, otherId);
+        Assert.NotEqual(pending.Id, legacy.Id);
+    }
+
+    [Fact]
+    public async Task InvitationsByUsernameRejectUnavailableAndInvalidOpponents()
+    {
+        (Guid whiteId, string whiteToken) = await RegisterAndSignInAsync("WhiteKnight");
+        await using (AsyncServiceScope scope = app!.Services.CreateAsyncScope())
+        {
+            IdentityDbContext database = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
+            database.Users.Add(new PlatformUser { UserName = "UnconfirmedKnight", NormalizedUserName = "UNCONFIRMEDKNIGHT" });
+            await database.SaveChangesAsync(Cancellation);
+        }
+
+        using HttpClient white = CreateClient(whiteToken);
+        (CreateGameRequest Request, string Code)[] invalidRequests =
+        [
+            (new(OpponentUsername: "White"), "OpponentUnavailable"),
+            (new(OpponentUsername: "UnknownKnight"), "OpponentUnavailable"),
+            (new(OpponentUsername: "UnconfirmedKnight"), "OpponentUnavailable"),
+            (new(OpponentUsername: "whiteknight"), "InvalidPlayers"),
+            (new(OpponentUsername: "  "), "InvalidOpponentUsername"),
+            (new(OpponentUsername: new string('a', 257)), "InvalidOpponentUsername"),
+            (new(OpponentId: whiteId, OpponentUsername: "WhiteKnight"), "InvalidPlayers"),
+            (new(), "InvalidPlayers"),
+            (new(RequestId: Guid.Empty, OpponentUsername: "WhiteKnight"), "InvalidRequestId")
+        ];
+        foreach ((CreateGameRequest request, string code) in invalidRequests)
+        {
+            using HttpResponseMessage response = await white.PostAsJsonAsync("/api/games", request, Cancellation);
+            await AssertErrorAsync(response, HttpStatusCode.BadRequest, code);
+        }
+
+        Assert.Empty((await ListGamesAsync(white)).Items);
     }
 
     [Fact]

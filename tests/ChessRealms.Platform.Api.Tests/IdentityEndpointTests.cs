@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
+using System.Text.Json;
 
 using ChessRealms.Platform.Api;
 using ChessRealms.Platform.Api.Controllers;
@@ -47,6 +48,7 @@ public sealed class IdentityEndpointTests : IAsyncLifetime
         builder.Services.AddSingleton<ILoginService>(_services);
         builder.Services.AddSingleton<IRefreshTokenService>(_services);
         builder.Services.AddSingleton<ILoginSessionService>(_services);
+        builder.Services.AddSingleton<IUsernameDirectory>(_services);
         builder.Services.AddControllers().AddApplicationPart(typeof(IdentityController).Assembly);
         builder.Services.AddProblemDetails();
         _app = builder.Build();
@@ -175,8 +177,10 @@ public sealed class IdentityEndpointTests : IAsyncLifetime
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", loginResult.AccessToken);
         using HttpResponseMessage me = await _client.GetAsync("/api/identity/me", Cancellation);
         Assert.Equal(HttpStatusCode.OK, me.StatusCode);
-        Dictionary<string, Guid>? identity = await me.Content.ReadFromJsonAsync<Dictionary<string, Guid>>(Cancellation);
-        Assert.Equal(userId, identity!["userId"]);
+        JsonElement identity = await me.Content.ReadFromJsonAsync<JsonElement>(Cancellation);
+        Assert.Equal(userId, identity.GetProperty("userId").GetGuid());
+        Assert.Equal("Player", identity.GetProperty("username").GetString());
+        Assert.Equal(userId, _services.LastUserId);
         using HttpResponseMessage oldRoute = await _client.PostAsJsonAsync("/auth/login", login, Cancellation);
         Assert.Equal(HttpStatusCode.NotFound, oldRoute.StatusCode);
         using HttpResponseMessage oldIdentityRoute = await _client.PostAsJsonAsync("/identity/login", login, Cancellation);
@@ -361,7 +365,7 @@ public sealed class IdentityEndpointTests : IAsyncLifetime
     }
 
     private sealed class StubIdentityServices : IRegistrationService, IEmailConfirmationService, ILoginService,
-        IRefreshTokenService, ILoginSessionService
+        IRefreshTokenService, ILoginSessionService, IUsernameDirectory
     {
         public ConfirmationMetadata Metadata { get; } = new("session-token", DateTimeOffset.UtcNow.AddMinutes(30), "Queued", DateTimeOffset.UtcNow.AddMinutes(1), null);
         public string ConfirmationCode { get; set; } = "EmailConfirmed";
@@ -388,6 +392,14 @@ public sealed class IdentityEndpointTests : IAsyncLifetime
         public SessionOperationResult SessionResult { get; set; } = SessionOperationResult.Success;
         public string? LastLogout { get; private set; }
         public string? LastToken { get; private set; }
+        public Task<Guid?> FindIdAsync(string username, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<string?> FindUsernameAsync(Guid userId, CancellationToken cancellationToken)
+        {
+            LastUserId = userId;
+            return Task.FromResult<string?>("Player");
+        }
+
         public Task<RegistrationResult> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken)
         {
             Registrations++;

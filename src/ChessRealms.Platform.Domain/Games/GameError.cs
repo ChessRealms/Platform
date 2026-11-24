@@ -16,5 +16,6 @@ public enum GameError
     NoDrawOffer,
     DrawClaimUnavailable,
     InvalidRequestId,
-    CreationRequestConflict
+    CreationRequestConflict,
+    InvalidOpponentUsername
 }

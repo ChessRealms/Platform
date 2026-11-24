@@ -27,8 +27,10 @@ The session lifecycle tests also verify:
   the address bar, accepts the new password, and rejects the previous session's
   next refresh.
 
-`GameBrowserTests` covers a private game between two confirmed accounts. Black opens
-the invitation while signed out, signs in, returns to the same game, and accepts.
+`GameBrowserTests` verifies that two players can share a username, send and accept
+an invitation through My games, and see White's first move in both browser contexts.
+In the direct-link scenario, Black opens the invitation while signed out,
+signs in, returns to the same game, and accepts.
 The test reopens the game from Invitations, Active, and Finished in My games.
 White plays with the keyboard and Black plays on a touch-enabled mobile viewport.
 Each browser sees the other player's move. The test observes a real SignalR

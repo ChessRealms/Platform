@@ -15,6 +15,42 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
     private readonly BrowserTestSteps browserSteps = new(fixture);
 
     [Fact]
+    public async Task PlayersSendAndAcceptAnInvitationByUsernameAndPlayTheFirstMove()
+    {
+        await using IBrowser browser = await browserSteps.LaunchBrowserAsync();
+        await using IBrowserContext whiteContext = await browserSteps.NewContextAsync(browser);
+        await using IBrowserContext blackContext = await browserSteps.NewContextAsync(browser);
+        (IPage white, string whiteEmail) = await browserSteps.RegisterAndOpenSignInAsync(whiteContext);
+        (IPage black, string blackEmail) = await browserSteps.RegisterAndOpenSignInAsync(blackContext);
+        await browserSteps.SignInAsync(white, whiteEmail);
+        await browserSteps.SignInAsync(black, blackEmail);
+
+        await black.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
+        string blackUsername = await ReadUsernameAsync(black);
+        await Expect(black.GetByText("No pending invitations.", new() { Exact = true })).ToBeVisibleAsync();
+
+        await white.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
+        string whiteUsername = await ReadUsernameAsync(white);
+        await SendInvitationAsync(white, blackUsername);
+        await Expect(white.GetByLabel("Game link")).ToBeVisibleAsync();
+
+        ILocator gamesList = black.GetByRole(AriaRole.Region, new() { Name = "Your games", Exact = true });
+        await gamesList.GetByRole(AriaRole.Button, new() { Name = "Refresh", Exact = true }).ClickAsync();
+        await gamesList.GetByRole(AriaRole.Link).Filter(new()
+        {
+            Has = black.GetByText(whiteUsername, new() { Exact = true }),
+            HasText = "Invitation received"
+        }).ClickAsync();
+        await black.GetByRole(AriaRole.Button, new() { Name = "Accept game", Exact = true }).ClickAsync();
+
+        await Expect(white.GetByText("Your turn", new() { Exact = true })).ToBeVisibleAsync();
+        await white.GetByRole(AriaRole.Button, new() { Name = "e2, White pawn", Exact = true }).ClickAsync();
+        await white.GetByRole(AriaRole.Button, new() { Name = "e4, empty", Exact = true }).ClickAsync();
+        await Expect(black.GetByRole(AriaRole.Button, new() { Name = "e4, White pawn", Exact = true })).ToBeVisibleAsync();
+        await Expect(black.GetByText("Your turn", new() { Exact = true })).ToBeVisibleAsync();
+    }
+
+    [Fact]
     public async Task PlayersSignInFromInviteAndSyncPrivateGameAcrossBrowsers()
     {
         await using IBrowser browser = await browserSteps.LaunchBrowserAsync();
@@ -75,17 +111,13 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         });
 
         await black.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
-        ILocator playerId = black.GetByLabel("Your player ID");
-        await Expect(playerId).ToHaveValueAsync(new Regex(@"^[0-9a-f-]{36}$"));
-        string opponent = await playerId.InputValueAsync();
+        string opponent = await ReadUsernameAsync(black);
         await black.GetByRole(AriaRole.Main).GetByRole(AriaRole.Link, new() { Name = "Home", Exact = true }).ClickAsync();
         await browserSteps.SignOutAsync(black, "Sign out", "logout");
 
         await white.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
-        await Expect(white.GetByLabel("Your player ID")).ToBeVisibleAsync();
-        await white.GetByLabel("Opponent’s player ID").FillAsync(opponent);
-        await white.GetByRole(AriaRole.Button, new() { Name = "Create private game" }).ClickAsync();
-        ILocator invite = white.GetByLabel("Share this link with your opponent");
+        await SendInvitationAsync(white, opponent);
+        ILocator invite = white.GetByLabel("Game link");
         await Expect(invite).ToHaveValueAsync(new Regex(@"/games/[0-9a-f-]{36}$"));
         string gameLink = await invite.InputValueAsync();
         IWebSocketRoute whiteSocket = await subscribed.Task.WaitAsync(liveTimeout, cancellationToken);
@@ -151,16 +183,13 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         (IPage account, string blackEmail) = await browserSteps.RegisterAndOpenSignInAsync(context);
         await browserSteps.SignInAsync(account, blackEmail);
         await account.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
-        ILocator playerId = account.GetByLabel("Your player ID");
-        await Expect(playerId).ToHaveValueAsync(new Regex(@"^[0-9a-f-]{36}$"));
-        string blackId = await playerId.InputValueAsync();
+        string blackUsername = await ReadUsernameAsync(account);
 
         (IPage board, string whiteEmail) = await browserSteps.RegisterAndOpenSignInAsync(context);
         await browserSteps.SignInAsync(board, whiteEmail);
         await board.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
-        await board.GetByLabel("Opponent’s player ID").FillAsync(blackId);
-        await board.GetByRole(AriaRole.Button, new() { Name = "Create private game" }).ClickAsync();
-        await Expect(board.GetByLabel("Share this link with your opponent")).ToBeVisibleAsync();
+        await SendInvitationAsync(board, blackUsername);
+        await Expect(board.GetByLabel("Game link")).ToBeVisibleAsync();
         string invite = board.Url;
         string inviteLogin = $"/login?gameId={new Uri(invite).Segments[^1]}";
         IPage list = await context.NewPageAsync();
@@ -172,7 +201,7 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         await browserSteps.SignInAsync(account, blackEmail);
         await Expect(board.GetByText("You play Black.", new() { Exact = true })).ToBeVisibleAsync();
         await Expect(board.GetByRole(AriaRole.Button, new() { Name = "Accept game" })).ToBeEnabledAsync();
-        await Expect(list.GetByLabel("Your player ID")).ToHaveValueAsync(blackId);
+        await Expect(list.GetByLabel("Your username")).ToHaveValueAsync(blackUsername);
         await Expect(list.GetByText("Invitation received", new() { Exact = true })).ToBeVisibleAsync();
 
         await browserSteps.SignOutAsync(account, "Sign out", "logout");
@@ -180,7 +209,7 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         await Expect(boardSignIn).ToHaveAttributeAsync("href", inviteLogin);
         await Expect(board.Locator(".board")).ToHaveCountAsync(0);
         await Expect(list.GetByRole(AriaRole.Main).GetByRole(AriaRole.Link, new() { Name = "Sign in" })).ToBeVisibleAsync();
-        await Expect(list.GetByLabel("Your player ID")).ToHaveCountAsync(0);
+        await Expect(list.GetByLabel("Your username")).ToHaveCountAsync(0);
         await Expect(list.GetByText("Invitation received", new() { Exact = true })).ToHaveCountAsync(0);
 
         await board.BringToFrontAsync();
@@ -189,5 +218,18 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         await browserSteps.SubmitSignInAsync(board, whiteEmail);
         await Expect(board).ToHaveURLAsync(invite);
         await Expect(board.GetByText("You play White.", new() { Exact = true })).ToBeVisibleAsync();
+    }
+
+    private static async Task<string> ReadUsernameAsync(IPage page)
+    {
+        ILocator username = page.GetByLabel("Your username", new() { Exact = true });
+        await Expect(username).ToHaveValueAsync(new Regex(@"^player-[0-9a-f]{32}$"));
+        return await username.InputValueAsync();
+    }
+
+    private static async Task SendInvitationAsync(IPage page, string username)
+    {
+        await page.GetByLabel("Opponent’s username").FillAsync(username);
+        await page.GetByRole(AriaRole.Button, new() { Name = "Send invitation", Exact = true }).ClickAsync();
     }
 }

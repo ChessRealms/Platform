@@ -86,13 +86,11 @@ adapter. PostgreSQL stores a versioned game record and commits each position,
 result, and revision together.
 
 The first product milestone is a complete private game between two registered
-players. The current flow creates a game for a known player ID and gives the
-creator a link to share. The invited player accepts explicitly. The browser
-suite verifies the flow with independent sessions. The invited player opens the
-link while signed out, signs in and returns to the game, accepts, and plays to a
-visible result. The suite also verifies restoring the board after reloading or
-losing the connection. The backend enforces participant access, move legality,
-and revision consistency.
+players. The creator invites a player by username and the recipient accepts
+from My games. The browser suite verifies this flow through the first move with
+independent sessions. It also covers opening a direct game link before signing
+in and restoring the board after reloading or losing the connection. The backend
+enforces participant access, move legality, and revision consistency.
 The Angular board uses SignalR revision notifications and reads the authoritative
 HTTP snapshot on updates and reconnect. Periodic HTTP reads cover missed
 notifications. Realtime delivery stays in the API layer.
