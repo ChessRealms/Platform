@@ -31,6 +31,7 @@
                 <strong>{{ game.isLobby ? 'Link invitation' : game.opponentName ?? game.opponentId }}</strong>
                 <span class="game-meta">
                   {{ game.color }}
+                  @if (game.timeControl === 'Blitz5') { <span>5+0</span> }
                   @if (game.createdAt; as createdAt) {
                     <time [attr.datetime]="createdAt">{{ createdAt | date:'medium' }}</time>
                   }
@@ -80,6 +81,14 @@
             [maxlength]="maxUsernameLength" [readOnly]="!!pendingCreation()" autocomplete="off" spellcheck="false" />
         }
       </div>
+      <div class="form-field">
+        <label for="direct-time-control">Time control</label>
+        <select id="direct-time-control" name="timeControl" [(ngModel)]="timeControl"
+          [disabled]="busy() || !!pendingCreation()">
+          <option value="">Untimed</option>
+          <option value="Blitz5">5+0 (5 minutes per side)</option>
+        </select>
+      </div>
       <button type="submit" [disabled]="busy()">
         {{ busy() ? 'Sending invitation…' : pendingCreation() ? 'Retry creation' : 'Send invitation' }}
       </button>
@@ -91,6 +100,13 @@
     @if (lobbyError(); as message) {
       <p class="form-errors" role="alert">{{ message }}</p>
     }
+    <div class="form-field">
+      <label for="link-time-control">Link time control</label>
+      <select id="link-time-control" [(ngModel)]="lobbyTimeControl" [disabled]="lobbyBusy() || !!pendingLobby()">
+        <option value="">Untimed</option>
+        <option value="Blitz5">5+0 (5 minutes per side)</option>
+      </select>
+    </div>
     <button type="button" [disabled]="lobbyBusy()" (click)="createLobby()">
       {{ lobbyBusy() ? 'Creating link…' : pendingLobby() ? 'Retry creating link' : 'Create private link' }}
     </button>

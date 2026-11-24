@@ -17,4 +17,8 @@ public sealed record GameBoardSnapshot(
     DateTimeOffset? FinishedAt,
     PlayerColor? RematchOfferedBy,
     Guid? RematchGameId,
+    GameTimeControl? TimeControl,
+    TimeSpan? WhiteTimeRemaining,
+    TimeSpan? BlackTimeRemaining,
+    DateTimeOffset? TurnDeadline,
     string? RulesRecord);

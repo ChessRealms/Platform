@@ -5,10 +5,12 @@ import { AuthSession } from '../identity/auth-session';
 import { IdentityApiClient } from '../identity/identity-api.client';
 import { CurrentUser } from '../identity/identity-api.models';
 import {
-  Game, GameBoard, GameFinishingAction, GameInvitationAction, GameListFilter, GameListPage, GameRematchAction, PrivateLobby,
+  Game, GameBoard, GameFinishingAction, GameInvitationAction, GameListFilter, GameListPage, GameRematchAction,
+  GameTimeControl, PrivateLobby,
 } from './game.models';
 
-export type GameCreation = { requestId: string } & (
+export type GameCreationOptions = { requestId: string; timeControl?: GameTimeControl };
+export type GameCreation = GameCreationOptions & (
   { opponentUsername: string; opponentId?: never } | { opponentId: string; opponentUsername?: never }
 );
 
@@ -35,8 +37,8 @@ export class GamesApi {
     }));
   }
 
-  createLobby(requestId: string): Observable<PrivateLobby> {
-    return this.authorized(token => this.http.post<PrivateLobby>('/api/lobbies', { requestId }, this.options(token)));
+  createLobby(attempt: GameCreationOptions): Observable<PrivateLobby> {
+    return this.authorized(token => this.http.post<PrivateLobby>('/api/lobbies', attempt, this.options(token)));
   }
 
   lobby(id: string): Observable<PrivateLobby> {

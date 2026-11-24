@@ -11,5 +11,7 @@ public enum GameEndReason
     DrawAgreement,
     ThreefoldRepetition,
     FiftyMoveRule,
-    ResignationNoPossibleMate
+    ResignationNoPossibleMate,
+    Timeout,
+    TimeoutNoPossibleMate
 }

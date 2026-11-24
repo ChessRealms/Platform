@@ -5,8 +5,8 @@ import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { catchError, EMPTY, finalize, Subject, switchMap } from 'rxjs';
 import { AuthSession } from '../identity/auth-session';
-import { finishReasons, gameIdPattern, GameListItem, invitationOutcome } from './game.models';
-import { GameCreation, GamesApi } from './games-api';
+import { finishReasons, gameIdPattern, GameListItem, GameTimeControl, invitationOutcome } from './game.models';
+import { GameCreation, GameCreationOptions, GamesApi } from './games-api';
 import { InvitationCountdown } from './invitation-countdown';
 
 const gameFilters = [
@@ -54,6 +54,8 @@ export class GamesPage {
   protected readonly pendingLobby = signal(this.readLobbyRequest());
   protected readonly pendingCreation = signal(this.readPendingCreation());
   opponentUsername = this.pendingCreation()?.opponentUsername ?? '';
+  protected timeControl: GameTimeControl | '' = this.pendingCreation()?.timeControl ?? '';
+  protected lobbyTimeControl: GameTimeControl | '' = this.pendingLobby()?.timeControl ?? '';
 
   constructor() {
     this.listRequests.pipe(
@@ -130,7 +132,7 @@ export class GamesPage {
       this.error.set('Enter a username of up to 256 characters.');
       return;
     }
-    const attempt = pending ?? { opponentUsername, requestId: this.window.crypto.randomUUID() };
+    const attempt = pending ?? { opponentUsername, ...this.newCreation(this.timeControl) };
     this.rememberCreation(attempt);
     this.error.set(null);
     this.existingInvitationId.set(null);
@@ -183,11 +185,11 @@ export class GamesPage {
     if (this.lobbyBusy()) {
       return;
     }
-    const requestId = this.pendingLobby() ?? this.window.crypto.randomUUID();
-    this.rememberLobbyRequest(requestId);
+    const attempt = this.pendingLobby() ?? this.newCreation(this.lobbyTimeControl);
+    this.rememberLobbyRequest(attempt);
     this.lobbyError.set(null);
     this.lobbyBusy.set(true);
-    this.api.createLobby(requestId).pipe(
+    this.api.createLobby(attempt).pipe(
       takeUntilDestroyed(this.destroyRef),
       finalize(() => this.lobbyBusy.set(false)),
     ).subscribe({
@@ -199,6 +201,9 @@ export class GamesPage {
         if (error.status === 409 && error.error?.code === 'InvitationLimitReached') {
           this.rememberLobbyRequest(null);
           this.lobbyError.set('You have three pending invitations. Cancel one or wait for it to expire.');
+        } else if (error.status === 409 && error.error?.code === 'CreationRequestConflict') {
+          this.rememberLobbyRequest(null);
+          this.lobbyError.set('This request ID has already been used for a different invitation. Create a new link.');
         } else if (error.status === 400 || error.status === 403) {
           this.rememberLobbyRequest(null);
           this.lobbyError.set('Could not create an invitation with this account.');
@@ -209,24 +214,28 @@ export class GamesPage {
     });
   }
 
-  private readLobbyRequest(): string | null {
+  private newCreation(timeControl: GameTimeControl | ''): GameCreationOptions {
+    const requestId = this.window.crypto.randomUUID();
+    return timeControl ? { requestId, timeControl } : { requestId };
+  }
+
+  private readLobbyRequest(): GameCreationOptions | null {
     try {
       const stored = JSON.parse(this.window.sessionStorage.getItem(pendingLobbyKey) ?? 'null');
-      return this.login && stored?.login === this.login
-        && typeof stored.requestId === 'string' && gameIdPattern.test(stored.requestId) ? stored.requestId : null;
+      return this.readCreationOptions(stored);
     } catch {
       return null;
     }
   }
 
-  private rememberLobbyRequest(requestId: string | null): void {
-    this.pendingLobby.set(requestId);
+  private rememberLobbyRequest(attempt: GameCreationOptions | null): void {
+    this.pendingLobby.set(attempt);
     if (!this.login || this.session.loginKey() !== this.login) {
       return;
     }
     try {
-      if (requestId) {
-        this.window.sessionStorage.setItem(pendingLobbyKey, JSON.stringify({ login: this.login, requestId }));
+      if (attempt) {
+        this.window.sessionStorage.setItem(pendingLobbyKey, JSON.stringify({ login: this.login, ...attempt }));
       } else {
         this.window.sessionStorage.removeItem(pendingLobbyKey);
       }
@@ -239,23 +248,36 @@ export class GamesPage {
     try {
       const stored = this.window.sessionStorage.getItem(pendingCreationKey);
       const attempt = JSON.parse(stored ?? 'null') as {
-        login?: unknown; requestId?: unknown; opponentId?: unknown; opponentUsername?: unknown;
+        login?: unknown; requestId?: unknown; opponentId?: unknown; opponentUsername?: unknown; timeControl?: unknown;
       } | null;
-      if (this.login && attempt?.login === this.login
-        && typeof attempt.requestId === 'string' && gameIdPattern.test(attempt.requestId)) {
-        const { opponentId, opponentUsername, requestId } = attempt;
+      const options = this.readCreationOptions(attempt);
+      if (attempt && options) {
+        const { opponentId, opponentUsername } = attempt;
         if (opponentId === undefined && typeof opponentUsername === 'string'
           && opponentUsername.trim() && opponentUsername.trim().length <= maxUsernameLength) {
-          return { opponentUsername, requestId };
+          return { opponentUsername, ...options };
         }
         if (opponentUsername === undefined && typeof opponentId === 'string' && gameIdPattern.test(opponentId)) {
-          return { opponentId, requestId };
+          return { opponentId, ...options };
         }
       }
     } catch {
       // Stay usable when storage is blocked or contains invalid data.
     }
     return null;
+  }
+
+  private readCreationOptions(stored: { login?: unknown; requestId?: unknown; timeControl?: unknown } | null):
+    GameCreationOptions | null {
+    if (!this.login || stored?.login !== this.login
+      || typeof stored.requestId !== 'string' || !gameIdPattern.test(stored.requestId)) {
+      return null;
+    }
+    const { requestId, timeControl } = stored;
+    if (timeControl === 'Blitz5') {
+      return { requestId, timeControl };
+    }
+    return timeControl === undefined ? { requestId } : null;
   }
 
   private rememberCreation(attempt: GameCreation | null): void {

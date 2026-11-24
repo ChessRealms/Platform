@@ -9,7 +9,7 @@ public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerD
     private const int ListPageSize = 20;
 
     public async Task<CreateGameResult> CreateAsync(Guid creatorId, Guid? opponentId, string? opponentUsername,
-        Guid? requestId, CancellationToken cancellationToken)
+        Guid? requestId, CancellationToken cancellationToken, GameTimeControl? timeControl = null)
     {
         if (requestId == Guid.Empty)
         {
@@ -38,7 +38,12 @@ public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerD
         if (requestId is Guid key
             && await store.FindByCreationRequestAsync(creatorId, key, cancellationToken) is { } existing)
         {
-            return CreateGameResult.Replay(existing, blackPlayerId);
+            CreateGameResult replay = CreateGameResult.Replay(existing, blackPlayerId, timeControl);
+            if (replay.Game?.TurnDeadline <= clock.GetUtcNow())
+            {
+                return replay with { Game = await ResolveTimeoutAsync(existing.Id, creatorId, cancellationToken) };
+            }
+            return replay;
         }
         if (!Game.CanPair(creatorId, blackPlayerId))
         {
@@ -49,17 +54,31 @@ public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerD
             return new(GameError.OpponentUnavailable);
         }
 
-        return await store.CreateAsync(creatorId, blackPlayerId, rules.StartingPosition(), requestId, cancellationToken);
+        return await store.CreateAsync(creatorId, blackPlayerId, rules.StartingPosition(), requestId, cancellationToken, timeControl);
     }
 
     public async Task<Game?> GetAsync(Guid gameId, Guid playerId, CancellationToken cancellationToken)
     {
         Game? game = await store.FindAsync(gameId, cancellationToken);
-        return game?.HasPlayer(playerId) == true ? game : null;
+        if (game?.HasPlayer(playerId) != true)
+        {
+            return null;
+        }
+        return game.TurnDeadline <= clock.GetUtcNow()
+            ? await ResolveTimeoutAsync(gameId, playerId, cancellationToken)
+            : game;
     }
 
     public async Task<GameListPage> ListAsync(Guid playerId, GameListFilter filter, Guid? before, CancellationToken cancellationToken)
     {
+        if (filter is GameListFilter.Active or GameListFilter.Finished)
+        {
+            IReadOnlyList<Guid> due = await store.ListDueAsync(playerId, clock.GetUtcNow(), cancellationToken);
+            foreach (Guid gameId in due)
+            {
+                await ResolveTimeoutAsync(gameId, playerId, cancellationToken);
+            }
+        }
         IReadOnlyList<GameListItem> rows = await store.ListAsync(playerId, filter, before, ListPageSize + 1, cancellationToken);
         if (rows.Count == 0)
         {
@@ -77,6 +96,11 @@ public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerD
         long? afterRevision, CancellationToken cancellationToken)
     {
         GameBoardSnapshot? board = await store.ReadBoardAsync(gameId, playerId, afterRevision, cancellationToken);
+        if (board?.TurnDeadline <= clock.GetUtcNow())
+        {
+            await ResolveTimeoutAsync(gameId, playerId, cancellationToken);
+            board = await store.ReadBoardAsync(gameId, playerId, afterRevision, cancellationToken);
+        }
         if (board?.RulesRecord is not { } record)
         {
             return (board, null);
@@ -129,27 +153,24 @@ public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerD
         ChangeAsync(gameId, playerId, (game, now) => game.ClaimDraw(playerId, expectedRevision, now,
             record => rules.ClaimDraw(record, reason, intendedMove)), cancellationToken);
 
-    private async Task<GameOperationResult> ChangeAsync(Guid gameId, Guid playerId, Func<Game, DateTimeOffset, GameError> change,
-        CancellationToken cancellationToken)
+    private async Task<Game?> ResolveTimeoutAsync(Guid gameId, Guid playerId, CancellationToken cancellationToken)
     {
-        Game? game = await store.FindAsync(gameId, cancellationToken);
-        if (game is null || !game.HasPlayer(playerId))
+        GameOperationResult result = await store.ChangeLockedAsync(gameId, playerId, (game, now) =>
         {
-            return new(GameError.NotFound);
-        }
-        DateTimeOffset now = clock.GetUtcNow();
-        if (game.IsInvitationExpired(now))
-        {
-            return new(GameError.GameNotActive);
-        }
-
-        GameError error = change(game, now);
-        if (error != GameError.None)
-        {
-            return new(error);
-        }
-        return await store.TrySaveChangesAsync(cancellationToken)
-            ? new(GameError.None, game)
-            : new(GameError.RevisionConflict);
+            game.TryFinishOnTime(now, rules.HasInsufficientMatingMaterial);
+            return GameError.None;
+        }, cancellationToken);
+        return result.Game;
     }
+
+    private Task<GameOperationResult> ChangeAsync(Guid gameId, Guid playerId, Func<Game, DateTimeOffset, GameError> change,
+        CancellationToken cancellationToken) =>
+        store.ChangeLockedAsync(gameId, playerId, (game, now) =>
+        {
+            if (game.TryFinishOnTime(now, rules.HasInsufficientMatingMaterial))
+            {
+                return GameError.None;
+            }
+            return game.IsInvitationExpired(now) ? GameError.GameNotActive : change(game, now);
+        }, cancellationToken);
 }

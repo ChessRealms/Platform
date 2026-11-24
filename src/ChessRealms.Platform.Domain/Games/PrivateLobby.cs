@@ -4,13 +4,14 @@ public sealed class PrivateLobby
 {
     private PrivateLobby() { }
 
-    public PrivateLobby(Guid creatorId, Guid requestId, DateTimeOffset createdAt)
+    public PrivateLobby(Guid creatorId, Guid requestId, DateTimeOffset createdAt, GameTimeControl? timeControl = null)
     {
         Id = Guid.NewGuid();
         CreatorId = creatorId;
         RequestId = requestId;
         CreatedAt = createdAt;
         ExpiresAt = createdAt + Game.InvitationLifetime;
+        TimeControl = timeControl;
     }
 
     public Guid Id { get; private set; }
@@ -22,6 +23,7 @@ public sealed class PrivateLobby
     public long Revision { get; private set; }
     public Guid? JoinedPlayerId { get; private set; }
     public Guid? GameId { get; private set; }
+    public GameTimeControl? TimeControl { get; private set; }
 
     public LobbyStatus StatusAt(DateTimeOffset now) =>
         Status == LobbyStatus.Open && now >= ExpiresAt ? LobbyStatus.Expired : Status;
@@ -43,7 +45,7 @@ public sealed class PrivateLobby
             return error;
         }
 
-        game = Game.StartActive(CreatorId, playerId, position, now);
+        game = Game.StartActive(CreatorId, playerId, position, now, TimeControl);
         JoinedPlayerId = playerId;
         GameId = game.Id;
         Status = LobbyStatus.Joined;

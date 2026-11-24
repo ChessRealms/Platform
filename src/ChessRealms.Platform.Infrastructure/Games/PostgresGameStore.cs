@@ -28,11 +28,18 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
                     item.Expired ? GameStatus.Expired : item.Game.Status, item.Revision, item.Game.Fen, item.Game.SideToMove,
                     item.Game.Winner, item.Game.EndReason, item.Game.DrawOfferedBy, item.Game.InvitationExpiresAt,
                     item.Game.FinishedAt, item.Game.RematchOfferedBy, item.Game.RematchGameId,
+                    item.Game.TimeControl, item.Game.WhiteTimeRemaining, item.Game.BlackTimeRemaining, item.Game.TurnDeadline,
                     item.Revision == afterRevision ? null : item.Game.RulesRecord))
                 .SingleOrDefault());
 
     public Task<Game?> FindAsync(Guid id, CancellationToken cancellationToken) =>
-        database.Games.SingleOrDefaultAsync(game => game.Id == id, cancellationToken);
+        database.Games.AsNoTracking().SingleOrDefaultAsync(game => game.Id == id, cancellationToken);
+
+    public async Task<IReadOnlyList<Guid>> ListDueAsync(Guid playerId, DateTimeOffset now, CancellationToken cancellationToken) =>
+        await database.Games.AsNoTracking()
+            .Where(game => (game.WhitePlayerId == playerId || game.BlackPlayerId == playerId)
+                && game.Status == GameStatus.Active && game.TurnDeadline <= now)
+            .Select(game => game.Id).ToListAsync(cancellationToken);
 
     public Task<GameBoardSnapshot?> ReadBoardAsync(Guid id, Guid playerId, long? afterRevision,
         CancellationToken cancellationToken) =>
@@ -105,7 +112,8 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
                 game.Status == GameStatus.Pending && game.InvitationExpiresAt <= now ? GameStatus.Expired : game.Status,
                 game.CreatedAt, game.InvitationExpiresAt,
                 game.Status == GameStatus.Active && (game.SideToMove == PlayerColor.White
-                    ? game.WhitePlayerId == playerId : game.BlackPlayerId == playerId), game.Winner, game.EndReason))
+                    ? game.WhitePlayerId == playerId : game.BlackPlayerId == playerId), game.Winner, game.EndReason,
+                false, game.TimeControl))
             .ToListAsync(cancellationToken);
         if (lobbies is null)
         {
@@ -117,14 +125,14 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
             .Select(lobby => new GameListItem(lobby.Id, null, PlayerColor.White,
                 lobby.Status == LobbyStatus.Cancelled ? GameStatus.Cancelled
                     : lobby.ExpiresAt <= now ? GameStatus.Expired : GameStatus.Pending,
-                lobby.CreatedAt, lobby.ExpiresAt, false, null, null, true))
+                lobby.CreatedAt, lobby.ExpiresAt, false, null, null, true, lobby.TimeControl))
             .ToListAsync(cancellationToken);
         return gameItems.Concat(lobbyItems).OrderByDescending(item => item.CreatedAt)
             .ThenByDescending(item => item.Id).Take(limit).ToArray();
     }
 
     public async Task<CreateGameResult> CreateAsync(Guid creatorId, Guid opponentId, GamePosition startingPosition,
-        Guid? requestId, CancellationToken cancellationToken)
+        Guid? requestId, CancellationToken cancellationToken, GameTimeControl? timeControl)
     {
         await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
         await PostgresInvitationQuota.LockCreatorAsync(database, creatorId, cancellationToken);
@@ -132,7 +140,7 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
         if (requestId is Guid key
             && await FindByCreationRequestAsync(creatorId, key, cancellationToken) is { } existing)
         {
-            return CreateGameResult.Replay(existing, opponentId);
+            return CreateGameResult.Replay(existing, opponentId, timeControl);
         }
 
         DateTimeOffset now = PostgresInvitationQuota.GetCreationTime(clock);
@@ -162,7 +170,7 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
             return new(GameError.InvitationLimitReached);
         }
 
-        Game game = new(creatorId, opponentId, startingPosition, now);
+        Game game = new(creatorId, opponentId, startingPosition, now, timeControl);
         var entry = database.Games.Add(game);
         entry.Property<Guid?>(PlatformDbContext.GameCreationRequestId).CurrentValue = requestId;
         await database.SaveChangesAsync(cancellationToken);
@@ -207,20 +215,4 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
         return new(GameError.None, game);
     }
 
-    public async Task<bool> TrySaveChangesAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await database.SaveChangesAsync(cancellationToken);
-            return true;
-        }
-        catch (DbUpdateConcurrencyException exception)
-        {
-            foreach (var entry in exception.Entries)
-            {
-                entry.State = EntityState.Detached;
-            }
-            return false;
-        }
-    }
 }

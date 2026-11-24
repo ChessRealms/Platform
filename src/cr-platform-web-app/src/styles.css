@@ -22,7 +22,8 @@ a:hover {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -90,13 +91,18 @@ label {
   margin-bottom: 0.45rem;
 }
 
-input {
+input,
+select {
   width: 100%;
   padding: 0.7rem 0.8rem;
   border: 1px solid #6a7585;
   border-radius: 7px;
   color: #fff;
   background: #181b20;
+}
+
+select:disabled {
+  opacity: 0.65;
 }
 
 input[aria-invalid='true'] {

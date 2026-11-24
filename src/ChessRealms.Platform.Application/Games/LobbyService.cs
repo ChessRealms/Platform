@@ -4,7 +4,8 @@ namespace ChessRealms.Platform.Application.Games;
 
 public sealed class LobbyService(ILobbyStore store, IGamePlayerDirectory players, IGameRules rules)
 {
-    public async Task<LobbyResult> CreateAsync(Guid playerId, Guid requestId, CancellationToken cancellationToken)
+    public async Task<LobbyResult> CreateAsync(Guid playerId, Guid requestId, GameTimeControl? timeControl,
+        CancellationToken cancellationToken)
     {
         if (requestId == Guid.Empty)
         {
@@ -15,7 +16,7 @@ public sealed class LobbyService(ILobbyStore store, IGamePlayerDirectory players
             return new(GameError.Forbidden);
         }
 
-        return await store.CreateAsync(playerId, requestId, cancellationToken);
+        return await store.CreateAsync(playerId, requestId, timeControl, cancellationToken);
     }
 
     public async Task<LobbyResult> GetAsync(Guid id, Guid playerId, CancellationToken cancellationToken)

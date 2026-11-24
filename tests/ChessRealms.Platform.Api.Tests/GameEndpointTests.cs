@@ -898,7 +898,7 @@ public sealed class GameEndpointTests : IAsyncLifetime
     [InlineData(true)]
     public async Task AConcurrentMoveOrResignationCanOnlyWinOneWrite(bool resign)
     {
-        (Guid whiteId, string whiteToken) = await RegisterAndSignInAsync("white");
+        (_, string whiteToken) = await RegisterAndSignInAsync("white");
         (Guid blackId, string blackToken) = await RegisterAndSignInAsync("black");
         using HttpClient white = CreateClient(whiteToken);
         using HttpClient black = CreateClient(blackToken);
@@ -906,25 +906,16 @@ public sealed class GameEndpointTests : IAsyncLifetime
         string gameUrl = $"/api/games/{pending.Id}";
         await AcceptGameAsync(black, gameUrl);
 
-        await using AsyncServiceScope first = app!.Services.CreateAsyncScope();
-        await using AsyncServiceScope second = app.Services.CreateAsyncScope();
-        IGameStore firstStore = first.ServiceProvider.GetRequiredService<IGameStore>();
-        IGameStore secondStore = second.ServiceProvider.GetRequiredService<IGameStore>();
-        IGameRules rules = first.ServiceProvider.GetRequiredService<IGameRules>();
-        Game firstGame = Assert.IsType<Game>(await firstStore.FindAsync(pending.Id, Cancellation));
-        Game secondGame = Assert.IsType<Game>(await secondStore.FindAsync(pending.Id, Cancellation));
-        Assert.Equal(GameError.None, firstGame.Play(whiteId, 1, clock.GetUtcNow(), record => rules.Play(record, "e2e4")));
-        GameError secondAction = resign
-            ? secondGame.Resign(blackId, 1, clock.GetUtcNow(), rules.HasInsufficientMatingMaterial)
-            : secondGame.Play(whiteId, 1, clock.GetUtcNow(), record => rules.Play(record, "d2d4"));
-        Assert.Equal(GameError.None, secondAction);
-
-        bool[] saved = await Task.WhenAll(firstStore.TrySaveChangesAsync(Cancellation), secondStore.TrySaveChangesAsync(Cancellation));
-        Assert.Single(saved, success => success);
+        HttpResponseMessage[] responses = await Task.WhenAll(PlayAsync(white, gameUrl, "e2e4", 1),
+            resign ? SendActionAsync(black, gameUrl, "resign", 1) : PlayAsync(white, gameUrl, "d2d4", 1));
+        using HttpResponseMessage winner = Assert.Single(responses, response => response.StatusCode == HttpStatusCode.OK);
+        using HttpResponseMessage loser = Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Conflict);
+        await AssertErrorAsync(loser, HttpStatusCode.Conflict, "RevisionConflict");
+        GameResponse updated = Assert.IsType<GameResponse>(await winner.Content.ReadFromJsonAsync<GameResponse>(Cancellation));
         GameResponse persisted = Assert.IsType<GameResponse>(await white.GetFromJsonAsync<GameResponse>(gameUrl, Cancellation));
         Assert.Equal(2, persisted.Revision);
-        Assert.Equal(saved[0] ? firstGame.Fen : secondGame.Fen, persisted.Fen);
-        Assert.Equal(resign && saved[1] ? "Resignation" : null, persisted.EndReason);
+        Assert.Equal(updated, persisted);
+        Assert.Equal(resign && ReferenceEquals(responses[1], winner) ? "Resignation" : null, persisted.EndReason);
         using HttpResponseMessage stale = await PlayAsync(white, gameUrl, "e2e4", 1);
         await AssertErrorAsync(stale, HttpStatusCode.Conflict, "RevisionConflict");
     }
@@ -1074,6 +1065,114 @@ public sealed class GameEndpointTests : IAsyncLifetime
         await AssertErrorAsync(lateOffer, HttpStatusCode.Gone, "RematchExpired");
         Assert.Equal(offered, (await ReadBoardAsync(white, url)).Game);
         Assert.Empty((await ListGamesAsync(white, "?status=Active")).Items);
+    }
+
+    [Fact]
+    public async Task BlitzClocksStartAtAcceptanceAndALateMoveCannotBeatTheDeadline()
+    {
+        (_, string whiteToken) = await RegisterAndSignInAsync("white");
+        (Guid blackId, string blackToken) = await RegisterAndSignInAsync("black");
+        using HttpClient white = CreateClient(whiteToken);
+        using HttpClient black = CreateClient(blackToken);
+        CreateGameRequest request = new(blackId, Guid.NewGuid(), TimeControl: "Blitz5");
+        using HttpResponseMessage created = await white.PostAsJsonAsync("/api/games", request, Cancellation);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        GameResponse pending = Assert.IsType<GameResponse>(await created.Content.ReadFromJsonAsync<GameResponse>(Cancellation));
+        Assert.Equal(300000, pending.Clock!.WhiteMilliseconds);
+        Assert.Null(pending.Clock.TurnDeadline);
+        using HttpResponseMessage mismatch = await white.PostAsJsonAsync("/api/games", request with { TimeControl = null }, Cancellation);
+        await AssertErrorAsync(mismatch, HttpStatusCode.Conflict, "CreationRequestConflict");
+
+        clock.Advance(TimeSpan.FromSeconds(20));
+        string url = $"/api/games/{pending.Id}";
+        GameResponse active = await AcceptGameAsync(black, url);
+        DateTimeOffset whiteDeadline = clock.GetUtcNow().AddMinutes(5);
+        Assert.Equal(whiteDeadline, active.Clock!.TurnDeadline);
+        clock.Advance(TimeSpan.FromMilliseconds(299999));
+        GameResponse moved = await MakeMoveAsync(white, url, "e2e4", active.Revision);
+        Assert.Equal(1, moved.Clock!.WhiteMilliseconds);
+        Assert.Equal(300000, moved.Clock.BlackMilliseconds);
+        DateTimeOffset blackDeadline = clock.GetUtcNow().AddMinutes(5);
+        Assert.Equal(blackDeadline, moved.Clock.TurnDeadline);
+        clock.Advance(TimeSpan.FromMinutes(5));
+
+        Task<HttpResponseMessage> lateMove = PlayAsync(black, url, "e7e5", moved.Revision);
+        Task<GameBoardResponse> boardRead = ReadBoardAsync(white, url);
+        using HttpResponseMessage late = await lateMove;
+        Assert.Contains(late.StatusCode, new[] { HttpStatusCode.OK, HttpStatusCode.Conflict });
+        GameBoardResponse finished = await boardRead;
+        Assert.Equal("Finished", finished.Game.Status);
+        Assert.Equal("White", finished.Game.Winner);
+        Assert.Equal("Timeout", finished.Game.EndReason);
+        Assert.Equal(blackDeadline.AddMinutes(5), finished.Game.RematchExpiresAt);
+        Assert.Equal(moved.Revision + 1, finished.Game.Revision);
+        Assert.Equal(["e2e4"], finished.Moves);
+        Assert.Null(finished.Game.Clock!.TurnDeadline);
+        Assert.Equal(1, finished.Game.Clock.WhiteMilliseconds);
+        Assert.Equal(0, finished.Game.Clock.BlackMilliseconds);
+
+        GameResponse offered = await ApplyActionAsync(white, url, "rematch/offer", finished.Game.Revision);
+        GameResponse accepted = await ApplyActionAsync(black, url, "rematch/accept", offered.Revision);
+        GameResponse rematch = (await ReadBoardAsync(black, $"/api/games/{accepted.RematchGameId}")).Game;
+        Assert.Equal(blackId, rematch.WhitePlayerId);
+        Assert.Equal("Blitz5", rematch.Clock!.TimeControl);
+        Assert.Equal(300000, rematch.Clock.WhiteMilliseconds);
+        Assert.Equal(300000, rematch.Clock.BlackMilliseconds);
+        Assert.Equal(clock.GetUtcNow().AddMinutes(5), rematch.Clock.TurnDeadline);
+    }
+
+    [Fact]
+    public async Task ReadingMyGamesSettlesATimeoutAsADrawIfTheOpponentCannotMate()
+    {
+        (Guid whiteId, string whiteToken) = await RegisterAndSignInAsync("white");
+        (Guid blackId, string blackToken) = await RegisterAndSignInAsync("black");
+        using HttpClient white = CreateClient(whiteToken);
+        using HttpClient black = CreateClient(blackToken);
+        await using AsyncServiceScope scope = app!.Services.CreateAsyncScope();
+        PlatformDbContext database = scope.ServiceProvider.GetRequiredService<PlatformDbContext>();
+        const string fen = "7k/8/8/8/8/8/R7/K7 w - - 0 1";
+        Game game = new(whiteId, blackId, new(PositionRecord(fen), fen, PlayerColor.White), clock.GetUtcNow(), GameTimeControl.Blitz5);
+        database.Games.Add(game);
+        await database.SaveChangesAsync(Cancellation);
+        string url = $"/api/games/{game.Id}";
+        GameResponse active = await AcceptGameAsync(black, url);
+        clock.Advance(TimeSpan.FromMinutes(6));
+
+        GameListItemResponse item = Assert.Single((await ListGamesAsync(white, "?status=Finished")).Items);
+        Assert.Equal("TimeoutNoPossibleMate", item.EndReason);
+        Assert.Null(item.Winner);
+        Assert.Equal("Blitz5", item.TimeControl);
+        Assert.Empty((await ListGamesAsync(black, "?status=Active")).Items);
+        using HttpResponseMessage changed = await black.GetAsync($"{url}/board?afterRevision={active.Revision}", Cancellation);
+        Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
+        GameBoardResponse finished = Assert.IsType<GameBoardResponse>(
+            await changed.Content.ReadFromJsonAsync<GameBoardResponse>(Cancellation));
+        Assert.Equal(active.Clock!.TurnDeadline?.AddMinutes(5), finished.Game.RematchExpiresAt);
+        Assert.Equal(0, finished.Game.Clock!.WhiteMilliseconds);
+        Assert.Equal(300000, finished.Game.Clock.BlackMilliseconds);
+    }
+
+    [Fact]
+    public async Task APrivateLinkKeepsItsTimeControlUntilJoin()
+    {
+        (_, string hostToken) = await RegisterAndSignInAsync("host");
+        (_, string guestToken) = await RegisterAndSignInAsync("guest");
+        using HttpClient host = CreateClient(hostToken);
+        using HttpClient guest = CreateClient(guestToken);
+        CreateLobbyRequest request = new(Guid.NewGuid(), "Blitz5");
+        LobbyResponse lobby = await CreateLobbyAsync(host, request);
+        Assert.Equal("Blitz5", lobby.TimeControl);
+        using HttpResponseMessage mismatch = await host.PostAsJsonAsync("/api/lobbies", request with { TimeControl = null }, Cancellation);
+        await AssertErrorAsync(mismatch, HttpStatusCode.Conflict, "CreationRequestConflict");
+        clock.Advance(TimeSpan.FromMinutes(1));
+
+        string url = $"/api/lobbies/{lobby.Id}";
+        Assert.Equal("Blitz5", (await guest.GetFromJsonAsync<LobbyResponse>(url, Cancellation))?.TimeControl);
+        using HttpResponseMessage joined = await SendActionAsync(guest, url, "join", lobby.Revision);
+        Assert.Equal(HttpStatusCode.OK, joined.StatusCode);
+        LobbyResponse result = Assert.IsType<LobbyResponse>(await joined.Content.ReadFromJsonAsync<LobbyResponse>(Cancellation));
+        GameResponse active = (await ReadBoardAsync(guest, $"/api/games/{result.GameId}")).Game;
+        Assert.Equal(clock.GetUtcNow().AddMinutes(5), active.Clock!.TurnDeadline);
     }
 
     [Fact]

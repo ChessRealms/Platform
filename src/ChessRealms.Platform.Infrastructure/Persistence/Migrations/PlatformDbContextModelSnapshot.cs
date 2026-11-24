@@ -31,6 +31,9 @@ namespace ChessRealms.Platform.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("BlackPlayerId")
                         .HasColumnType("uuid");
 
+                    b.Property<TimeSpan?>("BlackTimeRemaining")
+                        .HasColumnType("interval");
+
                     b.Property<DateTimeOffset?>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -80,8 +83,18 @@ namespace ChessRealms.Platform.Infrastructure.Persistence.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("character varying(16)");
 
+                    b.Property<string>("TimeControl")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTimeOffset?>("TurnDeadline")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid>("WhitePlayerId")
                         .HasColumnType("uuid");
+
+                    b.Property<TimeSpan?>("WhiteTimeRemaining")
+                        .HasColumnType("interval");
 
                     b.Property<string>("Winner")
                         .HasMaxLength(8)
@@ -134,6 +147,10 @@ namespace ChessRealms.Platform.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("Status")
                         .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("TimeControl")
                         .HasMaxLength(16)
                         .HasColumnType("character varying(16)");
 

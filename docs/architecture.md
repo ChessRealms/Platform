@@ -79,7 +79,7 @@ available for a later attempt. The unconfigured adapter reports
 
 ## Game functionality
 
-The [games API](games.md) supports private, untimed games between two confirmed
+The [games API](games.md) supports private games between two confirmed
 accounts. Domain owns participation and the game lifecycle. Application checks
 commands and Infrastructure applies chess rules through the ChessRealms.Engine
 adapter. PostgreSQL stores a versioned game record and commits each position,
@@ -100,10 +100,14 @@ username. The lobby and its first join are stored in PostgreSQL, and a
 successful join creates the active game in the same transaction. A sender's
 open links and username invitations share an outgoing cap.
 
-Opponent discovery, richer lobbies, guests, and clocks are
-follow-ups. Private lobbies may support incoming invitation opt-out,
+Private games support untimed play and 5+0. PostgreSQL stores both clock balances
+and the deadline for the running turn. The API resolves elapsed turns under the
+same row lock used for game commands.
+
+Opponent discovery, richer lobbies, and guests are follow-ups. Private lobbies
+may support incoming invitation opt-out,
 passwords, and spam protection. Guests would use a protected session and could
-play with guests or registered users. Clock and guest-to-account conversion
+play with guests or registered users. Guest-to-account conversion
 requirements remain open.
 
 Branch protection and repository rules will be configured manually later.
@@ -150,6 +154,5 @@ stale result be discarded if the game changes during search.
 7. Finish the private two-player milestone with end-to-end invitation, sign-in,
    gameplay, result, and recovery coverage.
 8. Synchronize private games in realtime and verify recovery after a disconnect.
-9. Extend multiplayer with opponent discovery, invitations and lobbies, guests,
-   and clocks as needed.
+9. Add invitations, private lobbies, rematches, and 5+0 clocks.
 10. Consider computer opponents independently, with interchangeable move providers.
