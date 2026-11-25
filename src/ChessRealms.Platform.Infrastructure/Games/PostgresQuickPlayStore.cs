@@ -13,7 +13,7 @@ internal sealed class PostgresQuickPlayStore(PlatformDbContext database, TimePro
     public Task<QuickPlayTicket?> ReadAsync(Guid playerId, Guid? ticketId, CancellationToken cancellationToken) =>
         ReadQuery(playerId, ticketId).FirstOrDefaultAsync(cancellationToken);
 
-    public async Task<QuickPlayTicket?> JoinAsync(Guid playerId, Guid requestId, Guid? previousTicketId,
+    public async Task<(QuickPlayTicket? Ticket, Game? NewGame)> JoinAsync(Guid playerId, Guid requestId, Guid? previousTicketId,
         Func<GamePosition> startingPosition, CancellationToken cancellationToken)
     {
         await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
@@ -23,14 +23,14 @@ internal sealed class PostgresQuickPlayStore(PlatformDbContext database, TimePro
         QuickPlayTicket? existing = await ReadAsync(playerId, requestId, cancellationToken);
         if (existing is not null)
         {
-            return existing;
+            return (existing, null);
         }
 
         QuickPlayTicket? current = await ReadAsync(playerId, null, cancellationToken);
         if (current?.StatusAt(now) == QuickPlayStatus.Waiting || current?.Id != previousTicketId)
         {
             // A delayed request cannot create a new search after another tab has moved on.
-            return current;
+            return (current, null);
         }
 
         await database.QuickPlayTickets.Where(ticket => ticket.Status == QuickPlayStatus.Waiting && ticket.ExpiresAt <= now)
@@ -40,15 +40,16 @@ internal sealed class PostgresQuickPlayStore(PlatformDbContext database, TimePro
             .Where(ticket => ticket.Status == QuickPlayStatus.Waiting && ticket.PlayerId != playerId)
             .OrderBy(ticket => ticket.Sequence).FirstOrDefaultAsync(cancellationToken);
         QuickPlayTicket ticket = new(playerId, requestId, now);
+        Game? game = null;
         if (opponent is not null)
         {
-            Game game = ticket.MatchWith(opponent, RandomNumberGenerator.GetInt32(2) == 0, startingPosition(), now);
+            game = ticket.MatchWith(opponent, RandomNumberGenerator.GetInt32(2) == 0, startingPosition(), now);
             database.Games.Add(game);
         }
         database.QuickPlayTickets.Add(ticket);
         await database.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
-        return ticket;
+        return (ticket, game);
     }
 
     public async Task<QuickPlayTicket?> ChangeAsync(Guid playerId, Guid ticketId, Action<QuickPlayTicket, DateTimeOffset> change,

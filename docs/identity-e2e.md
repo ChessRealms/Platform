@@ -29,6 +29,9 @@ The session lifecycle tests also verify:
 
 `GameBrowserTests` verifies that two players can share a username, send and accept
 an invitation through My games, and see White's first move in both browser contexts.
+The invitation appears in an open list without a manual refresh. On acceptance,
+it leaves Invitations and appears in an already open Active list. The timed case
+drops the incoming list notification and verifies recovery after reconnect.
 The 5+0 case checks that both clocks start full, the running clock follows the
 turn, and reloading preserves the time saved for the waiting player.
 It also verifies that both players see declined and cancelled invitations on an

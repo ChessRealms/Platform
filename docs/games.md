@@ -12,8 +12,8 @@ under **Your username**, or enter your opponent’s full username and choose
 **Send invitation**. Your opponent can open **Invitations** in **My games** and
 accept or decline from the board. While the invitation is pending, the sender
 can choose **Cancel invitation**. Both views show how much remains of the
-invitation's five minutes. If the list is already open, choose **Refresh**
-to see the new invitation. Either player can also reopen it from its direct link
+invitation's five minutes. An open list updates when a new invitation arrives.
+Either player can also reopen it from its direct link
 after sign-in or session recovery. The board shows legal destinations for the
 selected piece and asks for a piece when promoting.
 Arrow keys move between squares. Enter or Space selects the focused square.
@@ -46,8 +46,9 @@ follow the new game. Reopening the original result later shows **Open rematch**.
 Use **My games** to reopen a game without keeping its link. **Invitations**
 includes both received and sent invitations. **Active** shows whose turn it is,
 and **Finished** shows the result from your perspective. Both players can reopen
-declined, cancelled, or expired invitations from **Closed invitations**. Use **Refresh** to check
-for changes and **Load more** to browse older entries. If a creation response
+declined, cancelled, or expired invitations from **Closed invitations**. The
+list updates automatically. Use **Refresh** to return to the first page of the
+selected filter and **Load more** to browse older entries. If a creation response
 is lost, use **Retry creation** to recover the same invitation. The web app
 remembers the attempt in that tab across reloads during the same login. Choose
 **Start a new invitation** if you want to make a separate attempt.
@@ -283,7 +284,7 @@ check cannot establish a draw. The board and move history are preserved.
 
 ## Realtime synchronization
 
-The API exposes a SignalR WebSocket at `/api/games/live`. Each connection calls
+The API exposes a SignalR WebSocket at `/api/games/live`. The board calls
 `Subscribe(gameId)`. The API checks participation before joining the game's
 group. An unknown game and a game belonging to other players are both rejected
 as unavailable.
@@ -298,13 +299,22 @@ can still start. Closed invitations and older finished boards load their saved
 state and stop background reads.
 Commands and snapshots continue to use the HTTP contract above.
 
+My games calls `SubscribeMyGames()`. The API selects the account's group from
+the authenticated identity and rejects guest subscriptions. After an invitation,
+game, lobby, or Quick Play match changes the list, the API sends
+`MyGamesChanged` with no payload to the affected accounts. The client reads
+the selected filter through HTTP on a notification, on connection or reconnect,
+at the next visible invitation deadline, and every 30 seconds as a fallback.
+Background reads keep the last successful list visible and follow pagination
+through the oldest visible row before replacing the list.
+
 The deployment proxy must forward WebSocket upgrades and use HTTPS. The
 browser sends the short-lived bearer token in the upgrade query string because
 the browser WebSocket API cannot set the authorization header. Keep query values
 redacted in proxy and application telemetry. The API closes the connection at
 token expiry. The reconnect uses the current access token from the web session.
 
-Game groups live in the API process. Deployments with multiple API replicas need
+Realtime groups live in the API process. Deployments with multiple API replicas need
 a shared SignalR service or backplane for notifications across replicas.
 
 ## Game clocks

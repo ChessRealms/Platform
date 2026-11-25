@@ -1,3 +1,4 @@
+using ChessRealms.Platform.Api.Realtime;
 using ChessRealms.Platform.Application.Games;
 using ChessRealms.Platform.Application.Identity;
 using ChessRealms.Platform.Domain.Games;
@@ -12,7 +13,8 @@ namespace ChessRealms.Platform.Api.Controllers;
 [Authorize]
 [Route("api/lobbies")]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-public sealed class LobbiesController(LobbyService lobbies, IUsernameDirectory usernames, TimeProvider clock) : ControllerBase
+public sealed class LobbiesController(LobbyService lobbies, IUsernameDirectory usernames, GameNotifications notifications,
+    TimeProvider clock) : ControllerBase
 {
     [HttpPost]
     public async Task<IActionResult> Create(CreateLobbyRequest request, CancellationToken cancellationToken)
@@ -66,6 +68,10 @@ public sealed class LobbiesController(LobbyService lobbies, IUsernameDirectory u
     {
         if (result.Lobby is { } lobby)
         {
+            if (result.Created || result.Changed)
+            {
+                await notifications.ListsChangedAsync(lobby.CreatorId, lobby.JoinedAsGuest ? null : lobby.JoinedPlayerId);
+            }
             DateTimeOffset now = clock.GetUtcNow();
             string? hostName = lobby.StatusAt(now) == LobbyStatus.Open
                 ? await usernames.FindUsernameAsync(lobby.CreatorId, cancellationToken) : null;

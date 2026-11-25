@@ -7,20 +7,21 @@ public sealed class QuickPlayService(IQuickPlayStore store, IGamePlayerDirectory
     public Task<QuickPlayTicket?> ReadAsync(Guid playerId, Guid? ticketId, CancellationToken cancellationToken) =>
         store.ReadAsync(playerId, ticketId, cancellationToken);
 
-    public async Task<(GameError Error, QuickPlayTicket? Ticket)> JoinAsync(Guid playerId, Guid requestId,
+    public async Task<(GameError Error, QuickPlayTicket? Ticket, Game? NewGame)> JoinAsync(Guid playerId, Guid requestId,
         Guid? previousTicketId, CancellationToken cancellationToken)
     {
         if (requestId == Guid.Empty || previousTicketId == Guid.Empty)
         {
-            return (GameError.InvalidRequestId, null);
+            return (GameError.InvalidRequestId, null, null);
         }
         if (!await players.IsEligibleAsync(playerId, cancellationToken))
         {
-            return (GameError.Forbidden, null);
+            return (GameError.Forbidden, null, null);
         }
 
-        QuickPlayTicket? ticket = await store.JoinAsync(playerId, requestId, previousTicketId, rules.StartingPosition, cancellationToken);
-        return (ticket is null ? GameError.RevisionConflict : GameError.None, ticket);
+        (QuickPlayTicket? ticket, Game? newGame) = await store.JoinAsync(playerId, requestId, previousTicketId,
+            rules.StartingPosition, cancellationToken);
+        return (ticket is null ? GameError.RevisionConflict : GameError.None, ticket, newGame);
     }
 
     public Task<QuickPlayTicket?> RenewAsync(Guid playerId, Guid ticketId, CancellationToken cancellationToken) =>

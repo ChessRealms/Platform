@@ -62,6 +62,7 @@ internal sealed class PostgresLobbyStore(PlatformDbContext database, TimeProvide
         {
             return new(GameError.NotFound);
         }
+        long revision = lobby.Revision;
         GameError error = change(lobby, clock.GetUtcNow());
         if (error != GameError.None)
         {
@@ -70,6 +71,6 @@ internal sealed class PostgresLobbyStore(PlatformDbContext database, TimeProvide
 
         await database.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
-        return new(GameError.None, lobby);
+        return new(GameError.None, lobby, Changed: lobby.Revision != revision);
     }
 }

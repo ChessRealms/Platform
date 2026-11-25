@@ -18,7 +18,7 @@ builder.Services.AddIdentityAuthentication(builder.Configuration);
 builder.Services.AddIdentityEmailWorker();
 builder.Services.AddHostedService<LoginSessionCleanupWorker>();
 builder.Services.AddControllers();
-builder.Services.AddSignalR();
+builder.Services.AddGameRealtime();
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();
 builder.Services.AddRateLimiter(options =>

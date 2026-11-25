@@ -1,3 +1,4 @@
+using ChessRealms.Platform.Api.Realtime;
 using ChessRealms.Platform.Application.Games;
 using ChessRealms.Platform.Domain.Games;
 
@@ -10,7 +11,7 @@ namespace ChessRealms.Platform.Api.Controllers;
 [Authorize]
 [Route("api/quick-play")]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-public sealed class QuickPlayController(QuickPlayService quickPlay, TimeProvider clock) : ControllerBase
+public sealed class QuickPlayController(QuickPlayService quickPlay, TimeProvider clock, GameNotifications notifications) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<QuickPlayResponse>> Current(CancellationToken cancellationToken)
@@ -26,8 +27,12 @@ public sealed class QuickPlayController(QuickPlayService quickPlay, TimeProvider
     [HttpPost]
     public async Task<ActionResult<QuickPlayResponse>> Join(JoinQuickPlayRequest request, CancellationToken cancellationToken)
     {
-        (GameError error, QuickPlayTicket? ticket) = await quickPlay.JoinAsync(PlayerId(), request.RequestId,
+        (GameError error, QuickPlayTicket? ticket, Game? newGame) = await quickPlay.JoinAsync(PlayerId(), request.RequestId,
             request.PreviousTicketId, cancellationToken);
+        if (newGame is not null)
+        {
+            await notifications.NotifyAsync(newGame);
+        }
         return error switch
         {
             GameError.None => ResponseFor(ticket),

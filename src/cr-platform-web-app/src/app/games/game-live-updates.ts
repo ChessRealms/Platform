@@ -1,5 +1,5 @@
 import { inject, Injectable } from '@angular/core';
-import { HttpTransportType, HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
+import { HttpTransportType, HubConnection, HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
 import { Observable } from 'rxjs';
 import { AuthSession } from '../identity/auth-session';
 
@@ -9,6 +9,23 @@ export class GameLiveUpdates {
 
   // A null emission requests a read after joining or rejoining the game.
   watch(gameId: string, guestProof?: () => Promise<string>): Observable<number | null> {
+    return this.watchSubscription<number>(connection => connection.invoke('Subscribe', gameId),
+      (connection, emit) => connection.on('GameChanged', (id: string, revision: number) => {
+        if (id === gameId && Number.isSafeInteger(revision) && revision >= 0) {
+          emit(revision);
+        }
+      }), guestProof);
+  }
+
+  watchMyGames(): Observable<null> {
+    return this.watchSubscription<never>(connection => connection.invoke('SubscribeMyGames'),
+      (connection, emit) => connection.on('MyGamesChanged', () => emit(null)));
+  }
+
+  private watchSubscription<T>(subscribe: (connection: HubConnection) => Promise<void>,
+    bindEvents: (connection: HubConnection, emit: (value: T | null) => void) => void,
+    guestProof?: () => Promise<string>,
+  ): Observable<T | null> {
     const login = this.session.loginKey();
     return new Observable(subscriber => {
       const connection = new HubConnectionBuilder()
@@ -22,8 +39,14 @@ export class GameLiveUpdates {
       let retry: ReturnType<typeof setTimeout> | undefined;
       let retryDelay = 2000;
 
+      const current = () => !subscriber.closed && (!!guestProof || login === this.session.loginKey());
+      const emit = (value: T | null) => {
+        if (current()) {
+          subscriber.next(value);
+        }
+      };
       const scheduleReconnect = () => {
-        if (!subscriber.closed && retry === undefined) {
+        if (current() && retry === undefined) {
           retry = setTimeout(() => {
             retry = undefined;
             void connect();
@@ -33,12 +56,17 @@ export class GameLiveUpdates {
       };
 
       const connect = async () => {
+        if (!current()) {
+          return;
+        }
         try {
           await connection.start();
-          if (!subscriber.closed) {
-            await connection.invoke('Subscribe', gameId);
+          if (current()) {
+            await subscribe(connection);
             retryDelay = 2000;
-            subscriber.next(null);
+            emit(null);
+          } else {
+            await connection.stop();
           }
         } catch {
           await connection.stop();
@@ -46,11 +74,7 @@ export class GameLiveUpdates {
         }
       };
 
-      connection.on('GameChanged', (id: string, revision: number) => {
-        if (id === gameId && Number.isSafeInteger(revision) && revision >= 0) {
-          subscriber.next(revision);
-        }
-      });
+      bindEvents(connection, emit);
       connection.onclose(scheduleReconnect);
       void connect();
 

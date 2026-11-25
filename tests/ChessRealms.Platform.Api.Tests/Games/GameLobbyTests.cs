@@ -241,6 +241,7 @@ public sealed class GameLobbyTests : GameApiTestBase
             await ConnectLiveAsync(guestSocket, proof);
             JsonElement subscribed = await SubscribeAsync(guestSocket, gameId);
             Assert.False(subscribed.TryGetProperty("error", out _));
+            Assert.Contains("My games requires an account.", (await SubscribeMyGamesAsync(guestSocket)).GetProperty("error").GetString());
         }
 
         using HttpResponseMessage otherPreview = await stranger.GetAsync($"{link}/guest", Cancellation);

@@ -34,15 +34,16 @@ describe('games across browser logins', () => {
     const loginKey = signal<string | null>('white');
     const state = signal('authenticated');
     const updates = new Subject<number | null>();
+    const listUpdates = new Subject<null>();
     TestBed.configureTestingModule({ providers: [
       provideHttpClient(), provideHttpClientTesting(),
       provideRouter([{ path: 'games', component: GameSessionPage }, { path: 'games/:id', component: GameSessionPage }]),
       { provide: AuthSession, useValue: { loginKey, state, getAccessToken: async (key: string) => key === loginKey() ? key : null } },
-      { provide: GameLiveUpdates, useValue: { watch: () => updates } },
+      { provide: GameLiveUpdates, useValue: { watch: () => updates, watchMyGames: () => listUpdates } },
     ] });
     const http = TestBed.inject(HttpTestingController);
     const request = (url: string) => vi.waitFor(() => http.expectOne(url));
-    return { loginKey, state, http, request, updates };
+    return { loginKey, state, http, request, updates, listUpdates };
   }
 
   it('keeps the selection during refresh and reads a full board for a new player at the same revision', async () => {
@@ -86,7 +87,7 @@ describe('games across browser logins', () => {
   });
 
   it('discards the old list, pending creation and form data when the login changes', async () => {
-    const { loginKey, http, request } = setup();
+    const { loginKey, http, request, listUpdates } = setup();
     const harness = await RouterTestingHarness.create('/games');
     (await request('/api/quick-play')).flush(null, { status: 204, statusText: 'No Content' });
     const lateIdentity = await request('/api/identity/me');
@@ -104,12 +105,15 @@ describe('games across browser logins', () => {
     loginKey.set('black');
     // The response can arrive before Angular has destroyed the previous view.
     lateCreation.flush(position.game);
+    listUpdates.next(null);
     harness.detectChanges();
     expect(lateList.cancelled).toBe(true);
     expect(lateIdentity.cancelled).toBe(true);
     (await request('/api/identity/me')).flush({ userId: 'black', username: 'BlackKnight' });
     (await request('/api/quick-play')).flush(null, { status: 204, statusText: 'No Content' });
-    (await request('/api/games?status=Pending')).flush({ items: [], nextCursor: null, serverTime: position.game.serverTime });
+    const newList = await request('/api/games?status=Pending');
+    expect(newList.request.headers.get('Authorization')).toBe('Bearer black');
+    newList.flush({ items: [], nextCursor: null, serverTime: position.game.serverTime });
     harness.detectChanges();
     expect(page.querySelector<HTMLInputElement>('#opponent-username')!.value).toBe('');
     expect(page.textContent).not.toContain('Retry creation');
