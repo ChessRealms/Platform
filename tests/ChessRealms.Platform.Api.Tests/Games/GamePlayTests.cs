@@ -60,6 +60,8 @@ public sealed class GamePlayTests : GameApiTestBase
         GameBoardResponse firstBoard = Assert.IsType<GameBoardResponse>(
             await white.GetFromJsonAsync<GameBoardResponse>($"{gameUrl}/board", Cancellation));
         Assert.Equal(active, firstBoard.Game);
+        Assert.Equal(new GameBoardPlayerResponse("white", false), firstBoard.WhitePlayer);
+        Assert.Equal(new GameBoardPlayerResponse("black", false), firstBoard.BlackPlayer);
         Assert.Empty(firstBoard.Moves);
         Assert.Equal(20, firstBoard.LegalMoves.Count);
         Assert.Contains("e2e4", firstBoard.LegalMoves);
@@ -81,6 +83,8 @@ public sealed class GamePlayTests : GameApiTestBase
         GameBoardResponse changedBoard = Assert.IsType<GameBoardResponse>(
             await black.GetFromJsonAsync<GameBoardResponse>($"{gameUrl}/board?afterRevision=1", Cancellation));
         Assert.Equal(whiteMove, changedBoard.Game);
+        Assert.Equal(firstBoard.WhitePlayer, changedBoard.WhitePlayer);
+        Assert.Equal(firstBoard.BlackPlayer, changedBoard.BlackPlayer);
         Assert.Equal(["e2e4"], changedBoard.Moves);
         Assert.Contains("e7e5", changedBoard.LegalMoves);
         GameBoardResponse waitingBoard = Assert.IsType<GameBoardResponse>(

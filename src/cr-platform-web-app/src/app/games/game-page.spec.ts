@@ -21,7 +21,11 @@ describe('GamePage', () => {
     clock: null,
     serverTime: '2026-01-01T00:00:00Z',
   };
-  const initial: GameBoard = { game, moves: [], legalMoves: ['a7a8q', 'a7a8r', 'a7a8b', 'a7a8n'], drawClaims: [] };
+  const initial: GameBoard = {
+    game, moves: [], legalMoves: ['a7a8q', 'a7a8r', 'a7a8b', 'a7a8n'], drawClaims: [],
+    whitePlayer: { displayName: 'WhiteKnight', isGuest: false },
+    blackPlayer: { displayName: 'BlackKnight', isGuest: false },
+  };
 
   afterEach(() => vi.useRealTimers());
 
@@ -53,6 +57,19 @@ describe('GamePage', () => {
     expect(move).not.toHaveBeenCalled();
     page.play('a7a8n');
     expect(move).toHaveBeenCalledWith(game, 'a7a8n');
+  });
+
+  it('labels an unnamed guest by seat even when there is no stored guest name', () => {
+    const { fixture } = open(vi.fn().mockReturnValue(of({
+      ...initial,
+      whitePlayer: { displayName: null, isGuest: true },
+    })));
+    fixture.detectChanges();
+    const players: HTMLElement = fixture.nativeElement.querySelector('.game-players');
+
+    expect([...players.querySelectorAll('dt')].map(cell => cell.textContent)).toEqual(['White', 'Black']);
+    expect(players.querySelectorAll('dd')[0].textContent).toMatch(/Unknown player\s+\(guest\)/);
+    expect(players.querySelectorAll('dd')[1].textContent?.trim()).toBe('BlackKnight');
   });
 
   it('reads the current board after a revision conflict without resending the move', () => {

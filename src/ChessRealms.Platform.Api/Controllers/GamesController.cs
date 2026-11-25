@@ -97,7 +97,8 @@ public sealed class GamesController(GameService games, GameNotifications notific
         }
 
         return new GameBoardResponse(GameResponse.From(board, clock.GetUtcNow()), moves.Moves, moves.LegalMoves,
-            moves.DrawClaims.Select(reason => reason.ToString()).ToArray());
+            moves.DrawClaims.Select(reason => reason.ToString()).ToArray(),
+            new(board.WhiteDisplayName, board.WhitePlayer.IsGuest), new(board.BlackDisplayName, board.BlackPlayer.IsGuest));
     }
 
     [HttpPost("{id:guid}/moves")]
