@@ -3,7 +3,7 @@
     @if (!guest) {
       <a routerLink="/games">Games</a>
     }
-    <h1>Private game</h1>
+    <h1>Chess game</h1>
   </header>
 
   @let boardError = sync.boardError();
@@ -23,7 +23,8 @@
     <p class="form-errors" role="alert">Could not load your player ID.</p>
     <button type="button" (click)="sync.retry()">Retry</button>
   }
-  @if (sync.playerId() && game(); as game) {
+  @if (sync.playerId() && sync.board(); as board) {
+    @let game = board.game;
     <div class="layout">
       <div class="board-area">
         <cr-chess-board [fen]="game.fen" [color]="color()" [selected]="selected()"
@@ -32,11 +33,22 @@
       <aside>
         <div class="play-state">
           <p class="status" role="status">{{ status() }}</p>
+          <dl class="game-players" aria-label="Players">
+            @for (color of ['White', 'Black']; track color) {
+              @let player = color === 'White' ? board.whitePlayer : board.blackPlayer;
+              <div>
+                <dt>{{ color }}</dt>
+                <dd>
+                  <strong>{{ player.displayName || 'Unknown player' }}</strong>
+                  @if (player.isGuest) { <span> (guest)</span> }
+                </dd>
+              </div>
+            }
+          </dl>
           @if (game.clock; as clock) {
             <cr-game-clocks [clock]="clock" [sideToMove]="game.sideToMove" />
           }
           @if (!closedInvitation()) { <p>You play {{ color() }}.</p> }
-          @if (guestName(); as name) { <p>{{ name }} (guest) plays {{ game.whiteGuestName ? 'White' : 'Black' }}.</p> }
           @if (sync.updating()) { <p role="status">Updating game…</p> }
           @if (sync.commandError(); as message) { <p class="form-errors" role="alert">{{ message }}</p> }
           @if (game.status === 'Pending') {

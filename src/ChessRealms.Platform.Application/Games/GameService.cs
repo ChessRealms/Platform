@@ -112,6 +112,14 @@ public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerD
             return (board, null);
         }
 
+        Guid[] accountIds = new[] { board.WhitePlayer, board.BlackPlayer }
+            .Where(seat => seat.Kind == GameParticipantKind.Account).Select(seat => seat.Id).ToArray();
+        IReadOnlyDictionary<Guid, string> names = await players.FindNamesAsync(accountIds, cancellationToken);
+        board = board with
+        {
+            WhiteDisplayName = board.WhitePlayer.IsGuest ? board.WhiteGuestName : names.GetValueOrDefault(board.WhitePlayer.Id),
+            BlackDisplayName = board.BlackPlayer.IsGuest ? board.BlackGuestName : names.GetValueOrDefault(board.BlackPlayer.Id)
+        };
         GameParticipant playerToMove = board.SideToMove == PlayerColor.White ? board.WhitePlayer : board.BlackPlayer;
         return (board, rules.ReadMoves(record, board.Status == GameStatus.Active && player == playerToMove));
     }

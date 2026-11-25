@@ -78,6 +78,7 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         IPage guest = await guestContext.NewPageAsync();
         IPage other = await otherContext.NewPageAsync();
         await host.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
+        string hostUsername = await ReadUsernameAsync(host);
         await host.GetByLabel("Link time control").SelectOptionAsync("Blitz5");
         await host.GetByRole(AriaRole.Button, new() { Name = "Create private link", Exact = true }).ClickAsync();
         ILocator link = host.GetByLabel("Invitation link");
@@ -110,7 +111,8 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         await guest.GetByLabel("Display name").FillAsync("Guest Knight");
         await guest.GetByRole(AriaRole.Button, new() { Name = "Play as guest" }).ClickAsync();
         await Expect(guest).ToHaveURLAsync(new Regex(@"/guest/games/[0-9a-f-]{36}$"));
-        await Expect(host.GetByText("Guest Knight (guest) plays Black.", new() { Exact = true })).ToBeVisibleAsync();
+        await ExpectPlayersAsync(host, hostUsername, "Guest Knight (guest)");
+        await ExpectPlayersAsync(guest, hostUsername, "Guest Knight (guest)");
         await Expect(guest.GetByText("You play Black.", new() { Exact = true })).ToBeVisibleAsync();
         await subscribed.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
 
@@ -149,6 +151,8 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         {
             await page.GetByRole(AriaRole.Link, new() { Name = "Play chess", Exact = true }).ClickAsync();
         }
+        string firstUsername = await ReadUsernameAsync(first);
+        string secondUsername = await ReadUsernameAsync(second);
         ILocator find = first.GetByRole(AriaRole.Button, new() { Name = "Find game · 5+0", Exact = true });
         await find.ClickAsync();
         await Expect(first.GetByText("Looking for an opponent…", new() { Exact = true })).ToBeVisibleAsync();
@@ -168,6 +172,10 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         bool secondIsWhite = await second.GetByText("You play White.", new() { Exact = true }).IsVisibleAsync();
         IPage white = secondIsWhite ? second : first;
         IPage black = secondIsWhite ? first : second;
+        string whiteUsername = secondIsWhite ? secondUsername : firstUsername;
+        string blackUsername = secondIsWhite ? firstUsername : secondUsername;
+        await ExpectPlayersAsync(white, whiteUsername, blackUsername);
+        await ExpectPlayersAsync(black, whiteUsername, blackUsername);
         await Expect(white.GetByText("You play White.", new() { Exact = true })).ToBeVisibleAsync();
         await Expect(black.GetByText("You play Black.", new() { Exact = true })).ToBeVisibleAsync();
         await white.GetByRole(AriaRole.Button, new() { Name = "e2, White pawn", Exact = true }).ClickAsync();
@@ -385,6 +393,7 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         await black.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
         string blackUsername = await ReadUsernameAsync(black);
         await white.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
+        string whiteUsername = await ReadUsernameAsync(white);
         await SendInvitationAsync(white, blackUsername);
         ILocator gameLink = white.GetByLabel("Game link", new() { Exact = true });
         await Expect(gameLink).ToBeVisibleAsync();
@@ -393,6 +402,8 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         await black.GotoAsync(originalUrl);
         await Expect(black.GetByText(InvitationCountdown)).ToBeVisibleAsync();
         await black.GetByRole(AriaRole.Button, new() { Name = "Accept game", Exact = true }).ClickAsync();
+        await ExpectPlayersAsync(white, whiteUsername, blackUsername);
+        await ExpectPlayersAsync(black, whiteUsername, blackUsername);
 
         await white.GetByRole(AriaRole.Button, new() { Name = "Resign", Exact = true }).ClickAsync();
         await white.GetByRole(AriaRole.Button, new() { Name = "Confirm resignation", Exact = true }).ClickAsync();
@@ -409,6 +420,8 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         await Expect(white.GetByText("You play Black.", new() { Exact = true })).ToBeVisibleAsync();
         Assert.NotEqual(originalUrl, black.Url);
         await Expect(white).ToHaveURLAsync(black.Url);
+        await ExpectPlayersAsync(white, blackUsername, whiteUsername);
+        await ExpectPlayersAsync(black, blackUsername, whiteUsername);
         await black.GetByRole(AriaRole.Button, new() { Name = "e2, White pawn", Exact = true }).ClickAsync();
         await black.GetByRole(AriaRole.Button, new() { Name = "e4, empty", Exact = true }).ClickAsync();
         await Expect(white.GetByRole(AriaRole.Button, new() { Name = "e4, White pawn", Exact = true })).ToBeVisibleAsync();
@@ -645,6 +658,14 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         await browserSteps.SubmitSignInAsync(board, whiteEmail);
         await Expect(board).ToHaveURLAsync(invite);
         await Expect(board.GetByText("You play White.", new() { Exact = true })).ToBeVisibleAsync();
+    }
+
+    private static async Task ExpectPlayersAsync(IPage page, string white, string black)
+    {
+        await Expect(page.GetByRole(AriaRole.Heading, new() { Name = "Chess game", Exact = true })).ToBeVisibleAsync();
+        ILocator players = page.Locator(".game-players");
+        await Expect(players.Locator("dt")).ToHaveTextAsync(["White", "Black"]);
+        await Expect(players.Locator("dd")).ToHaveTextAsync([white, black]);
     }
 
     private static async Task<string> ReadUsernameAsync(IPage page)

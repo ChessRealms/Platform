@@ -17,7 +17,8 @@ Either player can also reopen it from its direct link
 after sign-in or session recovery. The board shows legal destinations for the
 selected piece and asks for a piece when promoting.
 Arrow keys move between squares. Enter or Space selects the focused square.
-The board updates when the other player acts and restores the saved game on reload.
+The board shows both players' names next to their colors and labels guest seats.
+It updates when the other player acts and restores the saved game on reload.
 Either player can resign or offer a draw during an active game. The recipient
 can accept, decline, or play a move to decline. On their turn, a player can claim
 a draw on the current position or select an intended move to support the claim.
@@ -203,6 +204,10 @@ The side to move is present for active games. Closed invitations have no winner
 or chess end reason. A finished draw has a reason and no winner.
 Coordinate moves use lowercase squares and an explicit promotion
 piece when required, for example `a7a8q`.
+
+The board response includes `whitePlayer` and `blackPlayer`. Each seat has a
+nullable `displayName` and an `isGuest` flag. The display name is the account
+username or the guest name saved when joining the lobby.
 
 Game and board responses also include `rematchExpiresAt`, `rematchOfferedBy`,
 and `rematchGameId`. Only the opponent can accept an offer. The server locks

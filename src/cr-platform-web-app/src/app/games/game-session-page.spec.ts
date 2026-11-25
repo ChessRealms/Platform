@@ -25,6 +25,8 @@ const position: GameBoard = {
     invitationExpiresAt: null, rematchExpiresAt: null, rematchOfferedBy: null, rematchGameId: null, clock: null,
     serverTime: '2026-01-01T00:00:00Z' },
   moves: [], legalMoves: ['a7a8q'], drawClaims: [],
+  whitePlayer: { displayName: 'WhiteKnight', isGuest: false },
+  blackPlayer: { displayName: 'BlackKnight', isGuest: false },
 };
 
 describe('games across browser logins', () => {
@@ -131,8 +133,9 @@ describe('session recovery on an open game board', () => {
   const recoveryUrl = `/session-unavailable?gameId=${id}`;
   const sessionResponse = { code: 'Success', tokenType: 'Bearer', accessToken: 'game-access', expiresIn: 600 };
   const moved: GameBoard = {
+    ...position,
     game: { ...position.game, fen: 'Q6k/8/8/8/8/8/8/7K b - - 0 1', revision: 2, sideToMove: 'Black' },
-    moves: ['a7a8q'], legalMoves: [], drawClaims: [],
+    moves: ['a7a8q'], legalMoves: [],
   };
   let http: HttpTestingController;
   let router: Router;

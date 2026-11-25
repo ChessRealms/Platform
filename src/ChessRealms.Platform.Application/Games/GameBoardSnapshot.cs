@@ -23,4 +23,8 @@ public sealed record GameBoardSnapshot(
     DateTimeOffset? TurnDeadline,
     string? RulesRecord,
     string? WhiteGuestName,
-    string? BlackGuestName);
+    string? BlackGuestName)
+{
+    public string? WhiteDisplayName { get; init; }
+    public string? BlackDisplayName { get; init; }
+}

@@ -69,6 +69,13 @@ export interface GameBoard {
   moves: string[];
   legalMoves: string[];
   drawClaims: DrawClaimReason[];
+  whitePlayer: GameBoardPlayer;
+  blackPlayer: GameBoardPlayer;
+}
+
+export interface GameBoardPlayer {
+  displayName: string | null;
+  isGuest: boolean;
 }
 
 export interface PrivateLobby {

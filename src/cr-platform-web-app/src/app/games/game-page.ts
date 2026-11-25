@@ -44,7 +44,6 @@ export class GamePage {
     connection: 'Connection interrupted. The board will retry automatically.',
   };
   readonly color = computed(() => this.game()?.blackPlayerId === this.sync.playerId() ? 'Black' : 'White');
-  protected readonly guestName = computed(() => this.game()?.whiteGuestName ?? this.game()?.blackGuestName);
   readonly targets = computed(() => new Set((this.sync.board()?.legalMoves ?? [])
     .filter(move => move.slice(0, 2) === this.selected()).map(move => move.slice(2, 4))));
   readonly lastMove = computed(() => {

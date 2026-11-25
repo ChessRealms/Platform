@@ -231,6 +231,8 @@ public sealed class GameLobbyTests : GameApiTestBase
         GameBoardResponse aboard = await ReadBoardAsync(guest, game);
         Assert.Equal(profile.UserId, aboard.Game.BlackPlayerId);
         Assert.Equal(profile.Username, aboard.Game.BlackGuestName);
+        Assert.Equal(new GameBoardPlayerResponse("host", false), aboard.WhitePlayer);
+        Assert.Equal(new GameBoardPlayerResponse(profile.Username, true), aboard.BlackPlayer);
         Assert.Equal("Blitz5", aboard.Game.Clock?.TimeControl);
         Assert.Equal(profile.Username, Assert.Single((await ListGamesAsync(host, "?status=Active")).Items).OpponentName);
 
@@ -281,9 +283,11 @@ public sealed class GameLobbyTests : GameApiTestBase
         Assert.Equal(["e2e4", "e7e5"], replay.Moves.Select(move => move.Move));
         GameResponse offer = await ApplyActionAsync(host, game, "rematch/offer", finished.Revision);
         GameResponse rematched = await ApplyActionAsync(guest, game, "rematch/accept", offer.Revision);
-        GameResponse rematch = (await ReadBoardAsync(guest, $"/api/games/{rematched.RematchGameId}")).Game;
-        Assert.Equal(profile.UserId, rematch.WhitePlayerId);
-        Assert.Equal(profile.Username, rematch.WhiteGuestName);
+        GameBoardResponse rematch = await ReadBoardAsync(guest, $"/api/games/{rematched.RematchGameId}");
+        Assert.Equal(profile.UserId, rematch.Game.WhitePlayerId);
+        Assert.Equal(profile.Username, rematch.Game.WhiteGuestName);
+        Assert.Equal(aboard.BlackPlayer, rematch.WhitePlayer);
+        Assert.Equal(aboard.WhitePlayer, rematch.BlackPlayer);
 
         Clock.Advance(TimeSpan.FromMinutes(6));
         using HttpResponseMessage repeated = await SendActionAsync(guest, link, "join", preview.Revision);
@@ -387,7 +391,9 @@ public sealed class GameLobbyTests : GameApiTestBase
         Assert.True(hostRematch.OpponentIsGuest);
         Assert.Null(hostRematch.OpponentName);
 
-        Assert.Null((await ReadBoardAsync(guest, originalUrl)).Game.BlackGuestName);
+        GameBoardResponse originalBoard = await ReadBoardAsync(guest, originalUrl);
+        Assert.Null(originalBoard.Game.BlackGuestName);
+        Assert.Equal(new GameBoardPlayerResponse(null, true), originalBoard.BlackPlayer);
         GameReplayResponse replay = await ReadReplayAsync(guest, originalUrl);
         Assert.Equal("Black", replay.ViewerColor);
         Assert.Equal("e2e4", Assert.Single(replay.Moves).Move);
