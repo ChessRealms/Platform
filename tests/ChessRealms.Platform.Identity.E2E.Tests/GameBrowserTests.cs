@@ -13,6 +13,7 @@ namespace ChessRealms.Platform.Identity.E2E.Tests;
 public sealed class GameBrowserTests(BrowserAppFixture fixture)
 {
     private readonly BrowserTestSteps browserSteps = new(fixture);
+    private static readonly Regex InvitationCountdown = new(@"^Expires in (?:4:[0-5][0-9]|5:00)$");
 
     [Fact]
     public async Task PlayersOpenACopiedLobbyLinkAcrossSignInAndPlayTheFirstMove()
@@ -20,6 +21,8 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         await using IBrowser browser = await browserSteps.LaunchBrowserAsync();
         await using IBrowserContext whiteContext = await browserSteps.NewContextAsync(browser);
         await using IBrowserContext blackContext = await browserSteps.NewContextAsync(browser);
+        await OffsetBrowserClockAsync(whiteContext, TimeSpan.FromMinutes(20));
+        await OffsetBrowserClockAsync(blackContext, TimeSpan.FromMinutes(-20));
         await whiteContext.GrantPermissionsAsync(["clipboard-read", "clipboard-write"]);
         (IPage white, string whiteEmail) = await browserSteps.RegisterAndOpenSignInAsync(whiteContext);
         (IPage black, string blackEmail) = await browserSteps.RegisterAndOpenSignInAsync(blackContext);
@@ -30,12 +33,14 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         await white.GetByRole(AriaRole.Button, new() { Name = "Create private link", Exact = true }).ClickAsync();
         ILocator link = white.GetByLabel("Invitation link", new() { Exact = true });
         await Expect(link).ToHaveValueAsync(new Regex(@"/lobbies/[0-9a-f-]{36}$"));
+        await Expect(white.GetByText(InvitationCountdown)).ToBeVisibleAsync();
         await white.GetByRole(AriaRole.Button, new() { Name = "Copy link", Exact = true }).ClickAsync();
         await Expect(white.GetByText("Link copied.", new() { Exact = true })).ToBeVisibleAsync();
         string copiedLink = await white.EvaluateAsync<string>("() => navigator.clipboard.readText()");
         Assert.Equal(await link.InputValueAsync(), copiedLink);
 
         await white.GetByRole(AriaRole.Main).GetByRole(AriaRole.Link, new() { Name = "Games", Exact = true }).ClickAsync();
+        await Expect(white.GetByRole(AriaRole.Region, new() { Name = "Your games" }).GetByText(InvitationCountdown)).ToBeVisibleAsync();
         await white.GetByRole(AriaRole.Region, new() { Name = "Your games" })
             .GetByRole(AriaRole.Link).Filter(new() { HasText = "Waiting for a player" }).ClickAsync();
         await Expect(white).ToHaveURLAsync(copiedLink);
@@ -43,11 +48,13 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         await black.GotoAsync(copiedLink);
         string lobbyId = new Uri(copiedLink).Segments[^1];
         await Expect(black.GetByRole(AriaRole.Button, new() { Name = "Play as guest" })).ToBeVisibleAsync();
+        await Expect(black.GetByText(InvitationCountdown)).ToBeVisibleAsync();
         await black.GetByRole(AriaRole.Main).GetByRole(AriaRole.Link, new() { Name = "Sign in", Exact = true }).ClickAsync();
         await Expect(black).ToHaveURLAsync(new Uri(fixture.WebOrigin, $"/login?lobbyId={lobbyId}").AbsoluteUri);
         await browserSteps.SubmitSignInAsync(black, blackEmail);
         await Expect(black).ToHaveURLAsync(copiedLink);
         await Expect(black.GetByText($"Invitation from {host}", new() { Exact = true })).ToBeVisibleAsync();
+        await Expect(black.GetByText(InvitationCountdown)).ToBeVisibleAsync();
         await Expect(white.GetByText("Waiting for a player", new() { Exact = true })).ToBeVisibleAsync();
         await black.GetByRole(AriaRole.Button, new() { Name = "Join game", Exact = true }).ClickAsync();
 
@@ -312,6 +319,8 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         await using IBrowser browser = await browserSteps.LaunchBrowserAsync();
         await using IBrowserContext whiteContext = await browserSteps.NewContextAsync(browser);
         await using IBrowserContext blackContext = await browserSteps.NewContextAsync(browser);
+        await OffsetBrowserClockAsync(whiteContext, TimeSpan.FromMinutes(20));
+        await OffsetBrowserClockAsync(blackContext, TimeSpan.FromMinutes(-20));
         (IPage white, string whiteEmail) = await browserSteps.RegisterAndOpenSignInAsync(whiteContext);
         (IPage black, string blackEmail) = await browserSteps.RegisterAndOpenSignInAsync(blackContext);
         await browserSteps.SignInAsync(white, whiteEmail);
@@ -322,8 +331,10 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         await SendInvitationAsync(white, blackUsername);
         ILocator gameLink = white.GetByLabel("Game link", new() { Exact = true });
         await Expect(gameLink).ToBeVisibleAsync();
+        await Expect(white.GetByText(InvitationCountdown)).ToBeVisibleAsync();
         string originalUrl = await gameLink.InputValueAsync();
         await black.GotoAsync(originalUrl);
+        await Expect(black.GetByText(InvitationCountdown)).ToBeVisibleAsync();
         await black.GetByRole(AriaRole.Button, new() { Name = "Accept game", Exact = true }).ClickAsync();
 
         await white.GetByRole(AriaRole.Button, new() { Name = "Resign", Exact = true }).ClickAsync();
@@ -333,7 +344,8 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         await Expect(white.GetByText("Rematch offered.", new() { Exact = true })).ToBeVisibleAsync();
         await white.ReloadAsync();
         await Expect(white.GetByText("Rematch offered.", new() { Exact = true })).ToBeVisibleAsync();
-        await Expect(black.GetByText(new Regex(@"^Expires in [0-5]:[0-5][0-9]$"))).ToBeVisibleAsync();
+        await Expect(white.GetByText(InvitationCountdown)).ToBeVisibleAsync();
+        await Expect(black.GetByText(InvitationCountdown)).ToBeVisibleAsync();
         await black.GetByRole(AriaRole.Button, new() { Name = "Accept rematch", Exact = true }).ClickAsync();
 
         await Expect(black.GetByText("You play White.", new() { Exact = true })).ToBeVisibleAsync();
@@ -349,6 +361,12 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         await Expect(white.GetByRole(AriaRole.Link, new() { Name = "Open rematch" }))
             .ToHaveAttributeAsync("href", new Uri(black.Url).AbsolutePath);
     }
+
+    private static Task OffsetBrowserClockAsync(IBrowserContext context, TimeSpan offset) =>
+        context.AddInitScriptAsync(FormattableString.Invariant($"""
+            const now = Date.now.bind(Date);
+            Date.now = () => now() + ({offset.TotalMilliseconds});
+            """));
 
     [Theory]
     [InlineData(true, "Decline", "Invitation declined")]

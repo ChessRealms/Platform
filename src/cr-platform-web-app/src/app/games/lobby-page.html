@@ -19,16 +19,20 @@
           @if (copyStatus(); as message) {
             <p role="status">{{ message }}</p>
           }
-          <p><cr-invitation-countdown [expiresAt]="current.expiresAt" /></p>
+          @if (deadline(); as expiry) {
+            <p><cr-invitation-countdown [deadline]="expiry" /></p>
+          }
           <div class="auth-actions">
             <button type="button" (click)="copy(linkInput)">Copy link</button>
-            <button type="button" [disabled]="busy()" (click)="change('cancel')">Cancel invitation</button>
+            <button type="button" [disabled]="busy() || deadlineElapsed()" (click)="change('cancel')">Cancel invitation</button>
           </div>
         } @else {
           @if (current.hostName; as host) {
             <p>Invitation from {{ host }}</p>
           }
-          <p><cr-invitation-countdown [expiresAt]="current.expiresAt" /></p>
+          @if (deadline(); as expiry) {
+            <p><cr-invitation-countdown [deadline]="expiry" /></p>
+          }
           @if (guest) {
             <form (ngSubmit)="change('join')">
               @if (current.guestName; as name) {
@@ -40,10 +44,10 @@
                     autocomplete="nickname" [readOnly]="busy()" required />
                 </div>
               }
-              <button type="submit" [disabled]="busy() || (!current.guestName && !displayName.trim())">Play as guest</button>
+              <button type="submit" [disabled]="busy() || deadlineElapsed() || (!current.guestName && !displayName.trim())">Play as guest</button>
             </form>
           } @else {
-            <button type="button" [disabled]="busy()" (click)="change('join')">Join game</button>
+            <button type="button" [disabled]="busy() || deadlineElapsed()" (click)="change('join')">Join game</button>
           }
         }
       }

@@ -14,9 +14,11 @@ import {
 } from './game.models';
 import { GamesApi } from './games-api';
 import { guestGames } from './guest-games';
+import { deadlineFromServer, remainingUntil, ServerDeadline } from './server-deadline';
 
 type BoardError = 'invalid-link' | 'sign-in-required' | 'not-found' | 'connection';
 type BoardActivity = 'idle' | 'sending' | 'refreshing';
+type BoardDeadline = { kind: 'invitation' | 'rematch'; time: ServerDeadline };
 const boardPollInterval = 15000;
 export type GameBoardCommand = { kind: 'move'; move: string }
   | { kind: 'invitation'; action: GameInvitationAction }
@@ -40,7 +42,8 @@ export class GameBoardSync {
   private readonly actionError = signal<string | null>(null);
   private readonly player = signal<string | null>(null);
   private readonly playerLoadFailed = signal(false);
-  private readonly rematchWindowElapsed = signal(false);
+  private readonly actionDeadline = signal<BoardDeadline | null>(null);
+  private readonly deadlineElapsed = signal(false);
   private readonly acceptedRematch = signal<string | null>(null);
   // A response belongs to the current route and must not predate the latest command.
   private requestVersion = 0;
@@ -61,12 +64,10 @@ export class GameBoardSync {
   });
   private readonly readyToAct = computed(() => !!this.player() && !this.updating()
     && !this.readError() && !this.sessionUnavailable());
-  readonly canAct = computed(() => this.isOpen() && this.readyToAct());
-  readonly rematchDeadline = computed(() => {
-    const game = this.game();
-    return game?.status === 'Finished' && !game.rematchGameId && !this.rematchWindowElapsed()
-      ? game.rematchExpiresAt : null;
-  });
+  readonly invitationDeadline = computed(() => this.deadlineFor('invitation'));
+  readonly rematchDeadline = computed(() => this.deadlineElapsed() ? null : this.deadlineFor('rematch'));
+  readonly canAct = computed(() => this.isOpen() && this.readyToAct()
+    && (!this.invitationDeadline() || !this.deadlineElapsed()));
   readonly canRematch = computed(() => !!this.rematchDeadline() && this.readyToAct());
 
   constructor() {
@@ -88,10 +89,10 @@ export class GameBoardSync {
 
   submit(command: GameBoardCommand): boolean {
     const game = this.game();
-    const allowed = command.kind === 'rematch'
-      ? this.canRematch() && Date.parse(game?.rematchExpiresAt ?? '') > Date.now()
-      : this.canAct();
-    if (!game || !allowed) {
+    const rematch = command.kind === 'rematch';
+    const deadline = this.deadlineFor(rematch ? 'rematch' : 'invitation');
+    const allowed = rematch ? this.canRematch() : this.canAct();
+    if (!game || !allowed || (deadline && remainingUntil(deadline) <= 0)) {
       return false;
     }
     const version = ++this.requestVersion;
@@ -126,7 +127,8 @@ export class GameBoardSync {
     this.id.set(id);
     this.requestVersion++;
     this.snapshot.set(null);
-    this.rematchWindowElapsed.set(false);
+    this.actionDeadline.set(null);
+    this.deadlineElapsed.set(false);
     this.acceptedRematch.set(null);
     this.activity.set('idle');
     this.actionError.set(null);
@@ -136,19 +138,14 @@ export class GameBoardSync {
     }
 
     const firstRead = new Subject<void>();
-    const invitationDeadline = new Subject<string | null>();
-    const rematchDeadline = new Subject<string | null>();
+    const deadlineChanges = new Subject<BoardDeadline | null>();
     const turnClock = new Subject<GameClock | null>();
-    const invitationExpiry = invitationDeadline.pipe(
-      distinctUntilChanged(),
-      switchMap(deadline => deadline ? timer(Math.max(0, Date.parse(deadline) - Date.now())) : EMPTY),
-    );
-    const rematchExpiry = rematchDeadline.pipe(
-      distinctUntilChanged(),
-      switchMap(deadline => deadline ? timer(Math.max(0, Date.parse(deadline) - Date.now())).pipe(
-        tap(() => this.rematchWindowElapsed.set(true)),
-        // Allow a fallback read after an acceptance committed near the deadline.
-        switchMap(() => timer(boardPollInterval)),
+    const deadlineExpiry = deadlineChanges.pipe(
+      switchMap(deadline => deadline ? timer(Math.max(0, Math.ceil(remainingUntil(deadline.time)))).pipe(
+        tap(() => this.deadlineElapsed.set(true)),
+        // Keep watching long enough to discover a rematch accepted just before expiry.
+        switchMap(() => deadline.kind === 'rematch'
+          ? timer(Math.max(0, Math.ceil(remainingUntil(deadline.time)) + boardPollInterval)) : of(null)),
       ) : EMPTY),
     );
     const clockExpiry = turnClock.pipe(
@@ -157,10 +154,10 @@ export class GameBoardSync {
     );
     const revisions = this.watchRevisions(id, firstRead);
     const online = fromEvent(this.window, 'online');
-    return merge(revisions, this.refreshRequests, invitationExpiry, rematchExpiry, clockExpiry,
+    return merge(revisions, this.refreshRequests, deadlineExpiry, clockExpiry,
       timer(boardPollInterval, boardPollInterval), online, of(null)).pipe(
       filter(() => this.activity() !== 'sending' && !this.sessionUnavailable()),
-      switchMap(() => this.readBoard(id, firstRead, invitationDeadline, rematchDeadline, turnClock)),
+      switchMap(() => this.readBoard(id, firstRead, deadlineChanges, turnClock)),
       takeUntil(this.stopUpdates),
     );
   }
@@ -184,9 +181,10 @@ export class GameBoardSync {
   }
 
   private readBoard(id: string, firstRead: Subject<void>,
-    invitationDeadline: Subject<string | null>, rematchDeadline: Subject<string | null>, turnClock: Subject<GameClock | null>
+    deadlineChanges: Subject<BoardDeadline | null>, turnClock: Subject<GameClock | null>
   ): Observable<GameBoard | null> {
     const version = this.requestVersion;
+    const readStartedAt = performance.now();
     return this.api.board(id, this.game()?.revision).pipe(
       tap(board => {
         if (version !== this.requestVersion) {
@@ -195,12 +193,11 @@ export class GameBoardSync {
         const previous = this.game();
         if (board && board.game.revision >= (previous?.revision ?? 0)) {
           const game = board.game;
-          if (game.rematchExpiresAt && Date.parse(game.rematchExpiresAt) <= Date.now()) {
-            this.rematchWindowElapsed.set(true);
-          }
+          const deadline = this.readDeadline(game);
+          this.actionDeadline.set(deadline);
+          this.deadlineElapsed.set(deadline !== null && remainingUntil(deadline.time) <= 0);
           this.snapshot.set(board);
-          invitationDeadline.next(game.status === 'Pending' ? game.invitationExpiresAt : null);
-          rematchDeadline.next(game.rematchGameId ? null : game.rematchExpiresAt);
+          deadlineChanges.next(deadline);
           turnClock.next(game.clock);
           if (previous && !previous.rematchGameId && game.rematchGameId) {
             this.acceptedRematch.set(game.rematchGameId);
@@ -209,8 +206,9 @@ export class GameBoardSync {
         this.readError.set(null);
         this.activity.set('idle');
         const game = this.game();
-        const watchingRematch = !!game?.rematchExpiresAt && !game.rematchGameId
-          && Date.parse(game.rematchExpiresAt) + boardPollInterval > Date.now();
+        const rematch = this.deadlineFor('rematch');
+        // A read started before expiry may have missed a later acceptance.
+        const watchingRematch = rematch && readStartedAt < rematch.monotonicAt + boardPollInterval;
         if (game && !this.isOpen() && !watchingRematch) {
           this.stopUpdates.next();
         } else {
@@ -230,6 +228,18 @@ export class GameBoardSync {
         return EMPTY;
       }),
     );
+  }
+
+  private readDeadline(game: Game): BoardDeadline | null {
+    const kind = game.status === 'Pending' ? 'invitation' : 'rematch';
+    const expiresAt = kind === 'invitation' ? game.invitationExpiresAt : game.rematchExpiresAt;
+    const time = deadlineFromServer(expiresAt, game.serverTime, performance.now());
+    return time && !game.rematchGameId ? { kind, time } : null;
+  }
+
+  private deadlineFor(kind: BoardDeadline['kind']): ServerDeadline | null {
+    const deadline = this.actionDeadline();
+    return deadline?.kind === kind ? deadline.time : null;
   }
 
   private send(game: Game, command: GameBoardCommand): Observable<Game> {

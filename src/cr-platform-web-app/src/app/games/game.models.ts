@@ -39,6 +39,7 @@ export interface Game {
   rematchOfferedBy: PlayerColor | null;
   rematchGameId: string | null;
   clock: GameClock | null;
+  serverTime: string;
 }
 
 export interface GameListItem {
@@ -60,6 +61,7 @@ export interface GameListItem {
 export interface GameListPage {
   items: GameListItem[];
   nextCursor: string | null;
+  serverTime: string;
 }
 
 export interface GameBoard {
@@ -74,6 +76,7 @@ export interface PrivateLobby {
   status: 'Open' | 'Joined' | 'Cancelled' | 'Expired';
   revision: number;
   expiresAt: string;
+  serverTime: string;
   isOwner: boolean;
   hostName: string | null;
   guestName: string | null;

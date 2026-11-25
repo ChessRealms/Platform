@@ -40,8 +40,8 @@
           @if (sync.updating()) { <p role="status">Updating game…</p> }
           @if (sync.commandError(); as message) { <p class="form-errors" role="alert">{{ message }}</p> }
           @if (game.status === 'Pending') {
-            @if (game.invitationExpiresAt; as expiresAt) {
-              <p><cr-invitation-countdown [expiresAt]="expiresAt" /></p>
+            @if (sync.invitationDeadline(); as deadline) {
+              <p><cr-invitation-countdown [deadline]="deadline" /></p>
             }
             @if (color() === 'Black') {
               <div class="invitation-actions">
@@ -67,7 +67,7 @@
           @if (game.rematchGameId; as rematchId) {
             <a [routerLink]="[gameRoot, rematchId]">Open rematch</a>
           } @else if (sync.rematchDeadline(); as deadline) {
-            <p><cr-invitation-countdown [expiresAt]="deadline" /></p>
+            <p><cr-invitation-countdown [deadline]="deadline" /></p>
             @if (game.rematchOfferedBy === color()) {
               <p role="status">Rematch offered.</p>
             } @else if (game.rematchOfferedBy) {
