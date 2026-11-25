@@ -159,6 +159,10 @@ public sealed class GameClockAndRematchTests : GameApiTestBase
         Assert.Equal(599999L, replay.Finish.AtMs);
         Assert.Equal("Timeout", replay.Finish.EndReason);
         Assert.Equal(0, replay.Finish.Clock!.BlackMilliseconds);
+        string pgn = await DownloadPgnAsync(black, url);
+        Assert.Contains("[Result \"1-0\"]", pgn);
+        Assert.Contains("[Termination \"time forfeit\"]\n[TimeControl \"300\"]", pgn);
+        Assert.EndsWith("\n\n1. e4 1-0\n\n", pgn);
 
         GameResponse offered = await ApplyActionAsync(white, url, "rematch/offer", finished.Game.Revision);
         GameResponse accepted = await ApplyActionAsync(black, url, "rematch/accept", offered.Revision);
@@ -199,5 +203,8 @@ public sealed class GameClockAndRematchTests : GameApiTestBase
         Assert.Equal(active.Clock!.TurnDeadline?.AddMinutes(5), finished.Game.RematchExpiresAt);
         Assert.Equal(0, finished.Game.Clock!.WhiteMilliseconds);
         Assert.Equal(300000, finished.Game.Clock.BlackMilliseconds);
+        string pgn = await DownloadPgnAsync(black, url);
+        Assert.Contains("[Result \"1/2-1/2\"]", pgn);
+        Assert.EndsWith("\n\n1/2-1/2\n\n", pgn);
     }
 }

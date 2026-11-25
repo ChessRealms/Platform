@@ -1,3 +1,7 @@
+.replay-download {
+  margin-block-end: 1rem;
+}
+
 .replay-controls, .playback-options, .replay-clocks {
   display: flex;
   flex-wrap: wrap;

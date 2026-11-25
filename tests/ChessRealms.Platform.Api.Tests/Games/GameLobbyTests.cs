@@ -220,8 +220,8 @@ public sealed class GameLobbyTests : GameApiTestBase
             new CreateGuestSessionRequest(lobby.Id, "  "), Cancellation);
         await AssertErrorAsync(invalidName, HttpStatusCode.BadRequest, "InvalidGuestName");
 
-        GuestProfile profile = await StartGuestAsync(guest, lobby.Id, "  Guest Knight  ");
-        Assert.Equal("Guest Knight", profile.Username);
+        GuestProfile profile = await StartGuestAsync(guest, lobby.Id, "  Guest \"Knight\" \\ Ω  ");
+        Assert.Equal("Guest \"Knight\" \\ Ω", profile.Username);
         await StartGuestAsync(stranger, lobby.Id, profile.Username);
         using HttpResponseMessage join = await SendActionAsync(guest, link, "join", preview.Revision);
         Assert.Equal(HttpStatusCode.OK, join.StatusCode);
@@ -281,6 +281,10 @@ public sealed class GameLobbyTests : GameApiTestBase
         GameReplayResponse replay = await ReadReplayAsync(guest, game);
         Assert.Equal("Black", replay.ViewerColor);
         Assert.Equal(["e2e4", "e7e5"], replay.Moves.Select(move => move.Move));
+        string pgn = await DownloadPgnAsync(guest, game);
+        Assert.Contains("[White \"host\"]\n[Black \"Guest \\\"Knight\\\" \\\\ Ω\"]", pgn);
+        using HttpResponseMessage deniedExport = await stranger.GetAsync($"{game}/pgn", Cancellation);
+        await AssertErrorAsync(deniedExport, HttpStatusCode.NotFound, "NotFound");
         GameResponse offer = await ApplyActionAsync(host, game, "rematch/offer", finished.Revision);
         GameResponse rematched = await ApplyActionAsync(guest, game, "rematch/accept", offer.Revision);
         GameBoardResponse rematch = await ReadBoardAsync(guest, $"/api/games/{rematched.RematchGameId}");

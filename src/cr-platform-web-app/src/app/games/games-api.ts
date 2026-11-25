@@ -104,6 +104,12 @@ export class GamesApi {
       this.options(token)));
   }
 
+  downloadPgn(id: string): Observable<Blob> {
+    return this.authorized(token => this.http.get(`/api/games/${encodeURIComponent(id)}/pgn`, {
+      ...this.options(token), responseType: 'blob',
+    }));
+  }
+
   updateInvitation(game: Game, action: GameInvitationAction): Observable<Game> {
     return this.authorized(token => this.http.post<Game>(`/api/games/${encodeURIComponent(game.id)}/${action}`,
       { expectedRevision: game.revision }, this.options(token)));

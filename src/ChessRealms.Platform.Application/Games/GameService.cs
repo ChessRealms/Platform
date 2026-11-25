@@ -112,14 +112,9 @@ public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerD
             return (board, null);
         }
 
-        Guid[] accountIds = new[] { board.WhitePlayer, board.BlackPlayer }
-            .Where(seat => seat.Kind == GameParticipantKind.Account).Select(seat => seat.Id).ToArray();
-        IReadOnlyDictionary<Guid, string> names = await players.FindNamesAsync(accountIds, cancellationToken);
-        board = board with
-        {
-            WhiteDisplayName = board.WhitePlayer.IsGuest ? board.WhiteGuestName : names.GetValueOrDefault(board.WhitePlayer.Id),
-            BlackDisplayName = board.BlackPlayer.IsGuest ? board.BlackGuestName : names.GetValueOrDefault(board.BlackPlayer.Id)
-        };
+        (string? whiteName, string? blackName) = await ReadPlayerNamesAsync(board.WhitePlayer, board.BlackPlayer,
+            board.WhiteGuestName, board.BlackGuestName, cancellationToken);
+        board = board with { WhiteDisplayName = whiteName, BlackDisplayName = blackName };
         GameParticipant playerToMove = board.SideToMove == PlayerColor.White ? board.WhitePlayer : board.BlackPlayer;
         return (board, rules.ReadMoves(record, board.Status == GameStatus.Active && player == playerToMove));
     }
@@ -157,19 +152,29 @@ public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerD
     public async Task<(GameError Error, GameReplay? Replay)> ReadReplayAsync(Guid gameId, GameParticipant player,
         CancellationToken cancellationToken)
     {
-        Game? game = await GetAsync(gameId, player, cancellationToken);
+        (GameError error, Game? game) = await GetFinishedGameAsync(gameId, player, cancellationToken);
         if (game is null)
         {
-            return (GameError.NotFound, null);
-        }
-        if (game.Status != GameStatus.Finished)
-        {
-            return (GameError.GameNotFinished, null);
+            return (error, null);
         }
 
         IReadOnlyList<GameMoveTiming> timings = game.StartedAt.HasValue
             ? await store.ReadMoveTimingsAsync(game.Id, cancellationToken) : [];
         return (GameError.None, GameReplay.From(game, player, rules.ReadReplay(game.RulesRecord), timings));
+    }
+
+    public async Task<(GameError Error, string? Pgn)> ExportPgnAsync(Guid gameId, GameParticipant player,
+        CancellationToken cancellationToken)
+    {
+        (GameError error, Game? game) = await GetFinishedGameAsync(gameId, player, cancellationToken);
+        if (game is null)
+        {
+            return (error, null);
+        }
+
+        (string? whiteName, string? blackName) = await ReadPlayerNamesAsync(game.WhitePlayer, game.BlackPlayer,
+            game.WhiteGuestName, game.BlackGuestName, cancellationToken);
+        return (GameError.None, GamePgn.Format(game, rules.ReadReplay(game.RulesRecord), whiteName, blackName));
     }
 
     public Task<GameOperationResult> ResignAsync(Guid gameId, GameParticipant player, long expectedRevision,
@@ -189,6 +194,28 @@ public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerD
         DrawClaimReason reason, string? intendedMove, CancellationToken cancellationToken) =>
         ChangeAsync(gameId, player, (game, now) => game.ClaimDraw(player, expectedRevision, now,
             record => rules.ClaimDraw(record, reason, intendedMove)), cancellationToken);
+
+    private async Task<(GameError Error, Game? Game)> GetFinishedGameAsync(Guid gameId, GameParticipant player,
+        CancellationToken cancellationToken)
+    {
+        Game? game = await GetAsync(gameId, player, cancellationToken);
+        return game?.Status switch
+        {
+            null => (GameError.NotFound, null),
+            GameStatus.Finished => (GameError.None, game),
+            _ => (GameError.GameNotFinished, null)
+        };
+    }
+
+    private async Task<(string? White, string? Black)> ReadPlayerNamesAsync(GameParticipant white, GameParticipant black,
+        string? whiteGuestName, string? blackGuestName, CancellationToken cancellationToken)
+    {
+        Guid[] accountIds = new[] { white, black }
+            .Where(seat => seat.Kind == GameParticipantKind.Account).Select(seat => seat.Id).ToArray();
+        IReadOnlyDictionary<Guid, string> names = await players.FindNamesAsync(accountIds, cancellationToken);
+        return (white.IsGuest ? whiteGuestName : names.GetValueOrDefault(white.Id),
+            black.IsGuest ? blackGuestName : names.GetValueOrDefault(black.Id));
+    }
 
     private async Task<Game?> ResolveTimeoutAsync(Guid gameId, GameParticipant player, CancellationToken cancellationToken)
     {

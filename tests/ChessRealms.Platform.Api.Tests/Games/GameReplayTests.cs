@@ -22,16 +22,23 @@ public sealed class GameReplayTests : GameApiTestBase
         using HttpClient white = CreateClient(whiteToken);
         using HttpClient black = CreateClient(blackToken);
         using HttpClient outsider = CreateClient(outsiderToken);
+        using HttpClient anonymous = CreateClient();
         GameResponse pending = await CreateGameAsync(white, blackId);
         string url = $"/api/games/{pending.Id}";
         Clock.Advance(TimeSpan.FromSeconds(30));
         GameResponse active = await AcceptGameAsync(black, url);
         using HttpResponseMessage tooEarly = await white.GetAsync($"{url}/replay", Cancellation);
         await AssertErrorAsync(tooEarly, HttpStatusCode.Conflict, "GameNotFinished");
+        using HttpResponseMessage prematureExport = await white.GetAsync($"{url}/pgn", Cancellation);
+        await AssertErrorAsync(prematureExport, HttpStatusCode.Conflict, "GameNotFinished");
         Clock.Advance(TimeSpan.FromSeconds(7));
         GameResponse finished = await ApplyActionAsync(black, url, "resign", active.Revision);
         using HttpResponseMessage inaccessible = await outsider.GetAsync($"{url}/replay", Cancellation);
         await AssertErrorAsync(inaccessible, HttpStatusCode.NotFound, "NotFound");
+        using HttpResponseMessage outsiderExport = await outsider.GetAsync($"{url}/pgn", Cancellation);
+        await AssertErrorAsync(outsiderExport, HttpStatusCode.NotFound, "NotFound");
+        using HttpResponseMessage anonymousExport = await anonymous.GetAsync($"{url}/pgn", Cancellation);
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymousExport.StatusCode);
 
         GameReplayResponse replay = await ReadReplayAsync(black, url);
         Assert.Equal("Black", replay.ViewerColor);
@@ -41,14 +48,19 @@ public sealed class GameReplayTests : GameApiTestBase
         Assert.Equal("White", replay.Finish.Winner);
         Assert.Equal("Resignation", replay.Finish.EndReason);
         Assert.Equal(7000L, replay.Finish.AtMs);
+        string pgn = await DownloadPgnAsync(white, url);
+        Assert.Equal(pgn, await DownloadPgnAsync(black, url));
+        Assert.Contains("[White \"white\"]\n[Black \"black\"]\n[Result \"1-0\"]", pgn);
+        Assert.DoesNotContain("[FEN ", pgn);
+        Assert.EndsWith("\n\n1-0\n\n", pgn);
     }
 
     [Theory]
-    [InlineData("7k/8/8/3pP3/8/8/8/7K w - d6 0 2", "e5d6", "exd6", "7k/8/3P4/8/8/8/8/7K", "White", "2", false)]
-    [InlineData("7k/P7/8/8/8/8/8/7K w - - 0 1", "a7a8q", "a8=Q+", "Q6k/8/8/8/8/8/8/7K", "White", "1", false)]
-    [InlineData("r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 37", "e8c8", "O-O-O", "2kr3r/8/8/8/8/8/8/R3K2R", "Black", "37", true)]
+    [InlineData("7k/8/8/3pP3/8/8/8/7K w - d6 0 2", "e5d6", "exd6", "7k/8/3P4/8/8/8/8/7K", "White", "2", false, "1/2-1/2")]
+    [InlineData("7k/P7/8/8/8/8/8/7K w - - 0 1", "a7a8q", "a8=Q+", "Q6k/8/8/8/8/8/8/7K", "White", "1", false, "1/2-1/2")]
+    [InlineData("r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 37", "e8c8", "O-O-O", "2kr3r/8/8/8/8/8/8/R3K2R", "Black", "37", true, "0-1")]
     public async Task ReplayUsesTheRecordedInitialPositionAndHandlesSpecialMoves(string fen, string coordinate, string san,
-        string board, string color, string moveNumber, bool legacy)
+        string board, string color, string moveNumber, bool legacy, string result)
     {
         (Guid whiteId, string whiteToken) = await RegisterAndSignInAsync("white");
         (Guid blackId, string blackToken) = await RegisterAndSignInAsync("black");
@@ -70,6 +82,10 @@ public sealed class GameReplayTests : GameApiTestBase
 
         Clock.Advance(TimeSpan.FromSeconds(3));
         GameResponse moved = await MakeMoveAsync(startingColor == PlayerColor.White ? white : black, url, coordinate, active.Revision);
+        if (legacy)
+        {
+            await database.GameMoveTimings.Where(timing => timing.GameId == game.Id).ExecuteDeleteAsync(Cancellation);
+        }
         Clock.Advance(TimeSpan.FromSeconds(8));
         await ApplyActionAsync(white, url, "resign", moved.Revision);
         GameReplayResponse replay = await ReadReplayAsync(black, url);
@@ -82,5 +98,14 @@ public sealed class GameReplayTests : GameApiTestBase
         Assert.Equal(legacy ? "unavailable" : "recorded", replay.TimingMode);
         Assert.Equal(legacy ? null : 3000L, frame.AtMs);
         Assert.Equal(legacy ? null : 11000L, replay.Finish.AtMs);
+        string pgn = await DownloadPgnAsync(black, url);
+        Assert.Contains($"[FEN \"{fen}\"]\n[SetUp \"1\"]", pgn);
+        Assert.Contains($"[Result \"{result}\"]", pgn);
+        if (legacy)
+        {
+            Assert.Contains("[Date \"????.??.??\"]", pgn);
+        }
+        string number = moveNumber + (startingColor == PlayerColor.White ? "." : "...");
+        Assert.EndsWith($"\n\n{number} {san} {result}\n\n", pgn);
     }
 }

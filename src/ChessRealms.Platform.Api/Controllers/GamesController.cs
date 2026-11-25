@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 
 using ChessRealms.Platform.Api.Realtime;
 using ChessRealms.Platform.Application.Games;
@@ -112,6 +113,15 @@ public sealed class GamesController(GameService games, GameNotifications notific
     {
         (GameError error, GameReplay? replay) = await games.ReadReplayAsync(id, GuestAuthentication.Participant(User), cancellationToken);
         return replay is null ? ErrorResponse(error) : GameReplayResponse.From(replay);
+    }
+
+    [HttpGet("{id:guid}/pgn")]
+    [Authorize(Policy = GuestAuthentication.GamePolicy)]
+    public async Task<IActionResult> ExportPgn(Guid id, CancellationToken cancellationToken)
+    {
+        (GameError error, string? pgn) = await games.ExportPgnAsync(id, GuestAuthentication.Participant(User), cancellationToken);
+        return pgn is null ? ErrorResponse(error)
+            : File(Encoding.UTF8.GetBytes(pgn), "application/x-chess-pgn; charset=utf-8", $"chessrealms-{id:D}.pgn");
     }
 
     [HttpPost("{id:guid}/resign")]
