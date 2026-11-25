@@ -152,8 +152,9 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
         }
 
         DateTimeOffset now = PostgresInvitationQuota.GetCreationTime(clock);
-        IQueryable<Game> sent = database.Games.AsNoTracking().Where(game => game.WhitePlayerId == creatorId);
-        IQueryable<Game> pending = sent.Where(game => game.Status == GameStatus.Pending && game.InvitationExpiresAt > now);
+        IQueryable<Game> sentInvitations = database.Games.AsNoTracking()
+            .Where(game => game.WhitePlayerId == creatorId && game.CreationOrigin == GameCreationOrigin.DirectInvitation);
+        IQueryable<Game> pending = sentInvitations.Where(game => game.Status == GameStatus.Pending && game.InvitationExpiresAt > now);
         Game? duplicate = await pending.Where(game => game.BlackPlayerId == opponentId)
             .OrderByDescending(game => game.CreatedAt).ThenByDescending(game => game.Id)
             .FirstOrDefaultAsync(cancellationToken);
@@ -163,10 +164,7 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
         }
 
         DateTimeOffset cutoff = now - PairWindow;
-        DateTimeOffset? windowStart = await sent.Where(game => game.BlackPlayerId == opponentId && game.CreatedAt > cutoff)
-            .Where(game => !database.PrivateLobbies.Any(lobby => lobby.GameId == game.Id))
-            .Where(game => !database.Games.Any(source => source.RematchGameId == game.Id))
-            .Where(game => !database.QuickPlayTickets.Any(ticket => ticket.GameId == game.Id))
+        DateTimeOffset? windowStart = await sentInvitations.Where(game => game.BlackPlayerId == opponentId && game.CreatedAt > cutoff)
             .OrderByDescending(game => game.CreatedAt).Skip(MaxPairInvitations - 1)
             .Select(game => game.CreatedAt).FirstOrDefaultAsync(cancellationToken);
         if (windowStart is { } first)

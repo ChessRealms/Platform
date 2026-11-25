@@ -23,6 +23,7 @@ public sealed class Game
         Id = Guid.NewGuid();
         WhitePlayerId = whitePlayerId;
         BlackPlayerId = blackPlayerId;
+        CreationOrigin = GameCreationOrigin.DirectInvitation;
         CreatedAt = createdAt;
         InvitationExpiresAt = createdAt + InvitationLifetime;
         TimeControl = timeControl;
@@ -35,6 +36,7 @@ public sealed class Game
     public Guid BlackPlayerId { get; private set; }
     public string? WhiteGuestName { get; private set; }
     public string? BlackGuestName { get; private set; }
+    public GameCreationOrigin CreationOrigin { get; private set; }
     public DateTimeOffset? CreatedAt { get; private set; }
     public DateTimeOffset? StartedAt { get; private set; }
     public DateTimeOffset? InvitationExpiresAt { get; private set; }
@@ -65,10 +67,11 @@ public sealed class Game
     };
 
     internal static Game StartActive(Guid whitePlayerId, Guid blackPlayerId, GamePosition position, DateTimeOffset now,
-        GameTimeControl? timeControl, string? whiteGuestName = null, string? blackGuestName = null)
+        GameCreationOrigin creationOrigin, GameTimeControl? timeControl, string? whiteGuestName = null, string? blackGuestName = null)
     {
         Game game = new(whitePlayerId, blackPlayerId, position, now, timeControl)
         {
+            CreationOrigin = creationOrigin,
             InvitationExpiresAt = null,
             WhiteGuestName = whiteGuestName,
             BlackGuestName = blackGuestName
@@ -146,7 +149,8 @@ public sealed class Game
             return (GameError.NoRematchOffer, null);
         }
 
-        Game rematch = StartActive(BlackPlayerId, WhitePlayerId, startingPosition(), now, TimeControl, BlackGuestName, WhiteGuestName);
+        Game rematch = StartActive(BlackPlayerId, WhitePlayerId, startingPosition(), now, GameCreationOrigin.Rematch,
+            TimeControl, BlackGuestName, WhiteGuestName);
         RematchGameId = rematch.Id;
         Revision++;
         return (GameError.None, rematch);

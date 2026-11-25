@@ -52,7 +52,8 @@ public sealed class PrivateLobby
             return error;
         }
 
-        game = Game.StartActive(CreatorId, player.Id, position, now, TimeControl, blackGuestName: guestName);
+        game = Game.StartActive(CreatorId, player.Id, position, now, GameCreationOrigin.PrivateLobby,
+            TimeControl, blackGuestName: guestName);
         JoinedPlayerId = player.Id;
         JoinedAsGuest = player.IsGuest;
         GameId = game.Id;

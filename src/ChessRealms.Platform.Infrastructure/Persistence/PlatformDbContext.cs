@@ -23,6 +23,7 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
             game.Property(item => item.WhiteGuestName).HasMaxLength(32);
             game.Property(item => item.BlackGuestName).HasMaxLength(32);
             game.Property(item => item.Revision).IsConcurrencyToken();
+            game.Property(item => item.CreationOrigin).HasConversion<string>().HasMaxLength(16);
             game.Property(item => item.Status).HasConversion<string>().HasMaxLength(16);
             game.Property(item => item.SideToMove).HasConversion<string>().HasMaxLength(8);
             game.Property(item => item.Winner).HasConversion<string>().HasMaxLength(8);
