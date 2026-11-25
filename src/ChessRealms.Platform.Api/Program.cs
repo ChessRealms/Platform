@@ -8,8 +8,6 @@ using ChessRealms.Platform.Infrastructure;
 using ChessRealms.Platform.Infrastructure.Identity;
 using ChessRealms.Platform.Infrastructure.Identity.Sessions;
 
-using Microsoft.AspNetCore.Http.Connections;
-
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.AddInfrastructure();
@@ -48,10 +46,6 @@ app.UseWebSockets();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
-app.MapHub<GameHub>(GameHub.Path, options =>
-{
-    options.Transports = HttpTransportType.WebSockets;
-    options.CloseOnAuthenticationExpiration = true;
-});
+app.MapGameHub();
 app.MapDefaultEndpoints();
 app.Run();
