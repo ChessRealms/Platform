@@ -3,23 +3,14 @@ import { Component, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { catchError, EMPTY, finalize, Subject, switchMap } from 'rxjs';
+import { finalize } from 'rxjs';
 import { AuthSession } from '../identity/auth-session';
 import { finishReasons, gameIdPattern, GameListItem, GameTimeControl, invitationOutcome } from './game.models';
 import { GameCreation, GameCreationOptions, GamesApi } from './games-api';
 import { InvitationCountdown } from './invitation-countdown';
+import { MyGamesListState } from './my-games-list-state';
 import { QuickPlay } from './quick-play';
-import { deadlineFromServer, ServerDeadline } from './server-deadline';
 
-const gameFilters = [
-  { status: 'Pending', label: 'Invitations', empty: 'No pending invitations.' },
-  { status: 'Active', label: 'Active', empty: 'No active games.' },
-  { status: 'Finished', label: 'Finished', empty: 'No finished games.' },
-  { status: 'ClosedInvitations', label: 'Closed invitations', empty: 'No closed invitations.' },
-] as const;
-
-type GameFilter = (typeof gameFilters)[number];
-type GameRow = GameListItem & { deadline: ServerDeadline | null };
 const maxUsernameLength = 256;
 
 const pendingCreationKey = 'chessrealms.pending-game-creation';
@@ -27,7 +18,7 @@ const pendingLobbyKey = 'chessrealms.pending-lobby-creation';
 
 @Component({
   selector: 'cr-games-page',
-  providers: [GamesApi],
+  providers: [GamesApi, MyGamesListState],
   imports: [DatePipe, FormsModule, InvitationCountdown, QuickPlay, RouterLink],
   templateUrl: './games-page.html',
   styleUrl: './games-page.css',
@@ -39,13 +30,7 @@ export class GamesPage {
   private readonly window = inject(DOCUMENT).defaultView!;
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
-  private readonly listRequests = new Subject<string | null>();
-  protected readonly filters = gameFilters;
-  protected readonly filter = signal<GameFilter>(gameFilters[0]);
-  protected readonly games = signal<GameRow[]>([]);
-  protected readonly nextCursor = signal<string | null>(null);
-  protected readonly listLoading = signal(false);
-  protected readonly listError = signal<string | null>(null);
+  protected readonly list = inject(MyGamesListState);
   protected readonly username = signal<string | null>(null);
   protected readonly usernameError = signal<string | null>(null);
   protected readonly maxUsernameLength = maxUsernameLength;
@@ -61,55 +46,10 @@ export class GamesPage {
   protected lobbyTimeControl: GameTimeControl | '' = this.pendingLobby()?.timeControl ?? '';
 
   constructor() {
-    this.listRequests.pipe(
-      switchMap(before => {
-        this.listLoading.set(true);
-        this.listError.set(null);
-        return this.api.list(this.filter().status, before).pipe(
-          catchError(() => {
-            this.listError.set('Could not load your games. Try again.');
-            return EMPTY;
-          }),
-          finalize(() => this.listLoading.set(false)),
-        );
-      }),
-      takeUntilDestroyed(this.destroyRef),
-    ).subscribe(page => {
-      const receivedAt = performance.now();
-      const rows = page.items.map(item => ({
-        ...item,
-        deadline: item.status === 'Pending'
-          ? deadlineFromServer(item.invitationExpiresAt, page.serverTime, receivedAt) : null,
-      }));
-      this.games.update(items => [...items, ...rows]);
-      this.nextCursor.set(page.nextCursor);
-    });
-    this.refresh();
-
     this.api.me().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: user => this.username.set(user.username),
       error: () => this.usernameError.set('Could not load your username. Reload the page to try again.'),
     });
-  }
-
-  protected show(filter: GameFilter): void {
-    if (filter !== this.filter()) {
-      this.filter.set(filter);
-      this.refresh();
-    }
-  }
-
-  protected refresh(): void {
-    this.games.set([]);
-    this.nextCursor.set(null);
-    this.listRequests.next(null);
-  }
-
-  protected loadMore(): void {
-    const before = this.nextCursor();
-    if (before && !this.listLoading()) {
-      this.listRequests.next(before);
-    }
   }
 
   protected statusText(game: GameListItem): string {

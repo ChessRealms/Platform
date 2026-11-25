@@ -6,6 +6,7 @@ import { AuthSession } from '../identity/auth-session';
 import { gameIdPattern, GameListItem, GameListPage } from './game.models';
 import { GamesApi } from './games-api';
 import { GamesPage } from './games-page';
+import { MyGamesListState } from './my-games-list-state';
 
 describe('My games', () => {
   const serverTime = '2026-01-01T00:00:00Z';
@@ -32,6 +33,7 @@ describe('My games', () => {
       { provide: AuthSession, useValue: { loginKey: () => 'current-login' } },
     ] })
       .overrideComponent(GamesPage, { set: { providers: [
+        MyGamesListState,
         { provide: GamesApi, useValue: {
           list, create, createLobby, currentQuickPlayTicket: () => of(null),
           me: () => of({ userId: 'p2', username: 'WhiteKnight' }),

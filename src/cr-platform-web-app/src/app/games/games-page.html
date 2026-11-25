@@ -9,24 +9,24 @@
   <section class="home-card game-list" aria-label="Your games">
     <div class="list-controls">
       <div class="filters" role="group" aria-label="Game status">
-        @for (option of filters; track option.status) {
-          <button type="button" [attr.aria-pressed]="filter() === option" (click)="show(option)">{{ option.label }}</button>
+        @for (option of list.filters; track option.status) {
+          <button type="button" [attr.aria-pressed]="list.filter() === option" (click)="list.selectFilter(option)">{{ option.label }}</button>
         }
       </div>
-      <button class="refresh" type="button" [disabled]="listLoading()" (click)="refresh()">Refresh</button>
+      <button class="refresh" type="button" [disabled]="list.loading()" (click)="list.refresh()">Refresh</button>
     </div>
 
-    @if (listError(); as message) {
+    @if (list.error(); as message) {
       <p class="form-errors" role="alert">{{ message }}</p>
-    } @else if (listLoading()) {
+    } @else if (list.loading()) {
       <p class="list-message" role="status">Loading games…</p>
-    } @else if (!games().length) {
-      <p class="list-message" role="status">{{ filter().empty }}</p>
+    } @else if (!list.items().length) {
+      <p class="list-message" role="status">{{ list.filter().empty }}</p>
     }
 
-    @if (games().length) {
+    @if (list.items().length) {
       <ul class="game-rows">
-        @for (game of games(); track game.id) {
+        @for (game of list.items(); track game.id) {
           <li>
             <a class="game-row" [routerLink]="[game.isLobby ? '/lobbies' : '/games', game.id]">
               <span class="game-details">
@@ -54,8 +54,8 @@
       </ul>
     }
 
-    @if (nextCursor()) {
-      <button type="button" [disabled]="listLoading()" (click)="loadMore()">Load more</button>
+    @if (list.hasMore()) {
+      <button type="button" [disabled]="list.loading()" (click)="list.loadMore()">Load more</button>
     }
   </section>
 
