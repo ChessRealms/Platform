@@ -50,7 +50,7 @@ jobs:
         run: npm test -- --watch=false
 
   identity-e2e:
-    name: Identity browser smoke test
+    name: Identity and Games browser tests
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -91,7 +91,7 @@ jobs:
         shell: pwsh
         run: |
           "CHESSREALMS_IDENTITY_E2E_RUN_ID=$([Guid]::NewGuid().ToString('N'))" >> $env:GITHUB_ENV
-      - name: Run Identity browser tests
+      - name: Run Identity and Games browser tests
         shell: pwsh
         run: ./scripts/test-identity-e2e.ps1
       - name: Verify container cleanup
