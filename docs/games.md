@@ -31,6 +31,8 @@ replay panel, the left and right arrow keys go to the previous and next step.
 Games with a complete timeline also offer **Original timing**. That mode
 includes the pause before the first move and any time between the last move
 and the result. In timed games the recorded clock balances follow the replay.
+Choose **Download PGN** on the replay page to save the finished game for
+opening in a chess analysis tool. Players who joined as guests can also download it.
 
 Choose **Untimed** or **5+0** when creating a username invitation or private link.
 In 5+0, each player starts with five minutes and moves add no time. White's clock
@@ -186,6 +188,7 @@ other players both return `404 NotFound`.
 | `GET /api/games/{id}` | None | `200` with the current game. |
 | `GET /api/games/{id}/board?afterRevision={revision}` | None | `200` with the game, coordinate move history, legal moves, and `drawClaims` available on the current position for the caller's turn. `204` if the supplied revision is current. Omit the query parameter for a full board. |
 | `GET /api/games/{id}/replay` | None | `200` with the initial position, replay frames, and result. Only a participant in a finished game can retrieve it. |
+| `GET /api/games/{id}/pgn` | None | `200` with a UTF-8 `.pgn` attachment. Uses the same access and finished-game rules as replay. |
 | `POST /api/games/{id}/accept` | `{"expectedRevision":0}` | `200` with the active game at revision 1. |
 | `POST /api/games/{id}/decline` | `{"expectedRevision":0}` | `200` with the invitation `Declined` at revision 1. Only the recipient can decline. |
 | `POST /api/games/{id}/cancel` | `{"expectedRevision":0}` | `200` with the invitation `Cancelled` at revision 1. Only the sender can cancel. |
@@ -356,6 +359,12 @@ The finish contains the winner, reason, elapsed milliseconds, and final balances
 An unfinished game returns `409 GameNotFinished` to a participant. Unknown games
 and games owned by other players return `404`. The browser loads the replay once
 and steps through the positions locally.
+
+PGN uses the initial position and SAN from the engine record, the final
+result from Platform, and the display names of the white and black seats.
+Custom initial positions include `FEN` and `SetUp`. The export includes the
+time control and uses `time forfeit` for a timeout. It works for older games
+without recorded timing and for finished games with zero moves.
 
 `Games.StartedAt` records activation. `GameMoveTimings` stores one row per
 committed half-move with its server timestamp and optional clock balances,

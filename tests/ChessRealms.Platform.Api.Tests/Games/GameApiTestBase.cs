@@ -194,6 +194,17 @@ public abstract class GameApiTestBase : IAsyncLifetime
     protected async Task<GameReplayResponse> ReadReplayAsync(HttpClient client, string url) =>
         Assert.IsType<GameReplayResponse>(await client.GetFromJsonAsync<GameReplayResponse>($"{url}/replay", Cancellation));
 
+    protected async Task<string> DownloadPgnAsync(HttpClient client, string url)
+    {
+        using HttpResponseMessage response = await client.GetAsync($"{url}/pgn", Cancellation);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("application/x-chess-pgn", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("attachment", response.Content.Headers.ContentDisposition?.DispositionType);
+        Assert.Equal($"chessrealms-{url.Split('/')[^1]}.pgn", response.Content.Headers.ContentDisposition?.FileNameStar);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+        return await response.Content.ReadAsStringAsync(Cancellation);
+    }
+
     protected Task<HttpResponseMessage> PlayAsync(HttpClient client, string url, string move, long revision) =>
         client.PostAsJsonAsync($"{url}/moves", new PlayGameMoveRequest(revision, move), Cancellation);
 

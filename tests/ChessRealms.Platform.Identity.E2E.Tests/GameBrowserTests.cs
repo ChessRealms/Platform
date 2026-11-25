@@ -196,6 +196,7 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         await black.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
         string blackUsername = await ReadUsernameAsync(black);
         await white.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
+        string whiteUsername = await ReadUsernameAsync(white);
         await SendInvitationAsync(white, blackUsername);
         ILocator invite = white.GetByLabel("Game link", new() { Exact = true });
         await Expect(invite).ToBeVisibleAsync();
@@ -257,6 +258,14 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         await white.GetByRole(AriaRole.Button, new() { Name = "End", Exact = true }).ClickAsync();
         await Expect(white.GetByText("White wins · Resignation", new() { Exact = true })).ToBeVisibleAsync();
         Assert.Equal(0, Volatile.Read(ref laterGameRequests));
+
+        IDownload download = await white.RunAndWaitForDownloadAsync(() =>
+            white.GetByRole(AriaRole.Button, new() { Name = "Download PGN", Exact = true }).ClickAsync());
+        Assert.Equal($"chessrealms-{new Uri(gameUrl).Segments[^1]}.pgn", download.SuggestedFilename);
+        string pgn = await File.ReadAllTextAsync(await download.PathAsync(), TestContext.Current.CancellationToken);
+        Assert.Contains($"[White \"{whiteUsername}\"]\n[Black \"{blackUsername}\"]\n[Result \"1-0\"]", pgn);
+        Assert.EndsWith("1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O 1-0\n\n", pgn);
+        Assert.Equal(1, Volatile.Read(ref laterGameRequests));
     }
 
     [Theory]

@@ -1,8 +1,9 @@
+import { DOCUMENT } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, DestroyRef, inject, input, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
-import { Subscription, timer } from 'rxjs';
+import { finalize, Subscription, timer } from 'rxjs';
 import { ChessBoard } from './chess-board';
 import { finishReasons, gameIdPattern } from './game.models';
 import { GameReplay } from './game-replay.models';
@@ -21,6 +22,8 @@ export class GameReplayPage implements OnInit {
   protected readonly guest = inject(guestGames);
   protected readonly replay = signal<GameReplay | null>(null);
   protected readonly error = signal<number | null>(null);
+  protected readonly downloadingPgn = signal(false);
+  protected readonly pgnFailed = signal(false);
   protected readonly step = signal(0);
   protected readonly playing = signal(false);
   protected readonly speed = signal(1);
@@ -28,6 +31,7 @@ export class GameReplayPage implements OnInit {
   protected readonly emptyTargets = new Set<string>();
   private readonly api = inject(GamesApi);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly document = inject(DOCUMENT);
   private readonly elapsed = signal(0);
   private playback?: Subscription;
   private readonly times = computed(() => {
@@ -93,6 +97,26 @@ export class GameReplayPage implements OnInit {
     this.api.replay(this.gameId()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: replay => this.replay.set(replay),
       error: (error: HttpErrorResponse) => this.error.set(error.status),
+    });
+  }
+
+  protected downloadPgn(): void {
+    const id = this.gameId();
+    this.pgnFailed.set(false);
+    this.downloadingPgn.set(true);
+    this.api.downloadPgn(id).pipe(
+      takeUntilDestroyed(this.destroyRef),
+      finalize(() => this.downloadingPgn.set(false)),
+    ).subscribe({
+      next: pgn => {
+        const url = URL.createObjectURL(pgn);
+        const link = this.document.createElement('a');
+        link.href = url;
+        link.download = `chessrealms-${id.toLowerCase()}.pgn`;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+      },
+      error: () => this.pgnFailed.set(true),
     });
   }
 

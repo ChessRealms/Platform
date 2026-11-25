@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import { of } from 'rxjs';
+import { of, Subject } from 'rxjs';
 import { vi } from 'vitest';
 import { GameReplay } from './game-replay.models';
 import { GameReplayPage } from './game-replay-page';
@@ -26,8 +26,9 @@ describe('GameReplayPage', () => {
 
   function open(game: GameReplay) {
     const request = vi.fn(() => of(game));
+    const downloadPgn = vi.fn();
     TestBed.configureTestingModule({ providers: [provideRouter([])] }).overrideComponent(GameReplayPage, {
-      set: { providers: [{ provide: GamesApi, useValue: { replay: request } }] },
+      set: { providers: [{ provide: GamesApi, useValue: { replay: request, downloadPgn } }] },
     });
     const fixture = TestBed.createComponent(GameReplayPage);
     fixture.componentRef.setInput('gameId', 'c7c25c2e-d235-4270-8d6a-0e8752277af0');
@@ -42,7 +43,7 @@ describe('GameReplayPage', () => {
       vi.advanceTimersByTime(ms);
       fixture.detectChanges();
     };
-    return { root, click, advance, status, request };
+    return { root, click, advance, status, request, downloadPgn };
   }
 
   beforeEach(() => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance'] }));
@@ -84,6 +85,24 @@ describe('GameReplayPage', () => {
     expect(page.status()).toBe('1. e4');
     page.click('End');
     expect(page.status()).toBe('White wins · Resignation');
+    expect(page.request).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows a failed PGN download to be retried without reloading the replay', () => {
+    const page = open(replay);
+    const failed = new Subject<Blob>();
+    page.downloadPgn.mockReturnValueOnce(failed).mockReturnValueOnce(new Subject<Blob>());
+
+    page.click('Download PGN');
+    expect(page.root.querySelector<HTMLButtonElement>('.replay-download')?.disabled).toBe(true);
+    failed.error(new Error('Unavailable'));
+    page.advance(0);
+    expect(page.root.querySelector('[role="alert"]')?.textContent).toContain('Could not download the PGN.');
+
+    page.click('Download PGN');
+    expect(page.downloadPgn).toHaveBeenNthCalledWith(2, 'c7c25c2e-d235-4270-8d6a-0e8752277af0');
+    expect(page.root.querySelector('[role="alert"]')).toBeNull();
+    expect(page.status()).toBe('Starting position');
     expect(page.request).toHaveBeenCalledTimes(1);
   });
 });

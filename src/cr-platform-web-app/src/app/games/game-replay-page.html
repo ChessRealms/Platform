@@ -2,7 +2,15 @@
   <header>
     <a [routerLink]="[guest ? '/guest/games' : '/games', gameId()]">Back to game</a>
     <h1>Game replay</h1>
+    @if (replay()) {
+      <button class="replay-download" type="button" [disabled]="downloadingPgn()" (click)="downloadPgn()">
+        {{ downloadingPgn() ? 'Preparing PGN…' : 'Download PGN' }}
+      </button>
+    }
   </header>
+  @if (pgnFailed()) {
+    <p class="form-errors" role="alert">Could not download the PGN. Try again.</p>
+  }
 
   @if (replay(); as game) {
     <div class="layout">
