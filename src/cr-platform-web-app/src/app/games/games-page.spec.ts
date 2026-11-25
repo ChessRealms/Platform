@@ -1,8 +1,9 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
-import { of, Subject, throwError } from 'rxjs';
+import { NEVER, of, Subject, throwError } from 'rxjs';
 import { vi } from 'vitest';
 import { AuthSession } from '../identity/auth-session';
+import { GameLiveUpdates } from './game-live-updates';
 import { gameIdPattern, GameListItem, GameListPage } from './game.models';
 import { GamesApi } from './games-api';
 import { GamesPage } from './games-page';
@@ -31,6 +32,7 @@ describe('My games', () => {
     TestBed.configureTestingModule({ providers: [
       provideRouter([]),
       { provide: AuthSession, useValue: { loginKey: () => 'current-login' } },
+      { provide: GameLiveUpdates, useValue: { watchMyGames: () => NEVER } },
     ] })
       .overrideComponent(GamesPage, { set: { providers: [
         MyGamesListState,

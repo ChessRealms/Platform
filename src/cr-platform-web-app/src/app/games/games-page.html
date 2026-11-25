@@ -18,7 +18,7 @@
 
     @if (list.error(); as message) {
       <p class="form-errors" role="alert">{{ message }}</p>
-    } @else if (list.loading()) {
+    } @else if (list.loading() && !list.items().length) {
       <p class="list-message" role="status">Loading games…</p>
     } @else if (!list.items().length) {
       <p class="list-message" role="status">{{ list.filter().empty }}</p>

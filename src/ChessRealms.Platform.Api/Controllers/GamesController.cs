@@ -6,7 +6,6 @@ using ChessRealms.Platform.Domain.Games;
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.SignalR;
 
 namespace ChessRealms.Platform.Api.Controllers;
 
@@ -14,8 +13,7 @@ namespace ChessRealms.Platform.Api.Controllers;
 [Authorize]
 [Route("api/games")]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-public sealed class GamesController(GameService games, IHubContext<GameHub> live, TimeProvider clock,
-    ILogger<GamesController> logger) : ControllerBase
+public sealed class GamesController(GameService games, GameNotifications notifications, TimeProvider clock) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<GameListResponse>> List([FromQuery] GameListFilter? status, [FromQuery] Guid? before,
@@ -53,7 +51,12 @@ public sealed class GamesController(GameService games, IHubContext<GameHub> live
             return ErrorResponse(result.Error);
         }
 
-        GameResponse response = GameResponse.From(result.Game!, clock.GetUtcNow());
+        Game game = result.Game!;
+        if (result.Created)
+        {
+            await notifications.NotifyAsync(game);
+        }
+        GameResponse response = GameResponse.From(game, clock.GetUtcNow());
         return result.Created ? CreatedAtAction(nameof(Get), new { id = response.Id }, response) : Ok(response);
     }
 
@@ -169,19 +172,7 @@ public sealed class GamesController(GameService games, IHubContext<GameHub> live
         }
 
         Game game = result.Game!;
-        using CancellationTokenSource notification = new(TimeSpan.FromSeconds(1));
-        try
-        {
-            await live.Clients.Group(GameHub.GroupName(game.Id))
-                .SendAsync(GameHub.ChangeEvent, game.Id, game.Revision, notification.Token);
-        }
-        catch (Exception exception)
-        {
-            // The command has already committed. Clients can recover from the board endpoint.
-            logger.LogWarning(exception, "Could not notify players of game {GameId} at revision {Revision}",
-                game.Id, game.Revision);
-        }
-
+        await Task.WhenAll(notifications.BoardChangedAsync(game), notifications.NotifyAsync(game));
         return Ok(GameResponse.From(game, clock.GetUtcNow()));
     }
 

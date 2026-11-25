@@ -4,7 +4,7 @@ using ChessRealms.Platform.Domain.Games;
 namespace ChessRealms.Platform.Application.Games;
 
 public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerDirectory players, IUsernameDirectory usernames,
-    TimeProvider clock)
+    TimeProvider clock, IGameListNotifications? listNotifications = null)
 {
     private const int ListPageSize = 20;
 
@@ -180,11 +180,16 @@ public sealed class GameService(IGameStore store, IGameRules rules, IGamePlayerD
 
     private async Task<Game?> ResolveTimeoutAsync(Guid gameId, GameParticipant player, CancellationToken cancellationToken)
     {
+        bool finished = false;
         GameOperationResult result = await store.ChangeLockedAsync(gameId, player, (game, now) =>
         {
-            game.TryFinishOnTime(now, rules.HasInsufficientMatingMaterial);
+            finished = game.TryFinishOnTime(now, rules.HasInsufficientMatingMaterial);
             return GameError.None;
         }, cancellationToken);
+        if (finished && result.Game is { } game && listNotifications is not null)
+        {
+            await listNotifications.NotifyAsync(game);
+        }
         return result.Game;
     }
 

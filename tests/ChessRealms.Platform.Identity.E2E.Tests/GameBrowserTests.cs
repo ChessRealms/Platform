@@ -264,9 +264,22 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         await browserSteps.SignInAsync(white, whiteEmail);
         await browserSteps.SignInAsync(black, blackEmail);
 
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+        TimeSpan liveTimeout = TimeSpan.FromSeconds(15);
+        var subscribed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var missed = new TaskCompletionSource<IWebSocketRoute>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (timed)
+        {
+            await DropFirstMyGamesUpdateAsync(black, subscribed, missed);
+        }
+
         await black.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
         string blackUsername = await ReadUsernameAsync(black);
         await Expect(black.GetByText("No pending invitations.", new() { Exact = true })).ToBeVisibleAsync();
+        if (timed)
+        {
+            await subscribed.Task.WaitAsync(liveTimeout, cancellationToken);
+        }
 
         await white.GetByRole(AriaRole.Link, new() { Name = "Play chess" }).ClickAsync();
         string whiteUsername = await ReadUsernameAsync(white);
@@ -278,20 +291,38 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         await Expect(white.GetByLabel("Game link")).ToBeVisibleAsync();
         await Expect(white.GetByText(new Regex(@"^Expires in [0-5]:[0-5][0-9]$"))).ToBeVisibleAsync();
 
+        if (timed)
+        {
+            IWebSocketRoute disconnected = await missed.Task.WaitAsync(liveTimeout, cancellationToken);
+            await disconnected.CloseAsync();
+        }
+
+        IPage whiteList = await whiteContext.NewPageAsync();
+        await whiteList.GotoAsync(new Uri(fixture.WebOrigin, "/games").AbsoluteUri);
+        ILocator whiteGames = whiteList.GetByRole(AriaRole.Region, new() { Name = "Your games", Exact = true });
+        await whiteGames.GetByRole(AriaRole.Button, new() { Name = "Active", Exact = true }).ClickAsync();
+        await Expect(whiteGames.GetByText("No active games.", new() { Exact = true })).ToBeVisibleAsync();
+
         ILocator gamesList = black.GetByRole(AriaRole.Region, new() { Name = "Your games", Exact = true });
-        await gamesList.GetByRole(AriaRole.Button, new() { Name = "Refresh", Exact = true }).ClickAsync();
-        await gamesList.GetByRole(AriaRole.Link).Filter(new()
+        ILocator invitation = gamesList.GetByRole(AriaRole.Link).Filter(new()
         {
             Has = black.GetByText(whiteUsername, new() { Exact = true }),
             HasText = "Invitation received"
-        }).ClickAsync();
-        ILocator blackClocks = black.GetByRole(AriaRole.Group, new() { Name = "5+0 chess clocks" });
+        });
+        await Expect(invitation).ToBeVisibleAsync();
+        string gamePath = (await invitation.GetAttributeAsync("href"))!;
+        IPage blackBoard = await blackContext.NewPageAsync();
+        await blackBoard.GotoAsync(new Uri(fixture.WebOrigin, gamePath).AbsoluteUri);
+        ILocator blackClocks = blackBoard.GetByRole(AriaRole.Group, new() { Name = "5+0 chess clocks" });
         if (timed)
         {
             await Expect(blackClocks.Locator("time")).ToHaveTextAsync(["5:00", "5:00"]);
         }
-        await black.GetByRole(AriaRole.Button, new() { Name = "Accept game", Exact = true }).ClickAsync();
+        await blackBoard.GetByRole(AriaRole.Button, new() { Name = "Accept game", Exact = true }).ClickAsync();
 
+        await Expect(gamesList.GetByText("No pending invitations.", new() { Exact = true })).ToBeVisibleAsync();
+        await Expect(whiteGames.GetByRole(AriaRole.Link).Filter(new() { HasText = blackUsername }))
+            .ToHaveAttributeAsync("href", gamePath);
         await Expect(white.GetByText("Your turn", new() { Exact = true })).ToBeVisibleAsync();
         if (timed)
         {
@@ -301,17 +332,43 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         }
         await white.GetByRole(AriaRole.Button, new() { Name = "e2, White pawn", Exact = true }).ClickAsync();
         await white.GetByRole(AriaRole.Button, new() { Name = "e4, empty", Exact = true }).ClickAsync();
-        await Expect(black.GetByRole(AriaRole.Button, new() { Name = "e4, White pawn", Exact = true })).ToBeVisibleAsync();
-        await Expect(black.GetByText("Your turn", new() { Exact = true })).ToBeVisibleAsync();
+        await Expect(blackBoard.GetByRole(AriaRole.Button, new() { Name = "e4, White pawn", Exact = true })).ToBeVisibleAsync();
+        await Expect(blackBoard.GetByText("Your turn", new() { Exact = true })).ToBeVisibleAsync();
         if (timed)
         {
             string whiteRemaining = await blackClocks.Locator("time").First.InnerTextAsync();
             await Expect(blackClocks.Locator("time").Last).ToHaveTextAsync(new Regex(@"^4:[0-5][0-9]$"));
-            await black.ReloadAsync();
+            await blackBoard.ReloadAsync();
             await Expect(blackClocks.Locator("time").First).ToHaveTextAsync(whiteRemaining);
             await Expect(blackClocks.Locator("time").Last).ToHaveTextAsync(new Regex(@"^4:[0-5][0-9]$"));
         }
     }
+
+    private static Task DropFirstMyGamesUpdateAsync(IPage page, TaskCompletionSource subscribed,
+        TaskCompletionSource<IWebSocketRoute> missed) =>
+        page.RouteWebSocketAsync(url => new Uri(url).AbsolutePath == "/api/games/live", socket =>
+        {
+            IWebSocketRoute server = socket.ConnectToServer();
+            server.OnMessage(frame =>
+            {
+                foreach (string payload in frame.Text?.Split('\u001e', StringSplitOptions.RemoveEmptyEntries) ?? [])
+                {
+                    using JsonDocument document = JsonDocument.Parse(payload);
+                    JsonElement message = document.RootElement;
+                    if (message.TryGetProperty("target", out JsonElement target)
+                        && target.GetString() == "MyGamesChanged" && missed.TrySetResult(socket))
+                    {
+                        continue;
+                    }
+                    socket.Send(payload + '\u001e');
+                    if (message.TryGetProperty("type", out JsonElement type) && type.GetInt32() == 3
+                        && !message.TryGetProperty("error", out _))
+                    {
+                        subscribed.TrySetResult();
+                    }
+                }
+            });
+        });
 
     [Fact]
     public async Task PlayersAcceptARematchWithSwappedColorsAndPlayTheFirstMove()
@@ -431,7 +488,16 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
         await white.RouteWebSocketAsync(url => new Uri(url).AbsolutePath == "/api/games/live", socket =>
         {
             bool reconnecting = subscribed.Task.IsCompleted;
+            bool boardSubscription = false;
             IWebSocketRoute server = socket.ConnectToServer();
+            socket.OnMessage(frame =>
+            {
+                if (frame.Text is { } text)
+                {
+                    boardSubscription |= text.Contains("\"target\":\"Subscribe\"", StringComparison.Ordinal);
+                    server.Send(text);
+                }
+            });
             server.OnMessage(frame =>
             {
                 foreach (string payload in frame.Text?.Split('\u001e', StringSplitOptions.RemoveEmptyEntries) ?? [])
@@ -455,7 +521,7 @@ public sealed class GameBrowserTests(BrowserAppFixture fixture)
                     }
 
                     socket.Send(payload + '\u001e');
-                    if (message.TryGetProperty("type", out JsonElement type) && type.GetInt32() == 3
+                    if (boardSubscription && message.TryGetProperty("type", out JsonElement type) && type.GetInt32() == 3
                         && !message.TryGetProperty("error", out _))
                     {
                         if (reconnecting)

@@ -104,7 +104,7 @@ public abstract class GameApiTestBase : IAsyncLifetime
         builder.Services.AddScoped<QuickPlayService>();
         builder.Services.AddIdentityAuthentication(builder.Configuration);
         builder.Services.AddControllers().AddApplicationPart(typeof(GamesController).Assembly);
-        builder.Services.AddSignalR();
+        builder.Services.AddGameRealtime();
         builder.Services.AddProblemDetails();
         WebApplication server = builder.Build();
         server.UseExceptionHandler();
@@ -227,9 +227,15 @@ public abstract class GameApiTestBase : IAsyncLifetime
         Assert.False((await ReadLiveMessageAsync(socket)).TryGetProperty("error", out _));
     }
 
-    protected async Task<JsonElement> SubscribeAsync(ClientWebSocket socket, Guid gameId)
+    protected Task<JsonElement> SubscribeAsync(ClientWebSocket socket, Guid gameId) =>
+        InvokeLiveAsync(socket, "Subscribe", [gameId]);
+
+    protected Task<JsonElement> SubscribeMyGamesAsync(ClientWebSocket socket) =>
+        InvokeLiveAsync(socket, "SubscribeMyGames", []);
+
+    private async Task<JsonElement> InvokeLiveAsync(ClientWebSocket socket, string target, object[] arguments)
     {
-        await SendLiveMessageAsync(socket, new { type = 1, invocationId = "join", target = "Subscribe", arguments = new[] { gameId } });
+        await SendLiveMessageAsync(socket, new { type = 1, invocationId = "join", target, arguments });
         JsonElement reply = await ReadLiveMessageAsync(socket);
         Assert.Equal("join", reply.GetProperty("invocationId").GetString());
         return reply;
