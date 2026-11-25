@@ -258,11 +258,17 @@ with the same `requestId`, opponent, and time control. A username and an ID that
 same account identify the same opponent. The request ID is unique per authenticated
 creator and stored with the game, so concurrent retries resolve to the same game
 ID. A replay returns the game's current state and leaves the creation quota
-untouched. New invitations count toward a five-minute sliding window for the
+untouched. New direct invitations count toward a five-minute sliding window for the
 ordered pair of account IDs, even after the invitation closes. One pending
 invitation per ordered pair and three pending outgoing invitations per sender
 are allowed. A duplicate returns the existing invitation's ID so the sender can
 reopen it. Only successful creations bind a request ID.
+
+Each game stores its own creation origin as `DirectInvitation`, `PrivateLobby`,
+`QuickPlay`, or `Rematch`. A rematch carries its own origin while the original
+game retains the link to it. The migration backfills origins from existing
+lobby, ticket, and rematch links. Games without any of these links are direct
+invitations, including records from before creation dates were stored.
 
 Draw claims use `ThreefoldRepetition` or `FiftyMoveRule`. ChessRealms.Engine
 validates each claim. A valid intended move establishes eligibility and is

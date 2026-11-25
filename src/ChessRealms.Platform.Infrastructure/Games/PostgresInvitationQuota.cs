@@ -21,6 +21,7 @@ internal static class PostgresInvitationQuota
         CancellationToken cancellationToken)
     {
         IQueryable<Guid> direct = database.Games.Where(game => game.WhitePlayerId == creatorId
+            && game.CreationOrigin == GameCreationOrigin.DirectInvitation
             && game.Status == GameStatus.Pending && game.InvitationExpiresAt > now).Select(game => game.Id);
         IQueryable<Guid> links = database.PrivateLobbies.Where(lobby => lobby.CreatorId == creatorId
             && lobby.Status == LobbyStatus.Open && lobby.ExpiresAt > now).Select(lobby => lobby.Id);

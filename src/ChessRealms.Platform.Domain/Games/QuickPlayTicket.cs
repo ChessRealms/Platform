@@ -52,7 +52,7 @@ public sealed class QuickPlayTicket
 
         Guid white = playsWhite ? PlayerId : opponent.PlayerId;
         Guid black = playsWhite ? opponent.PlayerId : PlayerId;
-        Game game = Game.StartActive(white, black, position, now, GameTimeControl.Blitz5);
+        Game game = Game.StartActive(white, black, position, now, GameCreationOrigin.QuickPlay, GameTimeControl.Blitz5);
         Status = opponent.Status = QuickPlayStatus.Matched;
         GameId = opponent.GameId = game.Id;
         return game;
