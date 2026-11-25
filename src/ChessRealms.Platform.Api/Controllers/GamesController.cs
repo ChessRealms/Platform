@@ -28,7 +28,7 @@ public sealed class GamesController(GameService games, IHubContext<GameHub> live
         }
 
         GameListPage page = await games.ListAsync(PlayerId(), filter, before, cancellationToken);
-        return GameListResponse.From(page);
+        return GameListResponse.From(page, clock.GetUtcNow());
     }
 
     [HttpPost]

@@ -22,7 +22,8 @@ const position: GameBoard = {
   game: { id, whitePlayerId: 'white', blackPlayerId: 'black', status: 'Active', revision: 1,
     whiteGuestName: null, blackGuestName: null,
     fen: '7k/P7/8/8/8/8/8/7K w - - 0 1', sideToMove: 'White', winner: null, endReason: null, drawOfferedBy: null,
-    invitationExpiresAt: null, rematchExpiresAt: null, rematchOfferedBy: null, rematchGameId: null, clock: null },
+    invitationExpiresAt: null, rematchExpiresAt: null, rematchOfferedBy: null, rematchGameId: null, clock: null,
+    serverTime: '2026-01-01T00:00:00Z' },
   moves: [], legalMoves: ['a7a8q'], drawClaims: [],
 };
 
@@ -108,7 +109,7 @@ describe('games across browser logins', () => {
     expect(lateIdentity.cancelled).toBe(true);
     (await request('/api/identity/me')).flush({ userId: 'black', username: 'BlackKnight' });
     (await request('/api/quick-play')).flush(null, { status: 204, statusText: 'No Content' });
-    (await request('/api/games?status=Pending')).flush({ items: [], nextCursor: null });
+    (await request('/api/games?status=Pending')).flush({ items: [], nextCursor: null, serverTime: position.game.serverTime });
     harness.detectChanges();
     expect(page.querySelector<HTMLInputElement>('#opponent-username')!.value).toBe('');
     expect(page.textContent).not.toContain('Retry creation');

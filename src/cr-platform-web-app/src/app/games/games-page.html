@@ -44,8 +44,8 @@
               </span>
               <span class="game-status">
                 <span>{{ statusText(game) }}</span>
-                @if (game.status === 'Pending' && game.invitationExpiresAt; as expiresAt) {
-                  <br /><cr-invitation-countdown [expiresAt]="expiresAt" />
+                @if (game.deadline; as deadline) {
+                  <br /><cr-invitation-countdown [deadline]="deadline" />
                 }
               </span>
             </a>

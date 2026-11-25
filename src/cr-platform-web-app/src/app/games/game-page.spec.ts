@@ -1,6 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
-import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
 import { BehaviorSubject, NEVER, Observable, of, Subject, throwError } from 'rxjs';
 import { vi } from 'vitest';
 import { AuthSession } from '../identity/auth-session';
@@ -19,6 +19,7 @@ describe('GamePage', () => {
     invitationExpiresAt: null,
     rematchExpiresAt: null, rematchOfferedBy: null, rematchGameId: null,
     clock: null,
+    serverTime: '2026-01-01T00:00:00Z',
   };
   const initial: GameBoard = { game, moves: [], legalMoves: ['a7a8q', 'a7a8r', 'a7a8b', 'a7a8n'], drawClaims: [] };
 
@@ -84,12 +85,13 @@ describe('GamePage', () => {
     expect(board).toHaveBeenCalledTimes(1);
   });
 
-  it('hides rematch actions at the deadline and then stops background reads', () => {
+  it.each([-20, 20])('hides rematch actions at the server deadline with a %i-minute browser clock offset', offset => {
     vi.useFakeTimers();
+    vi.setSystemTime(Date.parse(game.serverTime) + offset * 60_000);
     const updates = new Subject<number | null>();
     const finished: Game = {
       ...game, status: 'Finished', sideToMove: null, rematchOfferedBy: 'Black',
-      rematchExpiresAt: new Date(Date.now() + 5000).toISOString(),
+      rematchExpiresAt: '2026-01-01T00:00:05Z',
     };
     const board = vi.fn().mockReturnValueOnce(of({ ...initial, game: finished, legalMoves: [] }))
       .mockReturnValue(of(null));
@@ -99,6 +101,7 @@ describe('GamePage', () => {
       .find(button => button.textContent === 'Accept rematch');
 
     expect(acceptButton()?.disabled).toBe(false);
+    expect(fixture.nativeElement.querySelector('time')?.textContent).toBe('Expires in 0:05');
     expect(updates.observed).toBe(true);
     vi.advanceTimersByTime(5000);
     fixture.detectChanges();
@@ -111,6 +114,32 @@ describe('GamePage', () => {
     const reads = board.mock.calls.length;
     vi.advanceTimersByTime(45000);
     expect(board).toHaveBeenCalledTimes(reads);
+  });
+
+  it('discovers a late rematch acceptance through the final read when SignalR missed it', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.parse(game.serverTime) + 20 * 60_000);
+    const updates = new Subject<number | null>();
+    const finished: Game = {
+      ...game, status: 'Finished', sideToMove: null, rematchOfferedBy: 'Black',
+      rematchExpiresAt: '2026-01-01T00:00:05Z',
+    };
+    const accepted: Game = { ...finished, revision: 23, rematchGameId: 'rematch' };
+    const board = vi.fn()
+      .mockReturnValueOnce(of({ ...initial, game: finished, legalMoves: [] }))
+      .mockReturnValueOnce(of(null))
+      .mockReturnValueOnce(of({ ...initial, game: accepted, legalMoves: [] }));
+    const { fixture, sync } = open(board, undefined, updates);
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+
+    vi.advanceTimersByTime(5000);
+    expect(sync.canRematch()).toBe(false);
+    expect(updates.observed).toBe(true);
+    vi.advanceTimersByTime(15000);
+    expect(sync.startedRematch()).toBe('rematch');
+    expect(updates.observed).toBe(false);
+    fixture.detectChanges();
+    expect(navigate).toHaveBeenCalledExactlyOnceWith(['/games', 'rematch']);
   });
 
   it('requests the authoritative result when the running clock expires', () => {
@@ -163,13 +192,15 @@ describe('GamePage', () => {
 
   it('reads the board at the invitation deadline and shows the server expiry', () => {
     vi.useFakeTimers();
+    vi.setSystemTime(Date.parse(game.serverTime) - 20 * 60_000);
     const pending: Game = {
       ...game, status: 'Pending', revision: 0, sideToMove: null,
-      invitationExpiresAt: new Date(Date.now() + 5000).toISOString(),
+      invitationExpiresAt: '2026-01-01T00:00:05Z',
     };
     const expired: Game = { ...pending, status: 'Expired', revision: 1 };
+    const expiryRead = new Subject<GameBoard>();
     const board = vi.fn().mockReturnValueOnce(of({ ...initial, game: pending, legalMoves: [] }))
-      .mockReturnValueOnce(of({ ...initial, game: expired, legalMoves: [] }));
+      .mockReturnValueOnce(expiryRead);
     const { page, sync } = open(board);
 
     vi.advanceTimersByTime(4999);
@@ -178,8 +209,10 @@ describe('GamePage', () => {
 
     vi.advanceTimersByTime(1);
     expect(board).toHaveBeenLastCalledWith(id, 0);
-    expect(page.status()).toBe('Invitation expired');
     expect(sync.canAct()).toBe(false);
+    expect(sync.submit({ kind: 'invitation', action: 'cancel' })).toBe(false);
+    expiryRead.next({ ...initial, game: expired, legalMoves: [] });
+    expect(page.status()).toBe('Invitation expired');
 
     vi.advanceTimersByTime(45000);
     expect(board).toHaveBeenCalledTimes(2);

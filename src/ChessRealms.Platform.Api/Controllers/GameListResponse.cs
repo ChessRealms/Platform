@@ -2,10 +2,10 @@ using ChessRealms.Platform.Application.Games;
 
 namespace ChessRealms.Platform.Api.Controllers;
 
-public sealed record GameListResponse(IReadOnlyList<GameListItemResponse> Items, Guid? NextCursor)
+public sealed record GameListResponse(IReadOnlyList<GameListItemResponse> Items, Guid? NextCursor, DateTimeOffset ServerTime)
 {
-    internal static GameListResponse From(GameListPage page) =>
-        new(page.Items.Select(GameListItemResponse.From).ToArray(), page.NextCursor);
+    internal static GameListResponse From(GameListPage page, DateTimeOffset now) =>
+        new(page.Items.Select(GameListItemResponse.From).ToArray(), page.NextCursor, now);
 }
 
 public sealed record GameListItemResponse(Guid Id, Guid? OpponentId, string? OpponentName, string Color, string Status,

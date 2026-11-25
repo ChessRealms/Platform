@@ -52,6 +52,11 @@ is lost, use **Retry creation** to recover the same invitation. The web app
 remembers the attempt in that tab across reloads during the same login. Choose
 **Start a new invitation** if you want to make a separate attempt.
 
+Game, game list, and lobby responses include `serverTime` for invitation and
+rematch countdowns, including untimed games. The web app measures elapsed time
+from receipt of the response using the browser's monotonic clock. The server
+checks the deadline when it processes each action.
+
 Tabs in the same browser profile share a login. Switching accounts in another
 tab reloads the board and My games for the new player. Signing out clears both
 views. The board's sign-in link keeps the game ID.

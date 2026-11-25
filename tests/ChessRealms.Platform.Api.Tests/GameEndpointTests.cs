@@ -112,7 +112,7 @@ public sealed class GameEndpointTests : IAsyncLifetime
         clock.Advance(TimeSpan.FromMinutes(5));
         using HttpResponseMessage retry = await winner.PostAsJsonAsync($"{url}/join", revision, Cancellation);
         Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
-        Assert.Equal(joined, await retry.Content.ReadFromJsonAsync<LobbyResponse>(Cancellation));
+        Assert.Equal(joined with { ServerTime = clock.GetUtcNow() }, await retry.Content.ReadFromJsonAsync<LobbyResponse>(Cancellation));
         LobbyResponse hostView = Assert.IsType<LobbyResponse>(await host.GetFromJsonAsync<LobbyResponse>(url, Cancellation));
         Assert.Equal(gameId, hostView.GameId);
         using HttpResponseMessage loserRead = await loser.GetAsync(url, Cancellation);
@@ -170,6 +170,7 @@ public sealed class GameEndpointTests : IAsyncLifetime
         CreateLobbyRequest request = new(Guid.NewGuid());
         LobbyResponse first = await CreateLobbyAsync(host, request);
         Assert.Equal(clock.GetUtcNow().AddMinutes(5), first.ExpiresAt);
+        Assert.Equal(clock.GetUtcNow(), first.ServerTime);
 
         Task<HttpResponseMessage> nextLink = host.PostAsJsonAsync("/api/lobbies", new CreateLobbyRequest(Guid.NewGuid()), Cancellation);
         Task<HttpResponseMessage> nextDirect = host.PostAsJsonAsync("/api/games", new CreateGameRequest(otherId), Cancellation);
@@ -194,6 +195,7 @@ public sealed class GameEndpointTests : IAsyncLifetime
         await AssertErrorAsync(cancel, HttpStatusCode.Gone, "InvitationExpired");
         LobbyResponse expired = Assert.IsType<LobbyResponse>(await guest.GetFromJsonAsync<LobbyResponse>(url, Cancellation));
         Assert.Equal("Expired", expired.Status);
+        Assert.Equal(first.ExpiresAt, expired.ServerTime);
         Assert.Null(expired.GameId);
         Assert.Empty((await ListGamesAsync(host)).Items);
         Assert.Equal(3, (await ListGamesAsync(host, "?status=ClosedInvitations")).Items.Count);
@@ -555,14 +557,16 @@ public sealed class GameEndpointTests : IAsyncLifetime
         clock.Advance(TimeSpan.FromMilliseconds(299999));
         using HttpResponseMessage unchanged = await black.GetAsync(boardUrl, Cancellation);
         Assert.Equal(HttpStatusCode.NoContent, unchanged.StatusCode);
-        Assert.Single((await ListGamesAsync(black)).Items);
+        GameListResponse beforeExpiry = await ListGamesAsync(black);
+        Assert.Single(beforeExpiry.Items);
+        Assert.Equal(pending.InvitationExpiresAt!.Value.AddMilliseconds(-1), beforeExpiry.ServerTime);
         Assert.Empty((await ListGamesAsync(black, "?status=ClosedInvitations")).Items);
 
         clock.Advance(TimeSpan.FromMilliseconds(1));
         using HttpResponseMessage changed = await black.GetAsync(boardUrl, Cancellation);
         Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
         GameBoardResponse board = Assert.IsType<GameBoardResponse>(await changed.Content.ReadFromJsonAsync<GameBoardResponse>(Cancellation));
-        GameResponse expired = pending with { Status = "Expired", Revision = pending.Revision + 1 };
+        GameResponse expired = pending with { Status = "Expired", Revision = pending.Revision + 1, ServerTime = clock.GetUtcNow() };
         Assert.Equal(expired, board.Game);
         Assert.Empty(board.LegalMoves);
         using HttpResponseMessage upToDate = await black.GetAsync($"{url}/board?afterRevision={expired.Revision}", Cancellation);
@@ -591,7 +595,8 @@ public sealed class GameEndpointTests : IAsyncLifetime
         clock.Advance(TimeSpan.FromMilliseconds(299999));
         GameResponse accepted = await AcceptGameAsync(black, $"/api/games/{fresh.Id}");
         clock.Advance(TimeSpan.FromMilliseconds(1));
-        Assert.Equal(accepted, await black.GetFromJsonAsync<GameResponse>($"/api/games/{fresh.Id}", Cancellation));
+        Assert.Equal(accepted with { ServerTime = clock.GetUtcNow() },
+            await black.GetFromJsonAsync<GameResponse>($"/api/games/{fresh.Id}", Cancellation));
     }
 
     [Fact]
@@ -1015,6 +1020,8 @@ public sealed class GameEndpointTests : IAsyncLifetime
 
         GameResponse offered = await ApplyActionAsync(white, url, "rematch/offer", finished.Revision);
         Assert.Equal(deadline, offered.RematchExpiresAt);
+        Assert.Equal(deadline.AddMilliseconds(-1), offered.ServerTime);
+        Assert.Null(offered.Clock);
         Assert.Equal("White", offered.RematchOfferedBy);
         Assert.Equal(offered, (await ReadBoardAsync(black, url)).Game);
         using HttpResponseMessage competingOffer = await SendActionAsync(black, url, "rematch/offer", finished.Revision);
@@ -1036,13 +1043,14 @@ public sealed class GameEndpointTests : IAsyncLifetime
             Assert.Equal(accepted, await responses[1].Content.ReadFromJsonAsync<GameResponse>(Cancellation));
         }
         Guid rematchId = Assert.IsType<Guid>(accepted.RematchGameId);
-        Assert.Equal(finished with { Revision = offered.Revision + 1, RematchOfferedBy = "White", RematchGameId = rematchId }, accepted);
+        Assert.Equal(offered with { Revision = offered.Revision + 1, RematchGameId = rematchId }, accepted);
 
         clock.Advance(TimeSpan.FromMilliseconds(1));
         using HttpResponseMessage replay = await SendActionAsync(black, url, "rematch/accept", offered.Revision);
         Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
-        Assert.Equal(accepted, await replay.Content.ReadFromJsonAsync<GameResponse>(Cancellation));
-        Assert.Equal(accepted, (await ReadBoardAsync(white, url)).Game);
+        GameResponse afterExpiry = accepted with { ServerTime = clock.GetUtcNow() };
+        Assert.Equal(afterExpiry, await replay.Content.ReadFromJsonAsync<GameResponse>(Cancellation));
+        Assert.Equal(afterExpiry, (await ReadBoardAsync(white, url)).Game);
         Assert.Equal(rematchId, Assert.Single((await ListGamesAsync(white, "?status=Active")).Items).Id);
 
         string rematchUrl = $"/api/games/{rematchId}";
@@ -1075,7 +1083,7 @@ public sealed class GameEndpointTests : IAsyncLifetime
         await AssertErrorAsync(lateAccept, HttpStatusCode.Gone, "RematchExpired");
         using HttpResponseMessage lateOffer = await SendActionAsync(black, secondUrl, "rematch/offer", secondFinished.Revision);
         await AssertErrorAsync(lateOffer, HttpStatusCode.Gone, "RematchExpired");
-        Assert.Equal(offered, (await ReadBoardAsync(white, url)).Game);
+        Assert.Equal(offered with { ServerTime = clock.GetUtcNow() }, (await ReadBoardAsync(white, url)).Game);
         Assert.Empty((await ListGamesAsync(white, "?status=Active")).Items);
     }
 

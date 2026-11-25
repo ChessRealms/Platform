@@ -1,14 +1,15 @@
 import { DOCUMENT } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, DestroyRef, inject, signal } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { catchError, EMPTY, exhaustMap, filter, finalize, merge, Subject, switchMap, timer } from 'rxjs';
+import { catchError, EMPTY, exhaustMap, filter, finalize, merge, Subject, switchMap, tap, timer } from 'rxjs';
 import { gameIdPattern, PrivateLobby } from './game.models';
 import { GamesApi } from './games-api';
 import { guestGames } from './guest-games';
 import { InvitationCountdown } from './invitation-countdown';
+import { deadlineFromServer, remainingUntil, ServerDeadline } from './server-deadline';
 
 @Component({
   selector: 'cr-lobby-page',
@@ -25,6 +26,8 @@ export class LobbyPage {
   protected readonly guest = inject(guestGames);
   private readonly refresh = new Subject<void>();
   protected readonly lobby = signal<PrivateLobby | null>(null);
+  protected readonly deadline = signal<ServerDeadline | null>(null);
+  protected readonly deadlineElapsed = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly busy = signal(false);
   protected readonly unavailable = signal(false);
@@ -38,7 +41,13 @@ export class LobbyPage {
       return;
     }
 
-    merge(timer(0, 3000).pipe(filter(() => !this.busy())), this.refresh).pipe(
+    const expiry = toObservable(this.deadline).pipe(
+      switchMap(deadline => deadline ? timer(Math.max(0, Math.ceil(remainingUntil(deadline)))).pipe(
+        tap(() => this.deadlineElapsed.set(true)),
+      ) : EMPTY),
+    );
+    const scheduledReads = merge(timer(0, 3000), expiry).pipe(filter(() => !this.busy()));
+    merge(scheduledReads, this.refresh).pipe(
       filter(() => !this.unavailable() && (!this.lobby() || this.lobby()?.status === 'Open')),
       exhaustMap(() => this.api.lobby(this.id).pipe(catchError((error: HttpErrorResponse) => {
         if (error.status === 404 || error.error?.code === 'LobbyAlreadyJoined') {
@@ -75,7 +84,9 @@ export class LobbyPage {
 
   protected change(action: 'join' | 'cancel'): void {
     const lobby = this.lobby();
-    if (this.busy() || lobby?.status !== 'Open' || (action === 'cancel') !== lobby.isOwner) {
+    const deadline = this.deadline();
+    if (this.busy() || lobby?.status !== 'Open' || (action === 'cancel') !== lobby.isOwner
+      || !deadline || remainingUntil(deadline) <= 0) {
       return;
     }
     this.busy.set(true);
@@ -110,6 +121,10 @@ export class LobbyPage {
     }
     this.error.set(null);
     this.lobby.set(current);
+    const deadline = current.status === 'Open'
+      ? deadlineFromServer(current.expiresAt, current.serverTime, performance.now()) : null;
+    this.deadline.set(deadline);
+    this.deadlineElapsed.set(deadline !== null && remainingUntil(deadline) <= 0);
     if (current.gameId) {
       void this.router.navigate([this.guest ? '/guest/games' : '/games', current.gameId], { replaceUrl: true });
     }

@@ -8,6 +8,7 @@ import { GamesApi } from './games-api';
 import { GamesPage } from './games-page';
 
 describe('My games', () => {
+  const serverTime = '2026-01-01T00:00:00Z';
   const incoming: GameListItem = {
     id: 'a1', opponentId: 'p1', opponentName: 'Rook', color: 'Black', status: 'Pending', createdAt: null,
     opponentIsGuest: false,
@@ -20,7 +21,10 @@ describe('My games', () => {
   let fixture: ComponentFixture<GamesPage>;
   let element: HTMLElement;
 
-  afterEach(() => sessionStorage.clear());
+  afterEach(() => {
+    sessionStorage.clear();
+    vi.useRealTimers();
+  });
 
   function open(list: ReturnType<typeof vi.fn>, create = vi.fn(), createLobby = vi.fn()): void {
     TestBed.configureTestingModule({ providers: [
@@ -62,7 +66,7 @@ describe('My games', () => {
     const list = vi.fn().mockReturnValueOnce(invitations)
       .mockReturnValueOnce(of({ items: [active], nextCursor: null }));
     open(list);
-    invitations.next({ items: [incoming, outgoing], nextCursor: null });
+    invitations.next({ items: [incoming, outgoing], nextCursor: null, serverTime });
     fixture.detectChanges();
 
     expect(element.textContent).toContain('Invitation received');
@@ -70,12 +74,29 @@ describe('My games', () => {
     expect(element.querySelector('.game-row')?.getAttribute('href')).toBe('/games/a1');
 
     click('Active');
-    invitations.next({ items: [incoming], nextCursor: null });
+    invitations.next({ items: [incoming], nextCursor: null, serverTime });
     fixture.detectChanges();
     expect(list).toHaveBeenLastCalledWith('Active', null);
     expect(element.textContent).toContain('Your turn');
     expect(element.textContent).not.toContain('Invitation received');
     expect(element.querySelector('.game-row')?.getAttribute('href')).toBe('/games/a3');
+  });
+
+  it('keeps each page of invitation countdowns anchored to its own server response', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.parse(serverTime) + 20 * 60_000);
+    const invitationExpiresAt = '2026-01-01T00:00:10Z';
+    const list = vi.fn()
+      .mockReturnValueOnce(of({ items: [{ ...incoming, invitationExpiresAt }], nextCursor: incoming.id, serverTime }))
+      .mockReturnValueOnce(of({
+        items: [{ ...outgoing, invitationExpiresAt, isLobby: true }], nextCursor: null, serverTime: '2026-01-01T00:00:03Z',
+      }));
+    open(list);
+    expect(element.querySelector('time')?.textContent).toBe('Expires in 0:10');
+
+    vi.advanceTimersByTime(3000);
+    click('Load more');
+    expect([...element.querySelectorAll('time')].map(time => time.textContent)).toEqual(['Expires in 0:07', 'Expires in 0:07']);
   });
 
   it('reuses the private link request and its time control after a lost response and a reload', async () => {

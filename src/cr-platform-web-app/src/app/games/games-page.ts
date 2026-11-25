@@ -9,6 +9,7 @@ import { finishReasons, gameIdPattern, GameListItem, GameTimeControl, invitation
 import { GameCreation, GameCreationOptions, GamesApi } from './games-api';
 import { InvitationCountdown } from './invitation-countdown';
 import { QuickPlay } from './quick-play';
+import { deadlineFromServer, ServerDeadline } from './server-deadline';
 
 const gameFilters = [
   { status: 'Pending', label: 'Invitations', empty: 'No pending invitations.' },
@@ -18,6 +19,7 @@ const gameFilters = [
 ] as const;
 
 type GameFilter = (typeof gameFilters)[number];
+type GameRow = GameListItem & { deadline: ServerDeadline | null };
 const maxUsernameLength = 256;
 
 const pendingCreationKey = 'chessrealms.pending-game-creation';
@@ -40,7 +42,7 @@ export class GamesPage {
   private readonly listRequests = new Subject<string | null>();
   protected readonly filters = gameFilters;
   protected readonly filter = signal<GameFilter>(gameFilters[0]);
-  protected readonly games = signal<GameListItem[]>([]);
+  protected readonly games = signal<GameRow[]>([]);
   protected readonly nextCursor = signal<string | null>(null);
   protected readonly listLoading = signal(false);
   protected readonly listError = signal<string | null>(null);
@@ -73,7 +75,13 @@ export class GamesPage {
       }),
       takeUntilDestroyed(this.destroyRef),
     ).subscribe(page => {
-      this.games.update(items => [...items, ...page.items]);
+      const receivedAt = performance.now();
+      const rows = page.items.map(item => ({
+        ...item,
+        deadline: item.status === 'Pending'
+          ? deadlineFromServer(item.invitationExpiresAt, page.serverTime, receivedAt) : null,
+      }));
+      this.games.update(items => [...items, ...rows]);
       this.nextCursor.set(page.nextCursor);
     });
     this.refresh();
