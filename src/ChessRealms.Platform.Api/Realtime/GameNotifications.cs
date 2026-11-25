@@ -11,8 +11,8 @@ public sealed class GameNotifications(IHubContext<GameHub> hub, ILogger<GameNoti
         .SendAsync(GameHub.ChangeEvent, game.Id, game.Revision, token));
 
     public Task NotifyAsync(Game game) => ListsChangedAsync(
-        game.WhiteGuestName is null ? game.WhitePlayerId : null,
-        game.BlackGuestName is null ? game.BlackPlayerId : null);
+        game.WhitePlayerKind == GameParticipantKind.Account ? game.WhitePlayerId : null,
+        game.BlackPlayerKind == GameParticipantKind.Account ? game.BlackPlayerId : null);
 
     public Task ListsChangedAsync(Guid? firstAccount, Guid? secondAccount = null)
     {

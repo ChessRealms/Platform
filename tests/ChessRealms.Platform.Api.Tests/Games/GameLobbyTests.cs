@@ -4,6 +4,12 @@ using System.Net.WebSockets;
 using System.Text.Json;
 
 using ChessRealms.Platform.Api.Controllers;
+using ChessRealms.Platform.Application.Identity;
+using ChessRealms.Platform.Domain.Games;
+using ChessRealms.Platform.Infrastructure.Persistence;
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 using Xunit;
 
@@ -319,6 +325,74 @@ public sealed class GameLobbyTests : GameApiTestBase
         await AssertErrorAsync(loser, HttpStatusCode.Conflict, "LobbyAlreadyJoined");
         LobbyResponse joined = Assert.IsType<LobbyResponse>(await winner.Content.ReadFromJsonAsync<LobbyResponse>(Cancellation));
         Assert.Equal(joined.GameId, Assert.Single((await ListGamesAsync(host, "?status=Active")).Items).Id);
+    }
+
+    [Fact]
+    public async Task ParticipantBackfillPreservesBoardAndReplayAccessAcrossAGuestRematch()
+    {
+        (Guid hostId, string hostToken) = await RegisterAndSignInAsync("host");
+        (Guid memberId, string memberToken) = await RegisterAndSignInAsync("member");
+        using HttpClient host = CreateClient(hostToken);
+        using HttpClient member = CreateClient(memberToken);
+        using HttpClient guest = CreateGuestClient();
+        GameResponse direct = await CreateGameAsync(host, memberId);
+        LobbyResponse lobby = await CreateLobbyAsync(host);
+        GuestProfile profile = await StartGuestAsync(guest, lobby.Id, "Guest Knight");
+        using HttpResponseMessage reply = await SendActionAsync(guest, $"/api/lobbies/{lobby.Id}", "join", lobby.Revision);
+        Assert.Equal(HttpStatusCode.OK, reply.StatusCode);
+        LobbyResponse joined = Assert.IsType<LobbyResponse>(await reply.Content.ReadFromJsonAsync<LobbyResponse>(Cancellation));
+        Guid originalId = Assert.IsType<Guid>(joined.GameId);
+        string originalUrl = $"/api/games/{originalId}";
+        GameResponse move = await MakeMoveAsync(host, originalUrl, "e2e4", 0);
+        GameResponse finished = await ApplyActionAsync(guest, originalUrl, "resign", move.Revision);
+        GameResponse offered = await ApplyActionAsync(host, originalUrl, "rematch/offer", finished.Revision);
+        GameResponse accepted = await ApplyActionAsync(guest, originalUrl, "rematch/accept", offered.Revision);
+        Guid rematchId = Assert.IsType<Guid>(accepted.RematchGameId);
+        string rematchUrl = $"/api/games/{rematchId}";
+
+        await using AsyncServiceScope scope = CreateScope();
+        PlatformDbContext database = scope.ServiceProvider.GetRequiredService<PlatformDbContext>();
+        await database.Database.MigrateAsync("20261125163608_GameCreationOrigin", Cancellation);
+        await database.Database.MigrateAsync(Cancellation);
+
+        GameParticipant hostPlayer = GameParticipant.Account(hostId);
+        GameParticipant guestPlayer = GameParticipant.Guest(profile.UserId);
+        Dictionary<Guid, Game> saved = await database.Games.AsNoTracking().ToDictionaryAsync(game => game.Id, Cancellation);
+        Assert.Equal((hostPlayer, GameParticipant.Account(memberId)), (saved[direct.Id].WhitePlayer, saved[direct.Id].BlackPlayer));
+        Assert.Equal((hostPlayer, guestPlayer), (saved[originalId].WhitePlayer, saved[originalId].BlackPlayer));
+        Assert.Equal((guestPlayer, hostPlayer), (saved[rematchId].WhitePlayer, saved[rematchId].BlackPlayer));
+        Assert.Equal(rematchId, saved[originalId].RematchGameId);
+        Assert.Equal(profile.Username, saved[originalId].BlackGuestName);
+        Assert.Equal(profile.Username, saved[rematchId].WhiteGuestName);
+        Assert.Equal(direct.Id, (await ReadBoardAsync(member, $"/api/games/{direct.Id}")).Game.Id);
+        Assert.Equal(profile.UserId, (await ReadBoardAsync(guest, rematchUrl)).Game.WhitePlayerId);
+
+        // A display name can be absent without transferring the seat to an account with that ID.
+        await database.Games.Where(game => game.Id == originalId)
+            .ExecuteUpdateAsync(update => update.SetProperty(game => game.BlackGuestName, (string?)null), Cancellation);
+        await database.Games.Where(game => game.Id == rematchId)
+            .ExecuteUpdateAsync(update => update.SetProperty(game => game.WhiteGuestName, (string?)null), Cancellation);
+        AccessToken sameIdAccount = scope.ServiceProvider.GetRequiredService<IAccessTokenIssuer>().Issue(profile.UserId, Guid.NewGuid());
+        using HttpClient account = CreateClient(sameIdAccount.Value);
+        foreach (string url in new[] { originalUrl, originalUrl + "/board", originalUrl + "/replay", rematchUrl + "/board" })
+        {
+            using HttpResponseMessage denied = await account.GetAsync(url, Cancellation);
+            await AssertErrorAsync(denied, HttpStatusCode.NotFound, "NotFound");
+        }
+        using HttpResponseMessage deniedMove = await PlayAsync(account, rematchUrl, "e2e4", 0);
+        await AssertErrorAsync(deniedMove, HttpStatusCode.NotFound, "NotFound");
+        Assert.Empty((await ListGamesAsync(account, "?status=Active")).Items);
+        Assert.Empty((await ListGamesAsync(account, "?status=Finished")).Items);
+        GameListItemResponse hostRematch = Assert.Single((await ListGamesAsync(host, "?status=Active")).Items, item => item.Id == rematchId);
+        Assert.True(hostRematch.OpponentIsGuest);
+        Assert.Null(hostRematch.OpponentName);
+
+        Assert.Null((await ReadBoardAsync(guest, originalUrl)).Game.BlackGuestName);
+        GameReplayResponse replay = await ReadReplayAsync(guest, originalUrl);
+        Assert.Equal("Black", replay.ViewerColor);
+        Assert.Equal("e2e4", Assert.Single(replay.Moves).Move);
+        Assert.Contains("e2e4", (await ReadBoardAsync(guest, rematchUrl)).LegalMoves);
+        await MakeMoveAsync(guest, rematchUrl, "e2e4", 0);
     }
 
     private HttpClient CreateGuestClient()

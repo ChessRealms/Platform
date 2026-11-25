@@ -17,8 +17,11 @@ internal sealed class GuestAuthentication(IOptionsMonitor<AuthenticationSchemeOp
     internal const string GamePolicy = "GameParticipant";
     internal const string CookieName = "__Host-ChessRealms.Guest";
 
-    internal static GameParticipant Participant(ClaimsPrincipal identity) =>
-        new(Guid.Parse(identity.FindFirst("sub")!.Value), identity.Identity?.AuthenticationType == GuestScheme);
+    internal static GameParticipant Participant(ClaimsPrincipal identity)
+    {
+        Guid id = Guid.Parse(identity.FindFirst("sub")!.Value);
+        return identity.Identity?.AuthenticationType == GuestScheme ? GameParticipant.Guest(id) : GameParticipant.Account(id);
+    }
 
     internal static CookieOptions CookieSettings(DateTimeOffset? expiresAt = null) => new()
     {

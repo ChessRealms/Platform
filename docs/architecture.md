@@ -107,8 +107,11 @@ same row lock used for game commands.
 
 Guest sessions let signed-out visitors join an open private lobby. The Platform
 schema stores a hash of the browser credential. A guest keeps the same player
-ID for game actions, rematches, and replays. Game seats preserve the display
-name and distinguish guest IDs from account IDs.
+ID for game actions, rematches, and replays. Each game seat stores its player
+ID and whether it belongs to an account or a guest. Access checks match both
+fields. The guest display name is stored separately for presentation, and a
+rematch carries the full seat identity into the opposite color.
+The migration backfills both seat types using the existing guest names.
 
 Quick Play uses one unrated 5+0 queue for confirmed accounts. PostgreSQL
 serializes queue changes and commits the game with both tickets.

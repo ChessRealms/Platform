@@ -19,7 +19,7 @@ public sealed record GameReplayFinish(PlayerColor? Winner, GameEndReason? EndRea
 public sealed record GameReplay(string InitialFen, PlayerColor ViewerColor, GameTimeControl? TimeControl,
     bool HasRecordedTiming, GameReplayClock? InitialClock, IReadOnlyList<GameReplayMove> Moves, GameReplayFinish Finish)
 {
-    internal static GameReplay From(Game game, Guid playerId, GameReplayLine line, IReadOnlyList<GameMoveTiming> timings)
+    internal static GameReplay From(Game game, GameParticipant player, GameReplayLine line, IReadOnlyList<GameMoveTiming> timings)
     {
         DateTimeOffset? start = HasCompleteTiming(game, line.Frames.Count, timings) ? game.StartedAt : null;
         TimeSpan? initial = start.HasValue ? Game.InitialTime(game.TimeControl) : null;
@@ -31,7 +31,7 @@ public sealed record GameReplay(string InitialFen, PlayerColor ViewerColor, Game
                 GameReplayClock.From(timing?.WhiteTimeRemaining, timing?.BlackTimeRemaining));
         }
 
-        PlayerColor viewer = game.WhitePlayerId == playerId ? PlayerColor.White : PlayerColor.Black;
+        PlayerColor viewer = game.WhitePlayer == player ? PlayerColor.White : PlayerColor.Black;
         return new(line.InitialFen, viewer, game.TimeControl, start.HasValue, GameReplayClock.From(initial, initial), moves,
             new(game.Winner, game.EndReason, Elapsed(game.FinishedAt, start),
                 GameReplayClock.From(game.WhiteTimeRemaining, game.BlackTimeRemaining)));

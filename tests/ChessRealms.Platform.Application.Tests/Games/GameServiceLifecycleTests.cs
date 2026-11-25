@@ -23,7 +23,7 @@ public sealed class GameServiceLifecycleTests
         LockedGameStore store = new(game, playedAt);
         GameService service = CreateService(store, new GameRulesStub { ApplyMove = PlayRookMove }, playedAt);
 
-        GameOperationResult result = await service.PlayAsync(game.Id, new(game.WhitePlayerId, false), 1, "a2b2", Cancellation);
+        GameOperationResult result = await service.PlayAsync(game.Id, game.WhitePlayer, 1, "a2b2", Cancellation);
 
         Assert.Equal(GameError.None, result.Error);
         Assert.Same(game, result.Game);
@@ -47,7 +47,7 @@ public sealed class GameServiceLifecycleTests
         // The time at request arrival is still inside White's turn.
         GameService service = CreateService(store, new GameRulesStub(), deadline.AddTicks(-1));
 
-        GameOperationResult result = await service.PlayAsync(game.Id, new(game.WhitePlayerId, false), 1, "a2b2", Cancellation);
+        GameOperationResult result = await service.PlayAsync(game.Id, game.WhitePlayer, 1, "a2b2", Cancellation);
 
         Assert.Equal(GameError.None, result.Error);
         Assert.Same(game, result.Game);
@@ -69,7 +69,7 @@ public sealed class GameServiceLifecycleTests
         LockedGameStore store = new(game, deadline);
         GameService service = CreateService(store, new GameRulesStub(), deadline.AddTicks(-1));
 
-        GameOperationResult result = await service.ResignAsync(game.Id, new(game.BlackPlayerId, false), 1, Cancellation);
+        GameOperationResult result = await service.ResignAsync(game.Id, game.BlackPlayer, 1, Cancellation);
 
         Assert.Equal(GameError.None, result.Error);
         Assert.Same(game, result.Game);
@@ -86,7 +86,7 @@ public sealed class GameServiceLifecycleTests
         Game game = StartGame();
         DateTimeOffset playedAt = Start.AddSeconds(1);
         DateTimeOffset claimedAt = Start.AddSeconds(3);
-        GameParticipant black = new(game.BlackPlayerId, false);
+        GameParticipant black = game.BlackPlayer;
         LockedGameStore store = new(game, playedAt);
         GamePosition claimedPosition = AfterRookMove with
         {
@@ -111,7 +111,7 @@ public sealed class GameServiceLifecycleTests
             }
         };
         GameService service = CreateService(store, rules, claimedAt);
-        GameOperationResult played = await service.PlayAsync(game.Id, new(game.WhitePlayerId, false), 1, frame.Move, Cancellation);
+        GameOperationResult played = await service.PlayAsync(game.Id, game.WhitePlayer, 1, frame.Move, Cancellation);
         Assert.Equal(GameError.None, played.Error);
         GameMoveTiming timing = Assert.Single(store.MoveTimings);
 
@@ -141,7 +141,7 @@ public sealed class GameServiceLifecycleTests
     private static Game StartGame()
     {
         Game game = new(Guid.NewGuid(), Guid.NewGuid(), InitialPosition, Start.AddMinutes(-1), GameTimeControl.Blitz5);
-        Assert.Equal(GameError.None, game.Accept(game.BlackPlayerId, 0, Start));
+        Assert.Equal(GameError.None, game.Accept(game.BlackPlayer, 0, Start));
         return game;
     }
 

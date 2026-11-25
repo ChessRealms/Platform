@@ -12,21 +12,23 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
     private static readonly TimeSpan PairWindow = TimeSpan.FromMinutes(5);
 
     // Compare the revision and project the history in the same database snapshot.
-    private static readonly Func<PlatformDbContext, Guid, Guid, bool, long?, DateTimeOffset, CancellationToken,
+    private static readonly Func<PlatformDbContext, Guid, Guid, GameParticipantKind, long?, DateTimeOffset, CancellationToken,
         Task<GameBoardSnapshot?>> ReadBoardQuery =
-        EF.CompileAsyncQuery((PlatformDbContext db, Guid id, Guid playerId, bool isGuest, long? afterRevision, DateTimeOffset now,
+        EF.CompileAsyncQuery((PlatformDbContext db, Guid id, Guid playerId, GameParticipantKind kind, long? afterRevision, DateTimeOffset now,
             CancellationToken _) =>
             db.Games.AsNoTracking()
                 .Where(game => game.Id == id
-                    && ((game.WhitePlayerId == playerId && (game.WhiteGuestName != null) == isGuest)
-                        || (game.BlackPlayerId == playerId && (game.BlackGuestName != null) == isGuest)))
+                    && ((game.WhitePlayerId == playerId && game.WhitePlayerKind == kind)
+                        || (game.BlackPlayerId == playerId && game.BlackPlayerKind == kind)))
                 .Select(game => new
                 {
                     Game = game,
                     Expired = game.Status == GameStatus.Pending && game.InvitationExpiresAt <= now
                 })
                 .Select(item => new { item.Game, item.Expired, Revision = item.Game.Revision + (item.Expired ? 1 : 0) })
-                .Select(item => new GameBoardSnapshot(item.Game.Id, item.Game.WhitePlayerId, item.Game.BlackPlayerId,
+                .Select(item => new GameBoardSnapshot(item.Game.Id,
+                    new GameParticipant(item.Game.WhitePlayerId, item.Game.WhitePlayerKind),
+                    new GameParticipant(item.Game.BlackPlayerId, item.Game.BlackPlayerKind),
                     item.Expired ? GameStatus.Expired : item.Game.Status, item.Revision, item.Game.Fen, item.Game.SideToMove,
                     item.Game.Winner, item.Game.EndReason, item.Game.DrawOfferedBy, item.Game.InvitationExpiresAt,
                     item.Game.FinishedAt, item.Game.RematchOfferedBy, item.Game.RematchGameId,
@@ -42,15 +44,13 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
             .OrderBy(timing => timing.Ply).ToListAsync(cancellationToken);
 
     public async Task<IReadOnlyList<Guid>> ListDueAsync(Guid playerId, DateTimeOffset now, CancellationToken cancellationToken) =>
-        await database.Games.AsNoTracking()
-            .Where(game => ((game.WhitePlayerId == playerId && game.WhiteGuestName == null)
-                    || (game.BlackPlayerId == playerId && game.BlackGuestName == null))
-                && game.Status == GameStatus.Active && game.TurnDeadline <= now)
+        await GamesForAccount(playerId)
+            .Where(game => game.Status == GameStatus.Active && game.TurnDeadline <= now)
             .Select(game => game.Id).ToListAsync(cancellationToken);
 
     public Task<GameBoardSnapshot?> ReadBoardAsync(Guid id, GameParticipant player, long? afterRevision,
         CancellationToken cancellationToken) =>
-        ReadBoardQuery(database, id, player.Id, player.IsGuest, afterRevision, clock.GetUtcNow(), cancellationToken);
+        ReadBoardQuery(database, id, player.Id, player.Kind, afterRevision, clock.GetUtcNow(), cancellationToken);
 
     public Task<Game?> FindByCreationRequestAsync(Guid creatorId, Guid requestId, CancellationToken cancellationToken) =>
         database.Games.AsNoTracking().SingleOrDefaultAsync(game => game.WhitePlayerId == creatorId
@@ -60,9 +60,7 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
         CancellationToken cancellationToken)
     {
         DateTimeOffset now = clock.GetUtcNow();
-        IQueryable<Game> participantGames = database.Games.AsNoTracking()
-            .Where(game => (game.WhitePlayerId == playerId && game.WhiteGuestName == null)
-                || (game.BlackPlayerId == playerId && game.BlackGuestName == null));
+        IQueryable<Game> participantGames = GamesForAccount(playerId);
         IQueryable<PrivateLobby> ownerLobbies = database.PrivateLobbies.AsNoTracking()
             .Where(lobby => lobby.CreatorId == playerId);
         IQueryable<PrivateLobby>? lobbies = filter switch
@@ -121,7 +119,8 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
                 game.CreatedAt, game.InvitationExpiresAt,
                 game.Status == GameStatus.Active && (game.SideToMove == PlayerColor.White
                     ? game.WhitePlayerId == playerId : game.BlackPlayerId == playerId), game.Winner, game.EndReason,
-                false, game.TimeControl, game.WhitePlayerId == playerId ? game.BlackGuestName : game.WhiteGuestName))
+                false, game.TimeControl, game.WhitePlayerId == playerId ? game.BlackGuestName : game.WhiteGuestName,
+                game.WhitePlayerId == playerId ? game.BlackPlayerKind : game.WhitePlayerKind))
             .ToListAsync(cancellationToken);
         if (lobbies is null)
         {
@@ -138,6 +137,10 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
         return gameItems.Concat(lobbyItems).OrderByDescending(item => item.CreatedAt)
             .ThenByDescending(item => item.Id).Take(limit).ToArray();
     }
+
+    private IQueryable<Game> GamesForAccount(Guid playerId) => database.Games.AsNoTracking()
+        .Where(game => (game.WhitePlayerId == playerId && game.WhitePlayerKind == GameParticipantKind.Account)
+            || (game.BlackPlayerId == playerId && game.BlackPlayerKind == GameParticipantKind.Account));
 
     public async Task<CreateGameResult> CreateAsync(Guid creatorId, Guid opponentId, GamePosition startingPosition,
         Guid? requestId, CancellationToken cancellationToken, GameTimeControl? timeControl)
@@ -202,7 +205,7 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
         ChangeLockedAsync(gameId, player,
             (game, now) =>
             {
-                (GameError error, Game? rematch) = game.AcceptRematch(player.Id, expectedRevision, now, startingPosition);
+                (GameError error, Game? rematch) = game.AcceptRematch(player, expectedRevision, now, startingPosition);
                 return (error, rematch, null);
             }, cancellationToken);
 
@@ -214,8 +217,8 @@ internal sealed class PostgresGameStore(PlatformDbContext database, TimeProvider
         Game? game = await database.Games.FromSql($"""
             SELECT * FROM "Games"
             WHERE "Id" = {gameId}
-                AND (("WhitePlayerId" = {player.Id} AND ("WhiteGuestName" IS NOT NULL) = {player.IsGuest})
-                    OR ("BlackPlayerId" = {player.Id} AND ("BlackGuestName" IS NOT NULL) = {player.IsGuest}))
+                AND (("WhitePlayerId" = {player.Id} AND "WhitePlayerKind" = {player.Kind.ToString()})
+                    OR ("BlackPlayerId" = {player.Id} AND "BlackPlayerKind" = {player.Kind.ToString()}))
             FOR UPDATE
             """).SingleOrDefaultAsync(cancellationToken);
         if (game is null)

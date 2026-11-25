@@ -183,7 +183,7 @@ public sealed class GameInvitationTests : GameApiTestBase
         Game dated = new(Guid.NewGuid(), Guid.NewGuid(), position, now.AddMinutes(-20));
         Game undated = new(Guid.NewGuid(), Guid.NewGuid(), position, now);
         Game active = new(Guid.NewGuid(), Guid.NewGuid(), position, now);
-        Assert.Equal(GameError.None, active.Accept(active.BlackPlayerId, 0, now));
+        Assert.Equal(GameError.None, active.Accept(active.BlackPlayer, 0, now));
         database.Games.AddRange(dated, undated, active);
         database.Entry(undated).Property(game => game.CreatedAt).CurrentValue = null;
         await database.SaveChangesAsync(Cancellation);
