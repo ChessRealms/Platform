@@ -35,6 +35,11 @@ namespace ChessRealms.Platform.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("BlackPlayerId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("BlackPlayerKind")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
+
                     b.Property<TimeSpan?>("BlackTimeRemaining")
                         .HasColumnType("interval");
 
@@ -108,6 +113,11 @@ namespace ChessRealms.Platform.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid>("WhitePlayerId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("WhitePlayerKind")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
 
                     b.Property<TimeSpan?>("WhiteTimeRemaining")
                         .HasColumnType("interval");

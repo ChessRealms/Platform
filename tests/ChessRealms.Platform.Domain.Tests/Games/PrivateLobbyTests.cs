@@ -11,7 +11,7 @@ public sealed class PrivateLobbyTests
     {
         DateTimeOffset createdAt = new(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
         PrivateLobby lobby = new(Guid.NewGuid(), Guid.NewGuid(), createdAt);
-        GameParticipant joiner = new(Guid.NewGuid(), false);
+        GameParticipant joiner = GameParticipant.Account(Guid.NewGuid());
         GamePosition startingPosition = new("initial record",
             "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", PlayerColor.White);
 

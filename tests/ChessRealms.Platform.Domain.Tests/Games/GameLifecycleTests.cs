@@ -18,9 +18,9 @@ public sealed class GameLifecycleTests
         Assert.False(game.IsInvitationExpired(deadline.AddTicks(-1)));
         Assert.True(game.IsInvitationExpired(deadline));
 
-        Assert.Equal(GameError.InvitationExpired, game.Accept(game.BlackPlayerId, 0, deadline));
-        Assert.Equal(GameError.InvitationExpired, game.Decline(game.BlackPlayerId, 0, deadline));
-        Assert.Equal(GameError.InvitationExpired, game.Cancel(game.WhitePlayerId, 0, deadline));
+        Assert.Equal(GameError.InvitationExpired, game.Accept(game.BlackPlayer, 0, deadline));
+        Assert.Equal(GameError.InvitationExpired, game.Decline(game.BlackPlayer, 0, deadline));
+        Assert.Equal(GameError.InvitationExpired, game.Cancel(game.WhitePlayer, 0, deadline));
         Assert.Equal(GameStatus.Pending, game.Status);
         Assert.Equal(0, game.Revision);
         Assert.Null(game.StartedAt);
@@ -34,10 +34,10 @@ public sealed class GameLifecycleTests
     public void RejectedMovePreservesPositionRevisionClockAndDrawOffer(bool asWhite, int revisionOffset, GameError expectedError)
     {
         Game game = StartGame(GameTimeControl.Blitz5);
-        Assert.Equal(GameError.None, game.OfferDraw(game.BlackPlayerId, game.Revision));
+        Assert.Equal(GameError.None, game.OfferDraw(game.BlackPlayer, game.Revision));
         long revision = game.Revision;
         DateTimeOffset? deadline = game.TurnDeadline;
-        Guid actor = asWhite ? game.WhitePlayerId : game.BlackPlayerId;
+        GameParticipant actor = asWhite ? game.WhitePlayer : game.BlackPlayer;
         bool appliedRules = false;
 
         GameError error = game.Play(actor, revision + revisionOffset, Start.AddSeconds(10), record =>
@@ -59,6 +59,19 @@ public sealed class GameLifecycleTests
         Assert.Equal(deadline, game.TurnDeadline);
         Assert.Equal(TimeSpan.FromMinutes(5), game.WhiteTimeRemaining);
         Assert.Equal(TimeSpan.FromMinutes(5), game.BlackTimeRemaining);
+    }
+
+    [Fact]
+    public void MatchingIdWithADifferentKindCannotPlay()
+    {
+        Game game = StartGame(null);
+        GameParticipant wrongKind = GameParticipant.Guest(game.WhitePlayerId);
+
+        Assert.False(game.HasPlayer(wrongKind));
+        Assert.Equal(GameError.NotFound, game.Play(wrongKind, game.Revision, Start,
+            _ => throw new InvalidOperationException("The participant cannot act as White."), out GameMoveTiming? timing));
+        Assert.Null(timing);
+        Assert.Equal(1, game.Revision);
     }
 
     [Theory]
@@ -104,10 +117,10 @@ public sealed class GameLifecycleTests
         Game original = FinishGame(timeControl);
         DateTimeOffset finish = Assert.IsType<DateTimeOffset>(original.FinishedAt);
         DateTimeOffset acceptedAt = (finish + Game.RematchWindow).AddTicks(-1);
-        Assert.Equal(GameError.None, original.OfferRematch(original.WhitePlayerId, original.Revision, finish));
+        Assert.Equal(GameError.None, original.OfferRematch(original.WhitePlayer, original.Revision, finish));
         long offeredRevision = original.Revision;
 
-        (GameError error, Game? created) = original.AcceptRematch(original.BlackPlayerId, offeredRevision, acceptedAt,
+        (GameError error, Game? created) = original.AcceptRematch(original.BlackPlayer, offeredRevision, acceptedAt,
             () => InitialPosition);
 
         Assert.Equal(GameError.None, error);
@@ -129,7 +142,7 @@ public sealed class GameLifecycleTests
         Assert.Equal(balance, rematch.BlackTimeRemaining);
         Assert.Equal(acceptedAt + balance, rematch.TurnDeadline);
 
-        (error, created) = original.AcceptRematch(original.BlackPlayerId, offeredRevision, finish + Game.RematchWindow,
+        (error, created) = original.AcceptRematch(original.BlackPlayer, offeredRevision, finish + Game.RematchWindow,
             () => throw new InvalidOperationException("A retry must reuse the existing rematch."));
         Assert.Equal(GameError.None, error);
         Assert.Null(created);
@@ -143,13 +156,13 @@ public sealed class GameLifecycleTests
         Game unoffered = FinishGame(null);
         DateTimeOffset finish = Assert.IsType<DateTimeOffset>(unoffered.FinishedAt);
         DateTimeOffset deadline = finish + Game.RematchWindow;
-        Assert.Equal(GameError.RematchExpired, unoffered.OfferRematch(unoffered.WhitePlayerId, 2, deadline));
+        Assert.Equal(GameError.RematchExpired, unoffered.OfferRematch(unoffered.WhitePlayer, 2, deadline));
         Assert.Null(unoffered.RematchOfferedBy);
         Assert.Equal(2, unoffered.Revision);
 
         Game offered = FinishGame(null);
-        Assert.Equal(GameError.None, offered.OfferRematch(offered.WhitePlayerId, 2, deadline.AddTicks(-1)));
-        (GameError error, Game? rematch) = offered.AcceptRematch(offered.BlackPlayerId, 3, deadline,
+        Assert.Equal(GameError.None, offered.OfferRematch(offered.WhitePlayer, 2, deadline.AddTicks(-1)));
+        (GameError error, Game? rematch) = offered.AcceptRematch(offered.BlackPlayer, 3, deadline,
             () => throw new InvalidOperationException("The rematch window has closed."));
         Assert.Equal(GameError.RematchExpired, error);
         Assert.Null(rematch);
@@ -163,14 +176,14 @@ public sealed class GameLifecycleTests
     private static Game StartGame(GameTimeControl? timeControl)
     {
         Game game = NewGame(timeControl);
-        Assert.Equal(GameError.None, game.Accept(game.BlackPlayerId, 0, Start));
+        Assert.Equal(GameError.None, game.Accept(game.BlackPlayer, 0, Start));
         return game;
     }
 
     private static Game FinishGame(GameTimeControl? timeControl)
     {
         Game game = StartGame(timeControl);
-        Assert.Equal(GameError.None, game.Resign(game.BlackPlayerId, game.Revision, Start.AddSeconds(15), (_, _) => false));
+        Assert.Equal(GameError.None, game.Resign(game.BlackPlayer, game.Revision, Start.AddSeconds(15), (_, _) => false));
         return game;
     }
 }

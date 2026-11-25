@@ -4,8 +4,8 @@ namespace ChessRealms.Platform.Application.Games;
 
 public sealed record GameBoardSnapshot(
     Guid Id,
-    Guid WhitePlayerId,
-    Guid BlackPlayerId,
+    GameParticipant WhitePlayer,
+    GameParticipant BlackPlayer,
     GameStatus Status,
     long Revision,
     string Fen,

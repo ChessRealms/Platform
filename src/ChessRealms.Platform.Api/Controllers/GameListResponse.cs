@@ -1,4 +1,5 @@
 using ChessRealms.Platform.Application.Games;
+using ChessRealms.Platform.Domain.Games;
 
 namespace ChessRealms.Platform.Api.Controllers;
 
@@ -14,5 +15,5 @@ public sealed record GameListItemResponse(Guid Id, Guid? OpponentId, string? Opp
 {
     internal static GameListItemResponse From(GameListItem item) => new(item.Id, item.OpponentId, item.OpponentName,
         item.Color.ToString(), item.Status.ToString(), item.CreatedAt, item.InvitationExpiresAt, item.IsYourTurn, item.Winner?.ToString(),
-        item.EndReason?.ToString(), item.IsLobby, item.TimeControl?.ToString(), item.OpponentGuestName is not null);
+        item.EndReason?.ToString(), item.IsLobby, item.TimeControl?.ToString(), item.OpponentKind == GameParticipantKind.Guest);
 }

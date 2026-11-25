@@ -34,7 +34,7 @@ public sealed record GameResponse(
     }
 
     internal static GameResponse From(GameBoardSnapshot board, DateTimeOffset now) =>
-        From(board.Id, board.WhitePlayerId, board.BlackPlayerId, board.Status, board.Revision, board.Fen, board.SideToMove,
+        From(board.Id, board.WhitePlayer.Id, board.BlackPlayer.Id, board.Status, board.Revision, board.Fen, board.SideToMove,
             board.Winner, board.EndReason, board.DrawOfferedBy, board.InvitationExpiresAt,
             board.FinishedAt, board.RematchOfferedBy, board.RematchGameId,
             GameClockResponse.From(board.TimeControl, board.WhiteTimeRemaining, board.BlackTimeRemaining, board.TurnDeadline, now),

@@ -20,6 +20,8 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
     {
         builder.Entity<Game>(game =>
         {
+            game.Property(item => item.WhitePlayerKind).HasConversion<string>().HasMaxLength(8);
+            game.Property(item => item.BlackPlayerKind).HasConversion<string>().HasMaxLength(8);
             game.Property(item => item.WhiteGuestName).HasMaxLength(32);
             game.Property(item => item.BlackGuestName).HasMaxLength(32);
             game.Property(item => item.Revision).IsConcurrencyToken();
