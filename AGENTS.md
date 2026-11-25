@@ -64,7 +64,7 @@ There is no lint script. `Api.Tests` covers HTTP contracts and authentication.
 Its games integration tests and the tests in `Infrastructure.Tests` that use
 Testcontainers require Docker with Linux containers. These tests start temporary
 PostgreSQL containers, and the email pipeline tests also start Mailpit.
-`Application.Tests` and `Domain.Tests` are currently empty.
+`Application.Tests` and `Domain.Tests` cover game lifecycle rules without Docker.
 The [browser E2E suite](docs/identity-e2e.md) covers Identity and Games using a
 shared Aspire AppHost. Run it with `pwsh -File scripts/test-identity-e2e.ps1`
 after completing its local setup. Keep the build and test checks above separate
